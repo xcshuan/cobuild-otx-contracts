@@ -123,7 +123,7 @@ The sub-repository owns its own:
 - Create: `xtask/Cargo.toml`
 - Create: `xtask/src/main.rs`
 
-- [ ] **Step 1: Write the failing workspace membership check**
+- [x] **Step 1: Write the failing workspace membership check**
 
 Create `tests/tests/workspace_layout.rs`:
 
@@ -149,7 +149,7 @@ fn workspace_declares_clean_cobuild_members() {
 }
 ```
 
-- [ ] **Step 2: Run the test and verify it fails**
+- [x] **Step 2: Run the test and verify it fails**
 
 Run:
 
@@ -159,7 +159,7 @@ cargo test -p tests --test workspace_layout --offline
 
 Expected: FAIL because `crates/cobuild-core`, `contracts/cobuild-otx-lock`, and `xtask` are not workspace members yet.
 
-- [ ] **Step 3: Update root workspace manifest**
+- [x] **Step 3: Update root workspace manifest**
 
 Update `Cargo.toml`:
 
@@ -185,7 +185,7 @@ codegen-units = 1
 debug = true
 ```
 
-- [ ] **Step 4: Add minimal crates so the workspace resolves**
+- [x] **Step 4: Add minimal crates so the workspace resolves**
 
 Create `xtask/Cargo.toml`:
 
@@ -259,7 +259,7 @@ Create `contracts/cobuild-otx-lock/src/main.rs`:
 fn main() {}
 ```
 
-- [ ] **Step 5: Fix the single-contract Makefile branch**
+- [x] **Step 5: Fix the single-contract Makefile branch**
 
 In root `Makefile`, replace the `else` branch under `build:` with:
 
@@ -272,7 +272,7 @@ In root `Makefile`, replace the `else` branch under `build:` with:
 	fi;
 ```
 
-- [ ] **Step 6: Run workspace checks**
+- [x] **Step 6: Run workspace checks**
 
 Run:
 
@@ -283,7 +283,7 @@ cargo check --workspace --offline
 
 Expected: both PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add Cargo.toml Makefile xtask crates/cobuild-core contracts/cobuild-otx-lock tests/tests/workspace_layout.rs
@@ -303,7 +303,7 @@ git commit -m "chore: bootstrap clean cobuild workspace"
 - Test: `crates/cobuild-types/tests/lazy_reader_witness.rs`
 - Test: `crates/cobuild-types/tests/entity_witness.rs`
 
-- [ ] **Step 1: Write failing public module tests**
+- [x] **Step 1: Write failing public module tests**
 
 Replace `crates/cobuild-types/tests/generated_compile.rs` with:
 
@@ -345,7 +345,7 @@ fn entity_witness_default_serializes() {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 Run:
 
@@ -355,7 +355,7 @@ cargo test -p cobuild-types --offline
 
 Expected: FAIL because `lazy_reader` and `entity` modules are not exposed yet.
 
-- [ ] **Step 3: Implement `xtask` dual codegen**
+- [x] **Step 3: Implement `xtask` dual codegen**
 
 Replace `xtask/src/main.rs` with:
 
@@ -471,7 +471,7 @@ fn compare_dirs(expected: &Path, actual: &Path) -> Result<()> {
 }
 ```
 
-- [ ] **Step 4: Update `cobuild-types` module exports**
+- [x] **Step 4: Update `cobuild-types` module exports**
 
 Replace `crates/cobuild-types/src/lib.rs` with:
 
@@ -494,7 +494,7 @@ edition = "2021"
 molecule = { version = "0.9.2", default-features = false }
 ```
 
-- [ ] **Step 5: Generate committed outputs**
+- [x] **Step 5: Generate committed outputs**
 
 Run:
 
@@ -505,7 +505,7 @@ cargo run -p xtask --offline -- codegen cobuild-types --check
 
 Expected: both PASS.
 
-- [ ] **Step 6: Run `cobuild-types` tests**
+- [x] **Step 6: Run `cobuild-types` tests**
 
 Run:
 
@@ -515,7 +515,7 @@ cargo test -p cobuild-types --offline
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add xtask crates/cobuild-types
@@ -534,7 +534,7 @@ git commit -m "feat: add dual cobuild type codegen"
 - Test: `crates/cobuild-core/tests/witness.rs`
 - Test: `crates/cobuild-core/tests/no_entity_dependency.rs`
 
-- [ ] **Step 1: Write failing view and witness tests**
+- [x] **Step 1: Write failing view and witness tests**
 
 Create `crates/cobuild-core/tests/view.rs`:
 
@@ -573,7 +573,7 @@ fn core_source_does_not_import_entity_module() {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 Run:
 
@@ -583,7 +583,7 @@ cargo test -p cobuild-core --offline
 
 Expected: FAIL because `view` and `witness` modules do not exist yet.
 
-- [ ] **Step 3: Implement core errors**
+- [x] **Step 3: Implement core errors**
 
 Create `crates/cobuild-core/src/error.rs`:
 
@@ -599,7 +599,7 @@ pub enum CoreError {
 }
 ```
 
-- [ ] **Step 4: Implement thin witness view**
+- [x] **Step 4: Implement thin witness view**
 
 Create `crates/cobuild-core/src/view.rs`:
 
@@ -647,7 +647,7 @@ impl WitnessLayoutView {
 }
 ```
 
-- [ ] **Step 5: Implement witness parsing facade**
+- [x] **Step 5: Implement witness parsing facade**
 
 Create `crates/cobuild-core/src/witness.rs`:
 
@@ -692,7 +692,7 @@ cobuild-types = { path = "../cobuild-types" }
 molecule = { version = "0.9.2", default-features = false }
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run:
 
@@ -702,7 +702,7 @@ cargo test -p cobuild-core --offline
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add crates/cobuild-core
@@ -723,7 +723,7 @@ git commit -m "feat: add cobuild core reader boundary"
   - `crates/cobuild-core/tests/hash.rs`
   - `crates/cobuild-core/tests/tasks.rs`
 
-- [ ] **Step 1: Write failing layout/hash/task tests**
+- [x] **Step 1: Write failing layout/hash/task tests**
 
 Create `crates/cobuild-core/tests/layout.rs`:
 
@@ -792,7 +792,7 @@ fn lock_query_without_matching_lock_has_no_tasks() {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 Run:
 
@@ -802,7 +802,7 @@ cargo test -p cobuild-core --offline
 
 Expected: FAIL because layout/hash/context/task modules do not exist yet.
 
-- [ ] **Step 3: Add minimal layout API**
+- [x] **Step 3: Add minimal layout API**
 
 Create `crates/cobuild-core/src/layout.rs`:
 
@@ -852,7 +852,7 @@ pub fn build_layout(tx: &LayoutTx) -> Result<BuiltLayout, CoreError> {
 }
 ```
 
-- [ ] **Step 4: Add minimal hash API**
+- [x] **Step 4: Add minimal hash API**
 
 Create `crates/cobuild-core/src/hash.rs`:
 
@@ -905,7 +905,7 @@ Update `crates/cobuild-core/Cargo.toml` dependencies:
 blake2b-ref = "0.3.1"
 ```
 
-- [ ] **Step 5: Add minimal context/task API**
+- [x] **Step 5: Add minimal context/task API**
 
 Create `crates/cobuild-core/src/tasks.rs`:
 
@@ -1007,7 +1007,7 @@ pub mod view;
 pub mod witness;
 ```
 
-- [ ] **Step 6: Run tests**
+- [x] **Step 6: Run tests**
 
 Run:
 
@@ -1017,7 +1017,7 @@ cargo test -p cobuild-core --offline
 
 Expected: PASS for the initial minimal API tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add crates/cobuild-core
@@ -1036,7 +1036,7 @@ git commit -m "feat: add initial cobuild core protocol surface"
   - `contracts/cobuild-otx-lock/tests/verifier.rs`
   - `contracts/cobuild-otx-lock/tests/runner.rs`
 
-- [ ] **Step 1: Write failing lock unit tests**
+- [x] **Step 1: Write failing lock unit tests**
 
 Create `contracts/cobuild-otx-lock/tests/args.rs`:
 
@@ -1108,7 +1108,7 @@ fn verifier_trait_returns_verify_error() {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify they fail**
+- [x] **Step 2: Run tests and verify they fail**
 
 Run:
 
@@ -1118,7 +1118,7 @@ cargo test -p cobuild-otx-lock --offline
 
 Expected: FAIL because args/error/verify modules are not implemented yet.
 
-- [ ] **Step 3: Implement args, errors, verifier boundary**
+- [x] **Step 3: Implement args, errors, verifier boundary**
 
 Create `contracts/cobuild-otx-lock/src/args.rs`:
 
@@ -1242,7 +1242,7 @@ pub mod error;
 pub mod verify;
 ```
 
-- [ ] **Step 4: Run unit tests**
+- [x] **Step 4: Run unit tests**
 
 Run:
 
@@ -1252,7 +1252,7 @@ cargo test -p cobuild-otx-lock --offline
 
 Expected: PASS for args/error/verifier tests.
 
-- [ ] **Step 5: Add ckb-script-template contract Makefile**
+- [x] **Step 5: Add ckb-script-template contract Makefile**
 
 Create `contracts/cobuild-otx-lock/Makefile`:
 
@@ -1309,7 +1309,7 @@ Update `contracts/cobuild-otx-lock/Cargo.toml` dependencies:
 ckb-std = { version = "0.16.4", default-features = false, features = ["allocator", "ckb-types", "dummy-atomic"] }
 ```
 
-- [ ] **Step 6: Build contract**
+- [x] **Step 6: Build contract**
 
 Run:
 
@@ -1319,7 +1319,7 @@ make build CONTRACT=cobuild-otx-lock MODE=debug CARGO_ARGS=--offline
 
 Expected: PASS and produce `build/debug/cobuild-otx-lock`.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add contracts/cobuild-otx-lock
@@ -1333,7 +1333,7 @@ git commit -m "feat: add cobuild otx lock contract shell"
 - Create/modify: `tests/src/lib.rs`
 - Create: `tests/tests/cobuild_otx_lock.rs`
 
-- [ ] **Step 1: Write failing contract tests**
+- [x] **Step 1: Write failing contract tests**
 
 Create `tests/tests/cobuild_otx_lock.rs`:
 
@@ -1434,7 +1434,7 @@ pub mod fixtures {
 }
 ```
 
-- [ ] **Step 2: Run tests and verify initial failure mode**
+- [x] **Step 2: Run tests and verify initial failure mode**
 
 Run:
 
@@ -1444,7 +1444,7 @@ MODE=debug cargo test -p tests --offline --test cobuild_otx_lock -- --nocapture
 
 Expected: FAIL if the contract binary has not been built; after Task 5 build, tests should execute and return script errors.
 
-- [ ] **Step 3: Compile the fixture and keep Data2**
+- [x] **Step 3: Compile the fixture and keep Data2**
 
 Run:
 
@@ -1461,7 +1461,7 @@ ScriptHashType::Data
 
 `ScriptHashType::Data2` is used for `cobuild-otx-lock`. `ScriptHashType::Data` is used for `always-success`.
 
-- [ ] **Step 4: Run invalid/no-task tests**
+- [x] **Step 4: Run invalid/no-task tests**
 
 Run:
 
@@ -1472,7 +1472,7 @@ MODE=debug cargo test -p tests --offline --test cobuild_otx_lock -- --nocapture
 
 Expected: PASS for the two fail-closed tests.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add tests
@@ -1487,7 +1487,7 @@ git commit -m "test: add cobuild otx lock integration harness"
 - Modify: `tests/src/lib.rs`
 - Modify: `tests/tests/cobuild_otx_lock.rs`
 
-- [ ] **Step 1: Add tx-level positive contract test**
+- [x] **Step 1: Add tx-level positive contract test**
 
 Extend `tests/tests/cobuild_otx_lock.rs`:
 
@@ -1501,7 +1501,7 @@ fn contract_accepts_tx_level_cobuild_signature() {
 
 Add `fixtures::signed_tx_level_case()` to `tests/src/lib.rs` using `entity` helpers only in host tests to build a `SighashAllOnly` witness with a 65-byte seal.
 
-- [ ] **Step 2: Run and verify failure**
+- [x] **Step 2: Run and verify failure**
 
 Run:
 
@@ -1512,7 +1512,7 @@ MODE=debug cargo test -p tests --offline --test cobuild_otx_lock contract_accept
 
 Expected: FAIL because core does not yet generate tx-level tasks and local verifier does not verify signatures.
 
-- [ ] **Step 3: Implement tx-level task path**
+- [x] **Step 3: Implement tx-level task path**
 
 Implement these concrete APIs:
 
@@ -1535,7 +1535,7 @@ impl LockScriptQuery<'_> {
 
 Update the lock runner so `entry` loads args/script hash, builds core context, queries tasks, and verifies them.
 
-- [ ] **Step 4: Implement local secp256k1 verifier**
+- [x] **Step 4: Implement local secp256k1 verifier**
 
 Update `contracts/cobuild-otx-lock/src/verify/local.rs` to:
 
@@ -1545,7 +1545,7 @@ Update `contracts/cobuild-otx-lock/src/verify/local.rs` to:
 - compute `ckb_hash::blake2b_256(pubkey.serialize())`;
 - compare the first 20 bytes to `AuthContext.identity`.
 
-- [ ] **Step 5: Run tx-level positive and negative tests**
+- [x] **Step 5: Run tx-level positive and negative tests**
 
 Run:
 
@@ -1559,14 +1559,14 @@ MODE=debug cargo test -p tests --offline --test cobuild_otx_lock contract_reject
 
 Expected: all PASS.
 
-- [ ] **Step 6: Commit tx-level behavior**
+- [x] **Step 6: Commit tx-level behavior**
 
 ```bash
 git add crates/cobuild-core contracts/cobuild-otx-lock tests
 git commit -m "feat: verify tx-level cobuild lock tasks"
 ```
 
-- [ ] **Step 7: Add OTX and mixed tests**
+- [x] **Step 7: Add OTX and mixed tests**
 
 Extend `tests/tests/cobuild_otx_lock.rs`:
 
@@ -1596,7 +1596,7 @@ fn contract_rejects_malformed_cobuild_witness() {
 }
 ```
 
-- [ ] **Step 8: Implement OTX layout/hash/task path**
+- [x] **Step 8: Implement OTX layout/hash/task path**
 
 Implement:
 
@@ -1609,7 +1609,7 @@ Implement:
 
 Keep all OTX parsing in `cobuild-core`; the lock crate only consumes tasks.
 
-- [ ] **Step 9: Run full matrix**
+- [x] **Step 9: Run full matrix**
 
 Run:
 
@@ -1623,7 +1623,7 @@ MODE=debug cargo test -p tests --offline --test cobuild_otx_lock -- --nocapture
 
 Expected: all PASS.
 
-- [ ] **Step 10: Commit OTX behavior**
+- [x] **Step 10: Commit OTX behavior**
 
 ```bash
 git add crates/cobuild-core contracts/cobuild-otx-lock tests
@@ -1641,7 +1641,7 @@ git commit -m "feat: verify otx cobuild lock tasks"
   - `contracts/*`
   - `tests/*`
 
-- [ ] **Step 1: Run codegen check**
+- [x] **Step 1: Run codegen check**
 
 Run:
 
@@ -1651,7 +1651,7 @@ cargo run -p xtask --offline -- codegen cobuild-types --check
 
 Expected: PASS.
 
-- [ ] **Step 2: Run all Rust tests**
+- [x] **Step 2: Run all Rust tests**
 
 Run:
 
@@ -1661,7 +1661,7 @@ cargo test --workspace --offline
 
 Expected: PASS.
 
-- [ ] **Step 3: Run contract build and integration tests**
+- [x] **Step 3: Run contract build and integration tests**
 
 Run:
 
@@ -1672,7 +1672,7 @@ MODE=debug cargo test -p tests --offline --test cobuild_otx_lock -- --nocapture
 
 Expected: PASS.
 
-- [ ] **Step 4: Check dependency boundary**
+- [x] **Step 4: Check dependency boundary**
 
 Run:
 
@@ -1686,7 +1686,7 @@ Expected:
 - First command prints no matches.
 - Second command prints no matches unless a dependency lockfile mentions transitive packages outside source manifests.
 
-- [ ] **Step 5: Final commit**
+- [x] **Step 5: Final commit**
 
 ```bash
 git status --short
