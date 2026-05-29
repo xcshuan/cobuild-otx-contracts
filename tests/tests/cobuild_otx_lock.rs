@@ -18,6 +18,30 @@ fn contract_accepts_tx_level_cobuild_signature() {
     assert!(result.is_ok(), "{result:?}");
 }
 
+#[test]
+fn contract_accepts_otx_base_and_append_signatures() {
+    let result = fixtures::signed_otx_dual_scope_case().verify();
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn contract_accepts_mixed_tx_level_and_otx_tasks() {
+    let result = fixtures::mixed_tx_and_otx_case().verify();
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
+fn contract_rejects_bad_seal() {
+    let result = fixtures::bad_seal_case().verify();
+    assert_lock_script_exit(result, 4);
+}
+
+#[test]
+fn contract_rejects_malformed_cobuild_witness() {
+    let result = fixtures::malformed_cobuild_witness_case().verify();
+    assert_lock_script_exit(result, 2);
+}
+
 fn assert_lock_script_exit(result: Result<u64, ckb_testtool::ckb_error::Error>, code: i8) {
     use ckb_testtool::{
         ckb_error::ErrorKind,

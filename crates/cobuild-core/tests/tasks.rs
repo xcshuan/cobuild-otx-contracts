@@ -1,7 +1,7 @@
 use cobuild_core::{
     context::{CobuildContext, TxScriptHashes},
     error::CoreError,
-    hash::{tx_with_message_hash, TxHashParts},
+    hash::{tx_with_message_hash, RawTxParts, ResolvedInputHashPart, TxHashParts},
     layout::LayoutTx,
 };
 
@@ -165,6 +165,50 @@ fn lock_query_rejects_duplicate_sighash_all_witnesses() {
     );
 }
 
+#[test]
+fn otx_task_rejects_message_action_target_absent_from_transaction() {
+    let target_lock = [1u8; 32];
+    let absent_output_type = [9u8; 32];
+    let context = CobuildContext::with_raw_parts(
+        LayoutTx {
+            witnesses: vec![
+                otx_start_witness(),
+                otx_witness(
+                    &message_with_action(2, absent_output_type),
+                    &[seal_pair(target_lock, 0, &[7u8; 65])],
+                ),
+            ],
+            input_count: 1,
+            output_count: 0,
+            cell_dep_count: 0,
+            header_dep_count: 0,
+        },
+        TxScriptHashes {
+            input_locks: vec![target_lock],
+            input_types: vec![None],
+            output_types: Vec::new(),
+        },
+        RawTxParts {
+            inputs: vec![Vec::new()],
+            ..RawTxParts::default()
+        },
+    )
+    .unwrap();
+    let parts = TxHashParts {
+        tx_hash: [0u8; 32],
+        resolved_inputs: vec![ResolvedInputHashPart {
+            output: Vec::new(),
+            data: Vec::new(),
+        }],
+        trailing_witnesses: Vec::new(),
+    };
+
+    assert_eq!(
+        context.lock_query(target_lock).otx_tasks(&parts),
+        Err(CoreError::InvalidMessageTarget)
+    );
+}
+
 fn sighash_all_only_witness(seal: &[u8]) -> Vec<u8> {
     const SIGHASH_ALL_ONLY_ID: u32 = 0xff00_0002;
 
@@ -218,4 +262,98 @@ fn empty_message() -> Vec<u8> {
     message.extend_from_slice(&8u32.to_le_bytes());
     message.extend_from_slice(&empty_action_vec);
     message
+}
+
+fn message_with_action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {
+    table(&[dynvec(&[action(script_role, script_hash)])])
+}
+
+fn action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {
+    table(&[
+        [0u8; 32].to_vec(),
+        vec![script_role],
+        script_hash.to_vec(),
+        molecule_bytes(&[]),
+    ])
+}
+
+fn otx_start_witness() -> Vec<u8> {
+    witness_union(
+        0xff00_0004,
+        &table(&[
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+        ]),
+    )
+}
+
+fn otx_witness(message: &[u8], seals: &[Vec<u8>]) -> Vec<u8> {
+    witness_union(
+        0xff00_0003,
+        &table(&[
+            message.to_vec(),
+            vec![0],
+            1u32.to_le_bytes().to_vec(),
+            molecule_bytes(&[0]),
+            0u32.to_le_bytes().to_vec(),
+            molecule_bytes(&[]),
+            0u32.to_le_bytes().to_vec(),
+            molecule_bytes(&[]),
+            0u32.to_le_bytes().to_vec(),
+            molecule_bytes(&[]),
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            dynvec(seals),
+        ]),
+    )
+}
+
+fn seal_pair(script_hash: [u8; 32], scope: u8, seal: &[u8]) -> Vec<u8> {
+    table(&[script_hash.to_vec(), vec![scope], molecule_bytes(seal)])
+}
+
+fn witness_union(item_id: u32, item: &[u8]) -> Vec<u8> {
+    let mut witness = Vec::with_capacity(4 + item.len());
+    witness.extend_from_slice(&item_id.to_le_bytes());
+    witness.extend_from_slice(item);
+    witness
+}
+
+fn table(fields: &[Vec<u8>]) -> Vec<u8> {
+    let header_size = 4 + fields.len() * 4;
+    let total_size = header_size + fields.iter().map(Vec::len).sum::<usize>();
+    let mut out = Vec::with_capacity(total_size);
+    out.extend_from_slice(&(total_size as u32).to_le_bytes());
+    let mut offset = header_size;
+    for field in fields {
+        out.extend_from_slice(&(offset as u32).to_le_bytes());
+        offset += field.len();
+    }
+    for field in fields {
+        out.extend_from_slice(field);
+    }
+    out
+}
+
+fn dynvec(items: &[Vec<u8>]) -> Vec<u8> {
+    if items.is_empty() {
+        return 4u32.to_le_bytes().to_vec();
+    }
+    let header_size = 4 + items.len() * 4;
+    let total_size = header_size + items.iter().map(Vec::len).sum::<usize>();
+    let mut out = Vec::with_capacity(total_size);
+    out.extend_from_slice(&(total_size as u32).to_le_bytes());
+    let mut offset = header_size;
+    for item in items {
+        out.extend_from_slice(&(offset as u32).to_le_bytes());
+        offset += item.len();
+    }
+    for item in items {
+        out.extend_from_slice(item);
+    }
+    out
 }

@@ -23,17 +23,27 @@ pub fn run(verifier: &impl LockVerifier) -> Result<(), Error> {
     let auth = parse_auth_args(&current_script_args()?)?;
     let current_script_hash = load_script_hash()?;
     let prepared = load_prepared_context()?;
-    let tasks = prepared
+    let tx_tasks = prepared
         .context
         .lock_query(current_script_hash)
         .tx_tasks(&prepared.hash_parts)
         .map_err(map_core_error)?;
+    let otx_tasks = prepared
+        .context
+        .lock_query(current_script_hash)
+        .otx_tasks(&prepared.hash_parts)
+        .map_err(map_core_error)?;
 
-    if tasks.is_empty() {
+    if tx_tasks.is_empty() && otx_tasks.is_empty() {
         return Err(Error::LockSemanticFailure);
     }
 
-    for task in &tasks {
+    for task in &tx_tasks {
+        verifier
+            .verify(&auth, &task.seal, &task.signing_message_hash)
+            .map_err(map_verify_error)?;
+    }
+    for task in &otx_tasks {
         verifier
             .verify(&auth, &task.seal, &task.signing_message_hash)
             .map_err(map_verify_error)?;
@@ -65,6 +75,7 @@ fn load_prepared_context() -> Result<cobuild_core::context::PreparedContext, Err
         tx_hash: load_tx_hash()?,
         resolved_inputs: load_resolved_inputs(input_count)?,
         trailing_witnesses,
+        raw_parts: info.raw_parts,
     })
     .map_err(map_core_error)
 }

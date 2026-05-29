@@ -6,13 +6,14 @@ use cobuild_types::lazy_reader::blockchain::{Script, Transaction};
 use crate::{
     context::{CobuildContext, PreparedContext, TxScriptHashes},
     error::CoreError,
-    hash::{ResolvedInputHashPart, TxHashParts},
+    hash::{RawTxParts, ResolvedInputHashPart, TxHashParts},
     layout::LayoutTx,
-    view::cursor_from_slice,
+    view::{cursor_bytes, cursor_from_slice},
 };
 
 pub struct TransactionInfo {
     pub witnesses: Vec<Vec<u8>>,
+    pub raw_parts: RawTxParts,
     pub input_count: usize,
     pub output_count: usize,
     pub cell_dep_count: usize,
@@ -31,10 +32,11 @@ pub struct PreparedContextInput {
     pub tx_hash: [u8; 32],
     pub resolved_inputs: Vec<ResolvedInputHashPart>,
     pub trailing_witnesses: Vec<Vec<u8>>,
+    pub raw_parts: RawTxParts,
 }
 
 pub fn prepare_context(input: PreparedContextInput) -> Result<PreparedContext, CoreError> {
-    let context = CobuildContext::new(
+    let context = CobuildContext::with_raw_parts(
         LayoutTx {
             witnesses: input.witnesses,
             input_count: input.input_count,
@@ -47,6 +49,7 @@ pub fn prepare_context(input: PreparedContextInput) -> Result<PreparedContext, C
             input_types: input.input_types,
             output_types: input.output_types,
         },
+        input.raw_parts,
     )?;
     let hash_parts = TxHashParts {
         tx_hash: input.tx_hash,
@@ -74,24 +77,75 @@ pub fn parse_transaction_info(data: &[u8]) -> Result<TransactionInfo, CoreError>
         witnesses.push(witness);
     }
 
+    let inputs = raw.inputs().map_err(|_| CoreError::MalformedCobuild)?;
+    let outputs = raw.outputs().map_err(|_| CoreError::MalformedCobuild)?;
+    let outputs_data = raw
+        .outputs_data()
+        .map_err(|_| CoreError::MalformedCobuild)?;
+    let cell_deps = raw.cell_deps().map_err(|_| CoreError::MalformedCobuild)?;
+    let header_deps = raw.header_deps().map_err(|_| CoreError::MalformedCobuild)?;
+
+    let input_count = inputs.len().map_err(|_| CoreError::MalformedCobuild)?;
+    let output_count = outputs.len().map_err(|_| CoreError::MalformedCobuild)?;
+    let cell_dep_count = cell_deps.len().map_err(|_| CoreError::MalformedCobuild)?;
+    let header_dep_count = header_deps.len().map_err(|_| CoreError::MalformedCobuild)?;
+
+    let mut raw_inputs = Vec::with_capacity(input_count);
+    for index in 0..input_count {
+        raw_inputs.push(cursor_bytes(
+            &inputs
+                .get(index)
+                .map_err(|_| CoreError::MalformedCobuild)?
+                .cursor,
+        )?);
+    }
+    let mut raw_outputs = Vec::with_capacity(output_count);
+    for index in 0..output_count {
+        raw_outputs.push(cursor_bytes(
+            &outputs
+                .get(index)
+                .map_err(|_| CoreError::MalformedCobuild)?
+                .cursor,
+        )?);
+    }
+    let mut raw_outputs_data = Vec::with_capacity(output_count);
+    for index in 0..output_count {
+        let data = outputs_data
+            .get(index)
+            .map_err(|_| CoreError::MalformedCobuild)?;
+        raw_outputs_data.push(cursor_bytes(&data)?);
+    }
+    let mut raw_cell_deps = Vec::with_capacity(cell_dep_count);
+    for index in 0..cell_dep_count {
+        raw_cell_deps.push(cursor_bytes(
+            &cell_deps
+                .get(index)
+                .map_err(|_| CoreError::MalformedCobuild)?
+                .cursor,
+        )?);
+    }
+    let mut raw_header_deps = Vec::with_capacity(header_dep_count);
+    for index in 0..header_dep_count {
+        raw_header_deps.push(
+            header_deps
+                .get(index)
+                .map_err(|_| CoreError::MalformedCobuild)?,
+        );
+    }
+
     Ok(TransactionInfo {
         witnesses,
-        input_count: raw
-            .inputs()
-            .and_then(|inputs| inputs.len())
-            .map_err(|_| CoreError::MalformedCobuild)?,
-        output_count: raw
-            .outputs()
-            .and_then(|outputs| outputs.len())
-            .map_err(|_| CoreError::MalformedCobuild)?,
-        cell_dep_count: raw
-            .cell_deps()
-            .and_then(|cell_deps| cell_deps.len())
-            .map_err(|_| CoreError::MalformedCobuild)?,
-        header_dep_count: raw
-            .header_deps()
-            .and_then(|header_deps| header_deps.len())
-            .map_err(|_| CoreError::MalformedCobuild)?,
+        raw_parts: RawTxParts {
+            inputs: raw_inputs,
+            outputs: raw_outputs,
+            outputs_data: raw_outputs_data,
+            cell_deps: raw_cell_deps,
+            header_deps: raw_header_deps,
+        },
+        input_count,
+        output_count,
+        cell_dep_count,
+        header_dep_count,
     })
 }
 
