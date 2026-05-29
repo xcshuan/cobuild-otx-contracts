@@ -1,6 +1,6 @@
 use cobuild_otx_lock::{
-    args::{AuthContext, AUTH_KIND_SECP256K1_BLAKE160},
-    verify::{local::LocalVerifier, LockVerifier, VerifyError},
+    args::{AUTH_KIND_SECP256K1_BLAKE160, AuthContext},
+    verify::{LockVerifier, VerifyError, local::LocalVerifier},
 };
 
 struct FailingVerifier;
@@ -41,13 +41,13 @@ fn local_verifier_rejects_invalid_seal_encoding() {
 }
 
 #[test]
-fn local_verifier_reports_backend_unavailable_for_valid_seal_shape() {
+fn local_verifier_rejects_unrecoverable_seal() {
     let auth = AuthContext {
         kind: AUTH_KIND_SECP256K1_BLAKE160,
         identity: [0u8; 20],
     };
     assert_eq!(
         LocalVerifier.verify(&auth, &[0u8; 65], &[1u8; 32]),
-        Err(VerifyError::BackendUnavailable)
+        Err(VerifyError::VerificationFailed)
     );
 }

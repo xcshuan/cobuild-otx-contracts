@@ -18,11 +18,24 @@ pub struct ResolvedInputHashPart {
 }
 
 pub fn tx_without_message_hash(parts: &TxHashParts) -> Result<[u8; 32], CoreError> {
-    let mut out = [0u8; 32];
-    let mut hasher = Blake2bBuilder::new(32)
-        .personal(b"ckbcb_tnm_core1\0")
-        .build();
+    tx_signing_hash(b"ckbcb_tnm_core1\0", None, parts)
+}
 
+pub fn tx_with_message_hash(message: &[u8], parts: &TxHashParts) -> Result<[u8; 32], CoreError> {
+    tx_signing_hash(b"ckbcb_twm_core1\0", Some(message), parts)
+}
+
+fn tx_signing_hash(
+    personalization: &[u8; 16],
+    message: Option<&[u8]>,
+    parts: &TxHashParts,
+) -> Result<[u8; 32], CoreError> {
+    let mut out = [0u8; 32];
+    let mut hasher = Blake2bBuilder::new(32).personal(personalization).build();
+
+    if let Some(message) = message {
+        hasher.update(message);
+    }
     hasher.update(&parts.tx_hash);
     for input in &parts.resolved_inputs {
         hasher.update(&input.output);

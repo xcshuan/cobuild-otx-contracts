@@ -28,11 +28,19 @@ if [[ -n "${BREW_PREFIX}" ]]; then
 fi
 
 for candidate in ${CANDIDATES[@]}; do
-  OUTPUT=$($candidate --version 2> /dev/null | grep 'version [0-9]' | head -n 1 | cut -d'.' -f 1 | grep -o '[0-9][0-9]*')
+  CANDIDATE_PATH=$(command -v "$candidate" 2> /dev/null || true)
+  if [[ -z "${CANDIDATE_PATH}" ]]; then
+    CANDIDATE_PATH="${candidate}"
+  fi
+
+  OUTPUT=$(${CANDIDATE_PATH} --version 2> /dev/null | grep 'version [0-9]' | head -n 1 | cut -d'.' -f 1 | grep -o '[0-9][0-9]*')
 
   if [[ $((OUTPUT)) -ge 16 ]]; then
-    echo "${candidate/${SEARCH_TARGET}/clang}"
-    exit 0
+    CLANG_PATH="${CANDIDATE_PATH/${SEARCH_TARGET}/clang}"
+    if [[ -x "${CLANG_PATH}" ]]; then
+      echo "${CLANG_PATH}"
+      exit 0
+    fi
   fi
 done
 

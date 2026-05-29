@@ -1,6 +1,6 @@
 extern crate alloc;
+use super::support::{Cursor, Error, NUMBER_SIZE};
 use core::convert::TryInto;
-use molecule::lazy_reader::{Cursor, Error, NUMBER_SIZE};
 #[derive(Clone)]
 pub struct Uint32 {
     pub cursor: Cursor,

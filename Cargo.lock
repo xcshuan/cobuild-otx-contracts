@@ -623,14 +623,16 @@ version = "0.1.0"
 dependencies = [
  "blake2b-ref",
  "cobuild-types",
- "molecule",
 ]
 
 [[package]]
 name = "cobuild-otx-lock"
 version = "0.1.0"
 dependencies = [
+ "ckb-hash",
  "ckb-std",
+ "cobuild-core",
+ "secp256k1",
 ]
 
 [[package]]
@@ -1916,7 +1918,11 @@ dependencies = [
 name = "tests"
 version = "0.1.0"
 dependencies = [
+ "ckb-hash",
  "ckb-testtool",
+ "cobuild-core",
+ "cobuild-types",
+ "secp256k1",
  "serde_json",
 ]
 

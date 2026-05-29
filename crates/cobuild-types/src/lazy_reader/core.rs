@@ -1,7 +1,7 @@
 extern crate alloc;
 use super::blockchain::*;
+use super::support::{Cursor, Error, NUMBER_SIZE};
 use core::convert::TryInto;
-use molecule::lazy_reader::{Cursor, Error, NUMBER_SIZE};
 #[derive(Clone)]
 pub struct Action {
     pub cursor: Cursor,

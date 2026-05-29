@@ -1,5 +1,5 @@
+use cobuild_types::lazy_reader::support::Cursor;
 use cobuild_types::lazy_reader::witness::WitnessLayout;
-use molecule::lazy_reader::Cursor;
 
 #[test]
 fn lazy_reader_witness_rejects_empty_cursor() {

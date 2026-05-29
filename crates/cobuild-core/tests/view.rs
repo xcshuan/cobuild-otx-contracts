@@ -1,6 +1,6 @@
-use cobuild_core::view::WitnessLayoutView;
 use cobuild_core::view::SliceReader;
-use molecule::lazy_reader::{Error as MoleculeError, Read};
+use cobuild_core::view::WitnessLayoutView;
+use cobuild_types::lazy_reader::support::{Error as MoleculeError, Read};
 
 #[test]
 fn empty_witness_is_not_a_cobuild_layout() {

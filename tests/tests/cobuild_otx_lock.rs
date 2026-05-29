@@ -3,13 +3,19 @@ use tests::fixtures;
 #[test]
 fn contract_rejects_invalid_args() {
     let result = fixtures::invalid_args_case().verify();
-    assert_lock_script_exit(result, 3);
+    assert_lock_script_exit(result, 1);
 }
 
 #[test]
 fn contract_rejects_without_relevant_task() {
     let result = fixtures::no_relevant_task_case().verify();
     assert_lock_script_exit(result, 3);
+}
+
+#[test]
+fn contract_accepts_tx_level_cobuild_signature() {
+    let result = fixtures::signed_tx_level_case().verify();
+    assert!(result.is_ok(), "{result:?}");
 }
 
 fn assert_lock_script_exit(result: Result<u64, ckb_testtool::ckb_error::Error>, code: i8) {

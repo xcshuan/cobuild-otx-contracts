@@ -1,8 +1,10 @@
-use alloc::boxed::Box;
-use core::{cmp::min, marker::PhantomData};
+use alloc::{boxed::Box, vec, vec::Vec};
+use core::{cmp::min, convert::TryInto, marker::PhantomData};
 
-use cobuild_types::lazy_reader::witness::WitnessLayout;
-use molecule::lazy_reader::{Cursor, Error as MoleculeError, Read};
+use cobuild_types::lazy_reader::{
+    support::{Cursor, Error as MoleculeError, Read},
+    witness::WitnessLayout,
+};
 
 use crate::error::CoreError;
 
@@ -34,10 +36,14 @@ pub struct WitnessLayoutView<'a> {
     _data: PhantomData<&'a [u8]>,
 }
 
+pub enum TxLevelWitness {
+    SighashAll { seal: Vec<u8>, message: Vec<u8> },
+    SighashAllOnly { seal: Vec<u8> },
+}
+
 impl<'a> WitnessLayoutView<'a> {
     pub fn from_slice(data: &'a [u8]) -> Result<Self, CoreError> {
-        let reader: Box<dyn Read + 'a> = Box::new(SliceReader::new(data));
-        let cursor = Cursor::new(data.len(), erase_reader_lifetime(reader));
+        let cursor = cursor_from_slice(data);
         let inner = WitnessLayout::try_from(cursor).map_err(|_| CoreError::MalformedCobuild)?;
 
         inner.verify(false).map_err(|_| CoreError::InvalidLayout)?;
@@ -48,6 +54,64 @@ impl<'a> WitnessLayoutView<'a> {
         })
     }
 
+    pub fn sighash_all_only_seal(&self) -> Result<Option<Vec<u8>>, CoreError> {
+        match &self.inner {
+            WitnessLayout::SighashAllOnly(witness) => witness
+                .seal()
+                .and_then(TryInto::try_into)
+                .map(Some)
+                .map_err(|_| CoreError::MalformedCobuild),
+            _ => Ok(None),
+        }
+    }
+
+    pub fn sighash_all_message(&self) -> Result<Option<Vec<u8>>, CoreError> {
+        match &self.inner {
+            WitnessLayout::SighashAll(witness) => {
+                let message = witness.message().map_err(|_| CoreError::MalformedCobuild)?;
+                cursor_bytes(&message.cursor).map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub fn tx_level_witness(&self) -> Result<Option<TxLevelWitness>, CoreError> {
+        match &self.inner {
+            WitnessLayout::SighashAll(witness) => {
+                let seal = witness
+                    .seal()
+                    .and_then(|cursor| cursor.try_into())
+                    .map_err(|_| CoreError::MalformedCobuild)?;
+                let message = witness.message().map_err(|_| CoreError::MalformedCobuild)?;
+                Ok(Some(TxLevelWitness::SighashAll {
+                    seal,
+                    message: cursor_bytes(&message.cursor)?,
+                }))
+            }
+            WitnessLayout::SighashAllOnly(witness) => witness
+                .seal()
+                .and_then(TryInto::try_into)
+                .map(|seal| Some(TxLevelWitness::SighashAllOnly { seal }))
+                .map_err(|_| CoreError::MalformedCobuild),
+            _ => Ok(None),
+        }
+    }
+}
+
+fn cursor_bytes(cursor: &Cursor) -> Result<Vec<u8>, CoreError> {
+    let mut bytes = vec![0; cursor.size];
+    let read = cursor
+        .read_at(&mut bytes)
+        .map_err(|_| CoreError::MalformedCobuild)?;
+    if read != bytes.len() {
+        return Err(CoreError::MalformedCobuild);
+    }
+    Ok(bytes)
+}
+
+pub(crate) fn cursor_from_slice<'a>(data: &'a [u8]) -> Cursor {
+    let reader: Box<dyn Read + 'a> = Box::new(SliceReader::new(data));
+    Cursor::new(data.len(), erase_reader_lifetime(reader))
 }
 
 fn erase_reader_lifetime<'a>(reader: Box<dyn Read + 'a>) -> Box<dyn Read> {

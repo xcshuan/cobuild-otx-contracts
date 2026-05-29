@@ -4,5 +4,5 @@ fn host_binary_exits_with_contract_exit_code() {
         .status()
         .expect("run host binary");
 
-    assert_eq!(status.code(), Some(3));
+    assert_eq!(status.code(), Some(5));
 }
