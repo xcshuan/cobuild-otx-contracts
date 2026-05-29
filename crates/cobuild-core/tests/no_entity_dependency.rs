@@ -1,6 +1,15 @@
 #[test]
 fn core_source_does_not_import_entity_module() {
-    for path in ["src/lib.rs", "src/view.rs", "src/witness.rs"] {
+    for path in [
+        "src/context.rs",
+        "src/hash.rs",
+        "src/layout.rs",
+        "src/lib.rs",
+        "src/loader.rs",
+        "src/tasks.rs",
+        "src/view.rs",
+        "src/witness.rs",
+    ] {
         let text =
             std::fs::read_to_string(format!("{}/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
         assert!(

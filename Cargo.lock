@@ -621,6 +621,7 @@ dependencies = [
 name = "cobuild-core"
 version = "0.1.0"
 dependencies = [
+ "blake2b-ref",
  "cobuild-types",
  "molecule",
 ]
