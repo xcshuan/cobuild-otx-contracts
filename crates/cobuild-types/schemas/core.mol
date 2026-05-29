@@ -1,0 +1,56 @@
+import blockchain;
+
+table Action {
+  script_info_hash: Byte32,
+  script_role: byte,
+  script_hash: Byte32,
+  data: Bytes,
+}
+
+vector ActionVec <Action>;
+
+table Message {
+  actions: ActionVec,
+}
+
+table SighashAll {
+  seal: Bytes,
+  message: Message,
+}
+
+table SighashAllOnly {
+  seal: Bytes,
+}
+
+table SealPair {
+  script_hash: Byte32,
+  scope: byte,
+  seal: Bytes,
+}
+
+vector SealPairVec <SealPair>;
+
+table OtxStart {
+  start_input_cell: Uint32,
+  start_output_cell: Uint32,
+  start_cell_deps: Uint32,
+  start_header_deps: Uint32,
+}
+
+table Otx {
+  message: Message,
+  append_permissions: byte,
+  base_input_cells: Uint32,
+  base_input_masks: Bytes,
+  base_output_cells: Uint32,
+  base_output_masks: Bytes,
+  base_cell_deps: Uint32,
+  base_cell_dep_masks: Bytes,
+  base_header_deps: Uint32,
+  base_header_dep_masks: Bytes,
+  append_input_cells: Uint32,
+  append_output_cells: Uint32,
+  append_cell_deps: Uint32,
+  append_header_deps: Uint32,
+  seals: SealPairVec,
+}
