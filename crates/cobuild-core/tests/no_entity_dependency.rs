@@ -12,9 +12,10 @@ fn core_source_does_not_import_entity_module() {
     ] {
         let text =
             std::fs::read_to_string(format!("{}/{path}", env!("CARGO_MANIFEST_DIR"))).unwrap();
+        let forbidden = ["cobuild_types", "entity"].join("::");
         assert!(
-            !text.contains("cobuild_types::entity"),
-            "{path} must not import cobuild_types::entity"
+            !text.contains(&forbidden),
+            "{path} must not import {forbidden}"
         );
     }
 }

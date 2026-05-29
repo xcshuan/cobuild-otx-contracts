@@ -1,5 +1,6 @@
-use ckb_testtool::ckb_types::{bytes::Bytes, core::TransactionBuilder, packed::*, prelude::*};
-use ckb_testtool::context::Context;
+use crate::{default_test_env, TestEnv};
 
-// Include your tests here
-// See https://github.com/xxuejie/ckb-native-build-sample/blob/main/tests/src/tests.rs for more examples
+#[test]
+fn loader_defaults_to_debug_build_when_mode_is_unset() {
+    assert_eq!(default_test_env(), TestEnv::Debug);
+}

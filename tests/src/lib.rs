@@ -18,6 +18,7 @@ mod tests;
 // now we use MODE as the environment variable
 const TEST_ENV_VAR: &str = "MODE";
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TestEnv {
     Debug,
     Release,
@@ -37,11 +38,15 @@ impl FromStr for TestEnv {
 
 pub struct Loader(PathBuf);
 
+pub fn default_test_env() -> TestEnv {
+    TestEnv::Debug
+}
+
 impl Default for Loader {
     fn default() -> Self {
         let test_env = match env::var(TEST_ENV_VAR) {
             Ok(val) => val.parse().expect("test env"),
-            Err(_) => TestEnv::Release,
+            Err(_) => default_test_env(),
         };
         Self::with_test_env(test_env)
     }
@@ -124,7 +129,7 @@ pub mod fixtures {
         },
         context::Context,
     };
-    use cobuild_core::hash::{ResolvedInputHashPart, TxHashParts, tx_without_message_hash};
+    use cobuild_core::hash::{tx_without_message_hash, ResolvedInputHashPart, TxHashParts};
     use cobuild_types::entity::{
         core::{ActionVec, Message as CobuildMessage, Otx, OtxStart, SealPair, SighashAllOnly},
         witness::WitnessLayout,
