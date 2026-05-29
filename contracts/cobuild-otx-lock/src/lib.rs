@@ -7,7 +7,9 @@ mod main;
 pub use main::program_entry;
 
 extern crate alloc;
+extern crate self as cobuild_otx_lock;
 
-pub fn bootstrap_marker() -> bool {
-    cobuild_core::bootstrap_marker()
-}
+pub mod args;
+pub mod entry;
+pub mod error;
+pub mod verify;

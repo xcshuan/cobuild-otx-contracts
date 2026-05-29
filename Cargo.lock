@@ -631,7 +631,6 @@ name = "cobuild-otx-lock"
 version = "0.1.0"
 dependencies = [
  "ckb-std",
- "cobuild-core",
 ]
 
 [[package]]
