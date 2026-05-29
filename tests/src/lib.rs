@@ -110,3 +110,78 @@ pub fn verify_and_dump_failed_tx(
     }
     result
 }
+
+pub mod fixtures {
+    use ckb_testtool::{
+        builtin::ALWAYS_SUCCESS,
+        ckb_error::Error,
+        ckb_types::{
+            bytes::Bytes,
+            core::{Cycle, ScriptHashType, TransactionBuilder, TransactionView},
+            packed::{CellDep, CellInput, CellOutput},
+            prelude::*,
+        },
+        context::Context,
+    };
+
+    use crate::Loader;
+
+    pub struct Case {
+        context: Context,
+        tx: TransactionView,
+    }
+
+    impl Case {
+        pub fn verify(self) -> Result<Cycle, Error> {
+            self.context.verify_tx(&self.tx, 10_000_000)
+        }
+    }
+
+    pub fn invalid_args_case() -> Case {
+        build_case(Bytes::from(vec![0u8]))
+    }
+
+    pub fn no_relevant_task_case() -> Case {
+        let mut args = vec![0u8];
+        args.extend_from_slice(&[1u8; 20]);
+        build_case(Bytes::from(args))
+    }
+
+    fn build_case(args: Bytes) -> Case {
+        let mut context = Context::default();
+        let contract_bin = Loader::default().load_binary("cobuild-otx-lock");
+        let contract_out_point = context.deploy_cell(contract_bin);
+        let contract_dep = CellDep::new_builder()
+            .out_point(contract_out_point.clone())
+            .build();
+        let lock = context
+            .build_script_with_hash_type(&contract_out_point, ScriptHashType::Data2, args)
+            .expect("build cobuild-otx-lock script");
+        let input_out_point = context.create_cell(
+            CellOutput::new_builder()
+                .capacity(100_000_000_000u64)
+                .lock(lock)
+                .build(),
+            Bytes::new(),
+        );
+        let output = CellOutput::new_builder()
+            .capacity(90_000_000_000u64)
+            .lock(always_success_script(&mut context))
+            .build();
+        let tx = TransactionBuilder::default()
+            .cell_dep(contract_dep)
+            .input(CellInput::new_builder().previous_output(input_out_point).build())
+            .output(output)
+            .output_data(Bytes::new().pack())
+            .witness(Bytes::new().pack())
+            .build();
+        Case { context, tx }
+    }
+
+    fn always_success_script(context: &mut Context) -> ckb_testtool::ckb_types::packed::Script {
+        let out_point = context.deploy_cell(ALWAYS_SUCCESS.to_vec().into());
+        context
+            .build_script_with_hash_type(&out_point, ScriptHashType::Data, Bytes::new())
+            .expect("build always-success script")
+    }
+}
