@@ -1,6 +1,4 @@
 #![no_std]
 
-pub mod generated;
-
-pub use generated::core;
-pub use generated::witness;
+pub mod entity;
+pub mod lazy_reader;

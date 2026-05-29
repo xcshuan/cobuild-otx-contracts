@@ -1,4 +1,4 @@
-use cobuild_types::core::{Action, Otx, OtxStart, SealPair};
+use cobuild_types::entity::core::{Action, Otx, OtxStart, SealPair};
 use molecule::prelude::Entity;
 
 #[test]

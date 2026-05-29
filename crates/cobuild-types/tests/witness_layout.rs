@@ -1,5 +1,5 @@
-use cobuild_types::core::SighashAllOnly;
-use cobuild_types::witness::{WitnessLayout, WitnessLayoutUnion};
+use cobuild_types::entity::core::SighashAllOnly;
+use cobuild_types::entity::witness::{WitnessLayout, WitnessLayoutUnion};
 use molecule::prelude::*;
 
 #[test]
