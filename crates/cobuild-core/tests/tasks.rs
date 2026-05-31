@@ -209,6 +209,93 @@ fn otx_task_rejects_message_action_target_absent_from_transaction() {
     );
 }
 
+#[test]
+fn otx_task_rejects_missing_required_seal_pair() {
+    let target_lock = [1u8; 32];
+    let context = otx_context(target_lock, &[]);
+    let parts = otx_hash_parts();
+
+    assert_eq!(
+        context.lock_query(target_lock).otx_tasks(&parts),
+        Err(CoreError::MissingSealPair)
+    );
+}
+
+#[test]
+fn otx_task_rejects_duplicate_required_seal_pair() {
+    let target_lock = [1u8; 32];
+    let context = otx_context(
+        target_lock,
+        &[
+            seal_pair(target_lock, 0, &[7u8; 65]),
+            seal_pair(target_lock, 0, &[8u8; 65]),
+        ],
+    );
+    let parts = otx_hash_parts();
+
+    assert_eq!(
+        context.lock_query(target_lock).otx_tasks(&parts),
+        Err(CoreError::DuplicateSealPair)
+    );
+}
+
+#[test]
+fn otx_task_rejects_invalid_seal_scope() {
+    let target_lock = [1u8; 32];
+    let context = otx_context(target_lock, &[seal_pair(target_lock, 2, &[7u8; 65])]);
+    let parts = otx_hash_parts();
+
+    assert_eq!(
+        context.lock_query(target_lock).otx_tasks(&parts),
+        Err(CoreError::InvalidLayout)
+    );
+}
+
+#[test]
+fn otx_task_rejects_invalid_message_action_role() {
+    let target_lock = [1u8; 32];
+    let context = otx_context_with_message(
+        target_lock,
+        &message_with_action(9, target_lock),
+        &[seal_pair(target_lock, 0, &[7u8; 65])],
+    );
+    let parts = otx_hash_parts();
+
+    assert_eq!(
+        context.lock_query(target_lock).otx_tasks(&parts),
+        Err(CoreError::InvalidMessageTarget)
+    );
+}
+
+#[test]
+fn tx_level_unrelated_malformed_witness_does_not_force_cobuild_flow() {
+    let context = CobuildContext::new(
+        LayoutTx {
+            witnesses: vec![sighash_all_only_witness(&[7u8; 65]), vec![1, 2, 3, 4]],
+            input_count: 2,
+            output_count: 0,
+            cell_dep_count: 0,
+            header_dep_count: 0,
+        },
+        TxScriptHashes {
+            input_locks: vec![[1u8; 32], [2u8; 32]],
+            input_types: vec![None, None],
+            output_types: Vec::new(),
+        },
+    )
+    .unwrap();
+    let parts = TxHashParts {
+        tx_hash: [0u8; 32],
+        resolved_inputs: Vec::new(),
+        trailing_witnesses: Vec::new(),
+    };
+
+    assert_eq!(
+        context.lock_query([1u8; 32]).tx_tasks(&parts).unwrap().len(),
+        1
+    );
+}
+
 fn sighash_all_only_witness(seal: &[u8]) -> Vec<u8> {
     const SIGHASH_ALL_ONLY_ID: u32 = 0xff00_0002;
 
@@ -275,6 +362,47 @@ fn action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {
         script_hash.to_vec(),
         molecule_bytes(&[]),
     ])
+}
+
+fn otx_context(target_lock: [u8; 32], seals: &[Vec<u8>]) -> CobuildContext {
+    otx_context_with_message(target_lock, &empty_message(), seals)
+}
+
+fn otx_context_with_message(
+    target_lock: [u8; 32],
+    message: &[u8],
+    seals: &[Vec<u8>],
+) -> CobuildContext {
+    CobuildContext::with_raw_parts(
+        LayoutTx {
+            witnesses: vec![otx_start_witness(), otx_witness(message, seals)],
+            input_count: 1,
+            output_count: 0,
+            cell_dep_count: 0,
+            header_dep_count: 0,
+        },
+        TxScriptHashes {
+            input_locks: vec![target_lock],
+            input_types: vec![None],
+            output_types: Vec::new(),
+        },
+        RawTxParts {
+            inputs: vec![Vec::new()],
+            ..RawTxParts::default()
+        },
+    )
+    .unwrap()
+}
+
+fn otx_hash_parts() -> TxHashParts {
+    TxHashParts {
+        tx_hash: [0u8; 32],
+        resolved_inputs: vec![ResolvedInputHashPart {
+            output: Vec::new(),
+            data: Vec::new(),
+        }],
+        trailing_witnesses: Vec::new(),
+    }
 }
 
 fn otx_start_witness() -> Vec<u8> {
