@@ -42,6 +42,12 @@ fn contract_rejects_malformed_cobuild_witness() {
     assert_lock_script_exit(result, 2);
 }
 
+#[test]
+fn contract_rejects_malformed_otx_layout_as_malformed_cobuild() {
+    let result = fixtures::malformed_otx_layout_case().verify();
+    assert_lock_script_exit(result, 2);
+}
+
 fn assert_lock_script_exit(result: Result<u64, ckb_testtool::ckb_error::Error>, code: i8) {
     use ckb_testtool::{
         ckb_error::ErrorKind,

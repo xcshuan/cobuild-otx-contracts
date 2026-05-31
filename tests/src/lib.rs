@@ -247,7 +247,19 @@ pub mod fixtures {
         case
     }
 
+    pub fn malformed_otx_layout_case() -> Case {
+        signed_otx_case_with_options(false, false, Some(0x10))
+    }
+
     fn signed_otx_case(include_tx_level: bool, corrupt_append_seal: bool) -> Case {
+        signed_otx_case_with_options(include_tx_level, corrupt_append_seal, None)
+    }
+
+    fn signed_otx_case_with_options(
+        include_tx_level: bool,
+        corrupt_append_seal: bool,
+        override_append_permissions: Option<u8>,
+    ) -> Case {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::from_slice(&[1u8; 32]).expect("fixed secret key");
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
@@ -302,7 +314,7 @@ pub mod fixtures {
         let start_input = if include_tx_level { 1 } else { 0 };
         let otx_parts = OtxFixtureParts {
             message: empty_message_entity().as_slice().to_vec(),
-            append_permissions: 0x01,
+            append_permissions: override_append_permissions.unwrap_or(0x01),
             base_input_masks: vec![0b0000_0011],
             base_inputs: vec![OtxFixtureInput {
                 raw: cell_inputs[start_input].as_slice().to_vec(),
