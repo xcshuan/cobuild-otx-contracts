@@ -37,3 +37,14 @@ fn view_does_not_publicly_expose_generated_inner_reader() {
         "view must not expose generated lazy-reader internals outside cobuild-core"
     );
 }
+
+#[test]
+fn view_source_contains_no_unsafe() {
+    let path = manifest_path("src/view.rs");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+    assert!(
+        !text.contains("unsafe"),
+        "view.rs must not contain unsafe code"
+    );
+}
