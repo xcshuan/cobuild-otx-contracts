@@ -82,13 +82,7 @@ fn generate_family(
     prune_rs_files(out_dir)?;
 
     for schema in SCHEMAS {
-        Compiler::new()
-            .generate_code(language)
-            .input_schema_file(schema_dir.join(schema))
-            .output_dir(out_dir)
-            .run()
-            .map_err(anyhow::Error::msg)
-            .with_context(|| format!("failed to generate {schema}"))?;
+        run_codegen(schema_dir, schema, out_dir, language)?;
         if uses_lazy_support {
             rewrite_lazy_reader_imports(&out_dir.join(schema).with_extension("rs"))?;
         }
@@ -104,6 +98,29 @@ fn generate_family(
         .with_context(|| format!("failed to write {}", out_dir.join("mod.rs").display()))?;
     run_rustfmt(&out_dir.join("mod.rs"))?;
     Ok(())
+}
+
+fn run_codegen(schema_dir: &Path, schema: &str, out_dir: &Path, language: Language) -> Result<()> {
+    let previous_dir = env::current_dir().context("read current directory before codegen")?;
+    env::set_current_dir(schema_dir)
+        .with_context(|| format!("enter schema directory {}", schema_dir.display()))?;
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        Compiler::new()
+            .generate_code(language)
+            .input_schema_file(schema)
+            .output_dir(out_dir)
+            .run()
+            .map_err(anyhow::Error::msg)
+    }));
+
+    env::set_current_dir(&previous_dir)
+        .with_context(|| format!("restore working directory {}", previous_dir.display()))?;
+
+    match result {
+        Ok(result) => result.with_context(|| format!("failed to generate {schema}")),
+        Err(_) => bail!("molecule codegen panicked while generating {schema}"),
+    }
 }
 
 fn prune_rs_files(out_dir: &Path) -> Result<()> {
