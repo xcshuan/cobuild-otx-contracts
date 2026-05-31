@@ -162,6 +162,37 @@ pub(crate) fn cursor_bytes(cursor: &Cursor) -> Result<Vec<u8>, CoreError> {
     Ok(bytes)
 }
 
+pub(crate) fn update_cursor(
+    hasher: &mut blake2b_ref::Blake2b,
+    cursor: &Cursor,
+) -> Result<(), CoreError> {
+    let mut offset = 0usize;
+    let mut buf = [0u8; 256];
+
+    while offset < cursor.size {
+        let read_len = min(buf.len(), cursor.size - offset);
+        let mut chunk = cursor.clone();
+        chunk
+            .add_offset(offset)
+            .map_err(|_| CoreError::MalformedCobuild)?;
+        chunk.size = read_len;
+
+        let read = chunk
+            .read_at(&mut buf[..read_len])
+            .map_err(|_| CoreError::MalformedCobuild)?;
+        if read != read_len {
+            return Err(CoreError::MalformedCobuild);
+        }
+
+        hasher.update(&buf[..read_len]);
+        offset = offset
+            .checked_add(read_len)
+            .ok_or(CoreError::MalformedCobuild)?;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn message_actions(message_bytes: &[u8]) -> Result<Vec<ActionData>, CoreError> {
     let message = Message::from(cursor_from_slice(message_bytes));
     message

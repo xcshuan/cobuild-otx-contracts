@@ -6,7 +6,7 @@ use cobuild_types::lazy_reader::blockchain::{CellInput, CellOutput};
 use crate::{
     error::CoreError,
     layout::{OtxLayout, Range},
-    view::{cursor_bytes, cursor_from_slice, OtxData},
+    view::{cursor_from_slice, update_cursor, OtxData},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -107,7 +107,7 @@ pub fn otx_base_hash(
             let previous_output = input_view
                 .previous_output()
                 .map_err(|_| CoreError::MalformedCobuild)?;
-            hasher.update(&cursor_bytes(&previous_output.cursor)?);
+            update_cursor(&mut hasher, &previous_output.cursor)?;
         }
         hasher.update(&resolved.output);
         update_len_prefixed(&mut hasher, &resolved.data)?;
@@ -140,14 +140,14 @@ pub fn otx_base_hash(
             let lock = output_view
                 .lock()
                 .map_err(|_| CoreError::MalformedCobuild)?;
-            hasher.update(&cursor_bytes(&lock.cursor)?);
+            update_cursor(&mut hasher, &lock.cursor)?;
         }
         if mask_bit(&otx.base_output_masks, local_index * 4 + 2)? {
             let type_cursor = output_view
                 .cursor
                 .table_slice_by_index(2)
                 .map_err(|_| CoreError::MalformedCobuild)?;
-            hasher.update(&cursor_bytes(&type_cursor)?);
+            update_cursor(&mut hasher, &type_cursor)?;
         }
         if mask_bit(&otx.base_output_masks, local_index * 4 + 3)? {
             update_len_prefixed(&mut hasher, output_data)?;
