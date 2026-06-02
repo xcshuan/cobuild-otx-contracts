@@ -8,7 +8,7 @@ pub enum SignatureOrigin {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LockSignatureRequest {
+pub struct SignatureRequest {
     pub script_hash: [u8; 32],
     pub carrier_witness_index: usize,
     pub origin: SignatureOrigin,

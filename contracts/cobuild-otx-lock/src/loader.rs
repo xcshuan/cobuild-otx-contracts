@@ -95,11 +95,11 @@ pub(crate) fn load_script_hash() -> Result<[u8; 32], Error> {
 }
 
 fn load_script() -> Result<Vec<u8>, Error> {
-    load_data(|buf, offset| syscalls::load_script(buf, offset))
+    load_data(syscalls::load_script)
 }
 
 fn load_transaction() -> Result<Vec<u8>, Error> {
-    load_data(|buf, offset| syscalls::load_transaction(buf, offset))
+    load_data(syscalls::load_transaction)
 }
 
 fn load_cell(index: usize, source: Source) -> Result<Vec<u8>, Error> {

@@ -67,7 +67,7 @@ fn tx_signing_hash(
 }
 
 pub fn checked_len_prefix(len: usize) -> Result<[u8; 4], CoreError> {
-    let len = u32::try_from(len).map_err(|_| CoreError::MissingHashParts)?;
+    let len = u32::try_from(len).map_err(|_| CoreError::HashInputTooLarge)?;
     Ok(len.to_le_bytes())
 }
 
@@ -91,10 +91,10 @@ pub fn otx_base_hash(
         let input = raw
             .inputs
             .get(tx_index)
-            .ok_or(CoreError::MissingHashParts)?;
+            .ok_or(CoreError::MissingHashInput)?;
         let resolved = resolved_inputs
             .get(tx_index)
-            .ok_or(CoreError::MissingHashParts)?;
+            .ok_or(CoreError::MissingHashInput)?;
         let input_view = CellInput::from(cursor_from_slice(input));
 
         update_count(&mut hasher, local_index)?;
@@ -123,11 +123,11 @@ pub fn otx_base_hash(
         let output = raw
             .outputs
             .get(tx_index)
-            .ok_or(CoreError::MissingHashParts)?;
+            .ok_or(CoreError::MissingHashInput)?;
         let output_data = raw
             .outputs_data
             .get(tx_index)
-            .ok_or(CoreError::MissingHashParts)?;
+            .ok_or(CoreError::MissingHashInput)?;
         let output_view = CellOutput::from(cursor_from_slice(output));
 
         update_count(&mut hasher, local_index)?;
@@ -166,7 +166,7 @@ pub fn otx_base_hash(
             hasher.update(
                 raw.cell_deps
                     .get(tx_index)
-                    .ok_or(CoreError::MissingHashParts)?,
+                    .ok_or(CoreError::MissingHashInput)?,
             );
         }
     }
@@ -180,7 +180,7 @@ pub fn otx_base_hash(
             hasher.update(
                 raw.header_deps
                     .get(tx_index)
-                    .ok_or(CoreError::MissingHashParts)?,
+                    .ok_or(CoreError::MissingHashInput)?,
             );
         }
     }
@@ -209,10 +209,10 @@ pub fn otx_append_hash(
         let input = raw
             .inputs
             .get(tx_index)
-            .ok_or(CoreError::MissingHashParts)?;
+            .ok_or(CoreError::MissingHashInput)?;
         let resolved = resolved_inputs
             .get(tx_index)
-            .ok_or(CoreError::MissingHashParts)?;
+            .ok_or(CoreError::MissingHashInput)?;
         update_count(&mut hasher, local_index)?;
         hasher.update(input);
         hasher.update(&resolved.output);
@@ -226,13 +226,13 @@ pub fn otx_append_hash(
         hasher.update(
             raw.outputs
                 .get(tx_index)
-                .ok_or(CoreError::MissingHashParts)?,
+                .ok_or(CoreError::MissingHashInput)?,
         );
         update_len_prefixed(
             &mut hasher,
             raw.outputs_data
                 .get(tx_index)
-                .ok_or(CoreError::MissingHashParts)?,
+                .ok_or(CoreError::MissingHashInput)?,
         )?;
     }
 
@@ -243,7 +243,7 @@ pub fn otx_append_hash(
         hasher.update(
             raw.cell_deps
                 .get(tx_index)
-                .ok_or(CoreError::MissingHashParts)?,
+                .ok_or(CoreError::MissingHashInput)?,
         );
     }
 
@@ -254,7 +254,7 @@ pub fn otx_append_hash(
         hasher.update(
             raw.header_deps
                 .get(tx_index)
-                .ok_or(CoreError::MissingHashParts)?,
+                .ok_or(CoreError::MissingHashInput)?,
         );
     }
 
@@ -275,15 +275,15 @@ fn update_count(hasher: &mut blake2b_ref::Blake2b, count: usize) -> Result<(), C
 
 fn checked_index(range: Range, local_index: usize) -> Result<usize, CoreError> {
     if local_index >= range.count {
-        return Err(CoreError::InvalidLayout);
+        return Err(CoreError::InvalidOtxLayout);
     }
     range
         .start
         .checked_add(local_index)
-        .ok_or(CoreError::InvalidLayout)
+        .ok_or(CoreError::InvalidOtxLayout)
 }
 
 fn mask_bit(mask: &[u8], index: usize) -> Result<bool, CoreError> {
-    let byte = mask.get(index / 8).ok_or(CoreError::InvalidLayout)?;
+    let byte = mask.get(index / 8).ok_or(CoreError::InvalidOtxLayout)?;
     Ok(byte & (1 << (index % 8)) != 0)
 }

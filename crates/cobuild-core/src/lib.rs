@@ -6,7 +6,13 @@ pub mod error;
 pub mod hash;
 pub mod layout;
 pub mod loader;
-pub mod tasks;
+mod message;
+mod otx_request;
+pub mod protocol;
+mod query;
+mod seal;
+mod sighash;
+pub mod signature;
 pub mod view;
 pub mod witness;
 

@@ -1,6 +1,10 @@
 use alloc::vec::Vec;
 
-use crate::{error::CoreError, view::WitnessLayoutView};
+use crate::{
+    error::CoreError,
+    protocol::AppendPermissions,
+    view::{OtxStartData, WitnessLayoutView},
+};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LayoutTx {
@@ -42,9 +46,27 @@ pub struct BuiltLayout {
     pub otx_data: Vec<OtxLayoutData>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum OtxLayoutScan {
+    None,
+    Complete(BuiltLayout),
+    Invalid {
+        anchor: Option<OtxStartData>,
+        error: CoreError,
+    },
+}
+
 pub fn build_layout(tx: &LayoutTx) -> Result<BuiltLayout, CoreError> {
+    match scan_layout(tx) {
+        OtxLayoutScan::None => Ok(empty_layout()),
+        OtxLayoutScan::Complete(layout) => Ok(layout),
+        OtxLayoutScan::Invalid { error, .. } => Err(error),
+    }
+}
+
+pub fn scan_layout(tx: &LayoutTx) -> OtxLayoutScan {
     if tx.witnesses.is_empty() {
-        return Ok(empty_layout());
+        return OtxLayoutScan::None;
     }
 
     let mut start = None;
@@ -56,28 +78,42 @@ pub fn build_layout(tx: &LayoutTx) -> Result<BuiltLayout, CoreError> {
         let Ok(view) = WitnessLayoutView::from_slice(witness) else {
             continue;
         };
-        if let Some(data) = view.otx_start()? {
+        let otx_start = match view.otx_start() {
+            Ok(data) => data,
+            Err(error) => return invalid_layout(None, error),
+        };
+        if let Some(data) = otx_start {
             if start.is_some() {
-                return Err(CoreError::InvalidLayout);
+                return invalid_layout(
+                    start.as_ref().map(|(_, data)| data),
+                    CoreError::InvalidOtxLayout,
+                );
             }
             start = Some((index, data));
             last_otx_or_start = Some(index);
-        } else if view.otx()?.is_some() {
+            continue;
+        }
+
+        let otx = match view.otx() {
+            Ok(data) => data,
+            Err(error) => return invalid_layout(None, error),
+        };
+        if otx.is_some() {
             let Some(last_index) = last_otx_or_start else {
-                return Err(CoreError::InvalidLayout);
+                return invalid_layout(None, CoreError::InvalidOtxLayout);
             };
             if last_index + 1 != index {
-                return Err(CoreError::InvalidLayout);
+                return invalid_layout(None, CoreError::InvalidOtxLayout);
             }
             last_otx_or_start = Some(index);
         }
     }
 
     let Some((start_witness_index, start_data)) = start else {
-        return Ok(empty_layout());
+        return OtxLayoutScan::None;
     };
     if last_otx_or_start == Some(start_witness_index) {
-        return Err(CoreError::InvalidLayout);
+        return invalid_layout(Some(&start_data), CoreError::InvalidOtxLayout);
     }
 
     let mut next_input = start_data.start_input_cell;
@@ -92,20 +128,53 @@ pub fn build_layout(tx: &LayoutTx) -> Result<BuiltLayout, CoreError> {
         if witness.is_empty() {
             break;
         }
-        let view = WitnessLayoutView::from_slice(witness)?;
-        let Some(data) = view.otx()? else {
+        let view = match WitnessLayoutView::from_slice(witness) {
+            Ok(view) => view,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
+        let data = match view.otx() {
+            Ok(data) => data,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
+        let Some(data) = data else {
             break;
         };
-        validate_otx_data(&data)?;
+        if let Err(error) = validate_otx_data(&data) {
+            return invalid_layout(Some(&start_data), error);
+        }
 
-        let base_inputs = take_range(&mut next_input, data.base_input_cells)?;
-        let append_inputs = take_range(&mut next_input, data.append_input_cells)?;
-        let base_outputs = take_range(&mut next_output, data.base_output_cells)?;
-        let append_outputs = take_range(&mut next_output, data.append_output_cells)?;
-        let base_cell_deps = take_range(&mut next_cell_dep, data.base_cell_deps)?;
-        let append_cell_deps = take_range(&mut next_cell_dep, data.append_cell_deps)?;
-        let base_header_deps = take_range(&mut next_header_dep, data.base_header_deps)?;
-        let append_header_deps = take_range(&mut next_header_dep, data.append_header_deps)?;
+        let base_inputs = match take_range(&mut next_input, data.base_input_cells) {
+            Ok(range) => range,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
+        let append_inputs = match take_range(&mut next_input, data.append_input_cells) {
+            Ok(range) => range,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
+        let base_outputs = match take_range(&mut next_output, data.base_output_cells) {
+            Ok(range) => range,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
+        let append_outputs = match take_range(&mut next_output, data.append_output_cells) {
+            Ok(range) => range,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
+        let base_cell_deps = match take_range(&mut next_cell_dep, data.base_cell_deps) {
+            Ok(range) => range,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
+        let append_cell_deps = match take_range(&mut next_cell_dep, data.append_cell_deps) {
+            Ok(range) => range,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
+        let base_header_deps = match take_range(&mut next_header_dep, data.base_header_deps) {
+            Ok(range) => range,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
+        let append_header_deps = match take_range(&mut next_header_dep, data.append_header_deps) {
+            Ok(range) => range,
+            Err(error) => return invalid_layout(Some(&start_data), error),
+        };
 
         let layout = OtxLayout {
             witness_index,
@@ -126,14 +195,29 @@ pub fn build_layout(tx: &LayoutTx) -> Result<BuiltLayout, CoreError> {
     }
 
     if otxs.is_empty() {
-        return Err(CoreError::InvalidLayout);
+        return invalid_layout(Some(&start_data), CoreError::InvalidOtxLayout);
     }
-    ensure_within(next_input, tx.input_count)?;
-    ensure_within(next_output, tx.output_count)?;
-    ensure_within(next_cell_dep, tx.cell_dep_count)?;
-    ensure_within(next_header_dep, tx.header_dep_count)?;
+    if let Err(error) = ensure_within(next_input, tx.input_count) {
+        return invalid_layout(Some(&start_data), error);
+    }
+    if let Err(error) = ensure_within(next_output, tx.output_count) {
+        return invalid_layout(Some(&start_data), error);
+    }
+    if let Err(error) = ensure_within(next_cell_dep, tx.cell_dep_count) {
+        return invalid_layout(Some(&start_data), error);
+    }
+    if let Err(error) = ensure_within(next_header_dep, tx.header_dep_count) {
+        return invalid_layout(Some(&start_data), error);
+    }
 
-    Ok(BuiltLayout { otxs, otx_data })
+    OtxLayoutScan::Complete(BuiltLayout { otxs, otx_data })
+}
+
+fn invalid_layout(anchor: Option<&OtxStartData>, error: CoreError) -> OtxLayoutScan {
+    OtxLayoutScan::Invalid {
+        anchor: anchor.cloned(),
+        error,
+    }
 }
 
 fn empty_layout() -> BuiltLayout {
@@ -148,7 +232,9 @@ fn take_range(start: &mut usize, count: usize) -> Result<Range, CoreError> {
         start: *start,
         count,
     };
-    *start = start.checked_add(count).ok_or(CoreError::InvalidLayout)?;
+    *start = start
+        .checked_add(count)
+        .ok_or(CoreError::InvalidOtxLayout)?;
     Ok(range)
 }
 
@@ -156,21 +242,19 @@ fn ensure_within(value: usize, max: usize) -> Result<(), CoreError> {
     if value <= max {
         Ok(())
     } else {
-        Err(CoreError::InvalidLayout)
+        Err(CoreError::InvalidOtxLayout)
     }
 }
 
 fn validate_otx_data(data: &crate::view::OtxData) -> Result<(), CoreError> {
     if data.base_input_cells == 0 {
-        return Err(CoreError::InvalidLayout);
+        return Err(CoreError::InvalidOtxLayout);
     }
-    if data.append_permissions & 0xf0 != 0 {
-        return Err(CoreError::InvalidLayout);
-    }
-    validate_append_permission(data.append_permissions, 0, data.append_input_cells)?;
-    validate_append_permission(data.append_permissions, 1, data.append_output_cells)?;
-    validate_append_permission(data.append_permissions, 2, data.append_cell_deps)?;
-    validate_append_permission(data.append_permissions, 3, data.append_header_deps)?;
+    let append_permissions = AppendPermissions::try_from(data.append_permissions)?;
+    append_permissions.require_allowed(0, data.append_input_cells)?;
+    append_permissions.require_allowed(1, data.append_output_cells)?;
+    append_permissions.require_allowed(2, data.append_cell_deps)?;
+    append_permissions.require_allowed(3, data.append_header_deps)?;
     validate_mask(&data.base_input_masks, data.base_input_cells * 2)?;
     validate_mask(&data.base_output_masks, data.base_output_cells * 4)?;
     validate_mask(&data.base_cell_dep_masks, data.base_cell_deps)?;
@@ -178,18 +262,10 @@ fn validate_otx_data(data: &crate::view::OtxData) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn validate_append_permission(permissions: u8, bit: u8, count: usize) -> Result<(), CoreError> {
-    if count > 0 && permissions & (1 << bit) == 0 {
-        Err(CoreError::InvalidLayout)
-    } else {
-        Ok(())
-    }
-}
-
 fn validate_mask(mask: &[u8], bit_count: usize) -> Result<(), CoreError> {
     let expected_len = bit_count.div_ceil(8);
     if mask.len() != expected_len {
-        return Err(CoreError::InvalidLayout);
+        return Err(CoreError::InvalidOtxLayout);
     }
     if bit_count == 0 {
         return Ok(());
@@ -200,7 +276,7 @@ fn validate_mask(mask: &[u8], bit_count: usize) -> Result<(), CoreError> {
     }
     let allowed = (1u8 << used_bits) - 1;
     if mask[mask.len() - 1] & !allowed != 0 {
-        return Err(CoreError::InvalidLayout);
+        return Err(CoreError::InvalidOtxLayout);
     }
     Ok(())
 }

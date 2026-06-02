@@ -62,7 +62,7 @@ pub fn prepare_context(input: PreparedContextInput) -> Result<PreparedContext, C
 
 pub fn parse_transaction_info(data: &[u8]) -> Result<TransactionInfo, CoreError> {
     let tx = Transaction::from(cursor_from_slice(data));
-    tx.verify(false).map_err(|_| CoreError::InvalidLayout)?;
+    tx.verify(false).map_err(|_| CoreError::InvalidOtxLayout)?;
     let raw = tx.raw().map_err(|_| CoreError::MalformedCobuild)?;
     let witnesses_reader = tx.witnesses().map_err(|_| CoreError::MalformedCobuild)?;
     let witness_count = witnesses_reader
@@ -151,7 +151,9 @@ pub fn parse_transaction_info(data: &[u8]) -> Result<TransactionInfo, CoreError>
 
 pub fn script_args_from_slice(data: &[u8]) -> Result<Vec<u8>, CoreError> {
     let script = Script::from(cursor_from_slice(data));
-    script.verify(false).map_err(|_| CoreError::InvalidLayout)?;
+    script
+        .verify(false)
+        .map_err(|_| CoreError::InvalidOtxLayout)?;
     script
         .args()
         .and_then(TryInto::try_into)

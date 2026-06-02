@@ -3,7 +3,7 @@ use cobuild_core::{
     error::CoreError,
     hash::{tx_with_message_hash, RawTxParts, ResolvedInputHashPart, SigningHashParts},
     layout::LayoutTx,
-    tasks::SignatureOrigin,
+    signature::SignatureOrigin,
 };
 
 #[test]
@@ -98,7 +98,7 @@ fn lock_query_rejects_malformed_group_leading_witness() {
 
     assert!(matches!(
         context.lock_query([1u8; 32]).required_signatures(&parts),
-        Err(CoreError::MalformedCobuild | CoreError::InvalidLayout)
+        Err(CoreError::MalformedCobuild | CoreError::InvalidOtxLayout)
     ));
 }
 
@@ -170,7 +170,7 @@ fn lock_query_rejects_duplicate_sighash_all_witnesses() {
 
     assert_eq!(
         context.lock_query([1u8; 32]).required_signatures(&parts),
-        Err(CoreError::DuplicateSealPair)
+        Err(CoreError::DuplicateSighashAll)
     );
 }
 
@@ -323,7 +323,7 @@ fn otx_signature_rejects_invalid_seal_scope() {
 
     assert_eq!(
         context.lock_query(target_lock).required_signatures(&parts),
-        Err(CoreError::InvalidLayout)
+        Err(CoreError::InvalidSealScope)
     );
 }
 
@@ -374,6 +374,159 @@ fn unrelated_malformed_witness_does_not_force_cobuild_flow() {
             .len(),
         1
     );
+}
+
+#[test]
+fn unrelated_otx_lock_query_does_not_require_raw_hash_parts() {
+    let target_lock = [1u8; 32];
+    let unrelated_lock = [9u8; 32];
+    let context = CobuildContext::new(
+        LayoutTx {
+            witnesses: vec![otx_start_witness(), otx_witness(&empty_message(), &[])],
+            input_count: 1,
+            output_count: 0,
+            cell_dep_count: 0,
+            header_dep_count: 0,
+        },
+        TxScriptHashes {
+            input_locks: vec![target_lock],
+            input_types: vec![None],
+            output_types: Vec::new(),
+        },
+    )
+    .unwrap();
+    let parts = SigningHashParts {
+        tx_hash: [0u8; 32],
+        resolved_inputs: Vec::new(),
+        trailing_witnesses: Vec::new(),
+    };
+
+    assert_eq!(
+        context
+            .lock_query(unrelated_lock)
+            .required_signatures(&parts),
+        Ok(Vec::new())
+    );
+}
+
+#[test]
+fn unrelated_malformed_otx_layout_does_not_fail_tx_level_lock_query() {
+    let tx_lock = [1u8; 32];
+    let otx_lock = [2u8; 32];
+    let context = CobuildContext::new(
+        LayoutTx {
+            witnesses: vec![
+                sighash_all_only_witness(&[7u8; 65]),
+                otx_start_witness_at(1),
+                otx_witness_custom(&empty_message(), 0x10, 1, 0, &[]),
+            ],
+            input_count: 2,
+            output_count: 0,
+            cell_dep_count: 0,
+            header_dep_count: 0,
+        },
+        TxScriptHashes {
+            input_locks: vec![tx_lock, otx_lock],
+            input_types: vec![None, None],
+            output_types: Vec::new(),
+        },
+    )
+    .unwrap();
+    let parts = SigningHashParts {
+        tx_hash: [0u8; 32],
+        resolved_inputs: Vec::new(),
+        trailing_witnesses: Vec::new(),
+    };
+
+    let requests = context
+        .lock_query(tx_lock)
+        .required_signatures(&parts)
+        .unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].origin, SignatureOrigin::SighashAll);
+}
+
+#[test]
+fn otx_signature_rejects_uncovered_same_lock_remainder_input() {
+    let target_lock = [1u8; 32];
+    let context = CobuildContext::with_raw_parts(
+        LayoutTx {
+            witnesses: vec![
+                otx_start_witness(),
+                otx_witness(&empty_message(), &[seal_pair(target_lock, 0, &[7u8; 65])]),
+            ],
+            input_count: 2,
+            output_count: 0,
+            cell_dep_count: 0,
+            header_dep_count: 0,
+        },
+        TxScriptHashes {
+            input_locks: vec![target_lock, target_lock],
+            input_types: vec![None, None],
+            output_types: Vec::new(),
+        },
+        RawTxParts {
+            inputs: vec![Vec::new(), Vec::new()],
+            ..RawTxParts::default()
+        },
+    )
+    .unwrap();
+    let parts = SigningHashParts {
+        tx_hash: [0u8; 32],
+        resolved_inputs: vec![
+            ResolvedInputHashPart {
+                output: Vec::new(),
+                data: Vec::new(),
+            },
+            ResolvedInputHashPart {
+                output: Vec::new(),
+                data: Vec::new(),
+            },
+        ],
+        trailing_witnesses: Vec::new(),
+    };
+
+    assert_eq!(
+        context.lock_query(target_lock).required_signatures(&parts),
+        Err(CoreError::MissingLockGroupCoverage)
+    );
+}
+
+#[test]
+fn duplicate_otx_start_after_tx_level_lock_does_not_fail_unrelated_lock_query() {
+    let tx_lock = [1u8; 32];
+    let otx_lock = [2u8; 32];
+    let context = CobuildContext::new(
+        LayoutTx {
+            witnesses: vec![
+                sighash_all_only_witness(&[7u8; 65]),
+                otx_start_witness_at(1),
+                otx_start_witness_at(1),
+            ],
+            input_count: 2,
+            output_count: 0,
+            cell_dep_count: 0,
+            header_dep_count: 0,
+        },
+        TxScriptHashes {
+            input_locks: vec![tx_lock, otx_lock],
+            input_types: vec![None, None],
+            output_types: Vec::new(),
+        },
+    )
+    .unwrap();
+    let parts = SigningHashParts {
+        tx_hash: [0u8; 32],
+        resolved_inputs: Vec::new(),
+        trailing_witnesses: Vec::new(),
+    };
+
+    let requests = context
+        .lock_query(tx_lock)
+        .required_signatures(&parts)
+        .unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].origin, SignatureOrigin::SighashAll);
 }
 
 fn sighash_all_only_witness(seal: &[u8]) -> Vec<u8> {
@@ -486,10 +639,14 @@ fn otx_signing_hash_parts() -> SigningHashParts {
 }
 
 fn otx_start_witness() -> Vec<u8> {
+    otx_start_witness_at(0)
+}
+
+fn otx_start_witness_at(start_input: u32) -> Vec<u8> {
     witness_union(
         0xff00_0004,
         &table(&[
-            0u32.to_le_bytes().to_vec(),
+            start_input.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),

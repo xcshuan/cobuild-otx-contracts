@@ -26,7 +26,7 @@ fn otx_without_start_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn otx_witnesses_must_be_contiguous_after_start() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn duplicate_otx_start_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn otx_start_without_following_otx_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn zero_base_inputs_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn reserved_append_permission_bits_are_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn append_count_without_permission_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn append_output_without_permission_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn append_cell_dep_without_permission_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn append_header_dep_without_permission_is_invalid() {
         header_dep_count: 1,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn invalid_base_input_mask_length_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn invalid_base_output_mask_length_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn invalid_base_cell_dep_mask_length_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn invalid_base_header_dep_mask_length_is_invalid() {
         header_dep_count: 1,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -240,7 +240,7 @@ fn non_zero_base_input_mask_padding_bits_are_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -256,7 +256,7 @@ fn non_zero_base_output_mask_padding_bits_are_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn non_zero_base_cell_dep_mask_padding_bits_are_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 #[test]
@@ -288,7 +288,7 @@ fn non_zero_base_header_dep_mask_padding_bits_are_invalid() {
         header_dep_count: 1,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidLayout));
+    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
 }
 
 fn otx_start_witness() -> Vec<u8> {
@@ -327,21 +327,10 @@ fn otx_witness() -> Vec<u8> {
 }
 
 fn otx_witness_with_permissions(append_permissions: u8) -> Vec<u8> {
-    otx_witness_custom(
+    otx_witness_custom(OtxWitnessCustom {
         append_permissions,
-        1,
-        &[0],
-        0,
-        &[],
-        0,
-        &[],
-        0,
-        &[],
-        0,
-        0,
-        0,
-        0,
-    )
+        ..OtxWitnessCustom::default()
+    })
 }
 
 fn otx_witness_with_append_counts(
@@ -351,51 +340,45 @@ fn otx_witness_with_append_counts(
     append_cell_deps: u32,
     append_header_deps: u32,
 ) -> Vec<u8> {
-    otx_witness_custom(
+    otx_witness_custom(OtxWitnessCustom {
         append_permissions,
-        1,
-        &[0],
-        0,
-        &[],
-        0,
-        &[],
-        0,
-        &[],
         append_inputs,
         append_outputs,
         append_cell_deps,
         append_header_deps,
-    )
+        ..OtxWitnessCustom::default()
+    })
 }
 
 fn otx_witness_with_base_input_mask(mask: &[u8]) -> Vec<u8> {
-    otx_witness_custom(0, 1, mask, 0, &[], 0, &[], 0, &[], 0, 0, 0, 0)
+    otx_witness_custom(OtxWitnessCustom {
+        base_input_mask: mask,
+        ..OtxWitnessCustom::default()
+    })
 }
 
 fn otx_witness_with_base_output_mask(base_outputs: u32, mask: &[u8]) -> Vec<u8> {
-    otx_witness_custom(0, 1, &[0], base_outputs, mask, 0, &[], 0, &[], 0, 0, 0, 0)
+    otx_witness_custom(OtxWitnessCustom {
+        base_outputs,
+        base_output_mask: mask,
+        ..OtxWitnessCustom::default()
+    })
 }
 
 fn otx_witness_with_base_cell_dep_mask(base_cell_deps: u32, mask: &[u8]) -> Vec<u8> {
-    otx_witness_custom(0, 1, &[0], 0, &[], base_cell_deps, mask, 0, &[], 0, 0, 0, 0)
+    otx_witness_custom(OtxWitnessCustom {
+        base_cell_deps,
+        base_cell_dep_mask: mask,
+        ..OtxWitnessCustom::default()
+    })
 }
 
 fn otx_witness_with_base_header_dep_mask(base_header_deps: u32, mask: &[u8]) -> Vec<u8> {
-    otx_witness_custom(
-        0,
-        1,
-        &[0],
-        0,
-        &[],
-        0,
-        &[],
+    otx_witness_custom(OtxWitnessCustom {
         base_header_deps,
-        mask,
-        0,
-        0,
-        0,
-        0,
-    )
+        base_header_dep_mask: mask,
+        ..OtxWitnessCustom::default()
+    })
 }
 
 fn otx_witness_with_counts(
@@ -410,55 +393,75 @@ fn otx_witness_with_counts(
     let output_mask = vec![0; ((base_outputs as usize) * 4).div_ceil(8)];
     let cell_dep_mask = vec![0; (base_cell_deps as usize).div_ceil(8)];
     let header_dep_mask = vec![0; (base_header_deps as usize).div_ceil(8)];
-    otx_witness_custom(
-        0,
+    otx_witness_custom(OtxWitnessCustom {
         base_inputs,
-        &input_mask,
         base_outputs,
-        &output_mask,
         base_cell_deps,
-        &cell_dep_mask,
         base_header_deps,
-        &header_dep_mask,
         append_inputs,
         append_outputs,
-        0,
-        0,
-    )
+        base_input_mask: &input_mask,
+        base_output_mask: &output_mask,
+        base_cell_dep_mask: &cell_dep_mask,
+        base_header_dep_mask: &header_dep_mask,
+        ..OtxWitnessCustom::default()
+    })
 }
 
-fn otx_witness_custom(
+struct OtxWitnessCustom<'a> {
     append_permissions: u8,
     base_inputs: u32,
-    base_input_mask: &[u8],
+    base_input_mask: &'a [u8],
     base_outputs: u32,
-    base_output_mask: &[u8],
+    base_output_mask: &'a [u8],
     base_cell_deps: u32,
-    base_cell_dep_mask: &[u8],
+    base_cell_dep_mask: &'a [u8],
     base_header_deps: u32,
-    base_header_dep_mask: &[u8],
+    base_header_dep_mask: &'a [u8],
     append_inputs: u32,
     append_outputs: u32,
     append_cell_deps: u32,
     append_header_deps: u32,
-) -> Vec<u8> {
+}
+
+impl Default for OtxWitnessCustom<'_> {
+    fn default() -> Self {
+        Self {
+            append_permissions: 0,
+            base_inputs: 1,
+            base_input_mask: &[0],
+            base_outputs: 0,
+            base_output_mask: &[],
+            base_cell_deps: 0,
+            base_cell_dep_mask: &[],
+            base_header_deps: 0,
+            base_header_dep_mask: &[],
+            append_inputs: 0,
+            append_outputs: 0,
+            append_cell_deps: 0,
+            append_header_deps: 0,
+        }
+    }
+}
+
+fn otx_witness_custom(params: OtxWitnessCustom<'_>) -> Vec<u8> {
     witness_union(
         0xff00_0003,
         &table(&[
             empty_message(),
-            vec![append_permissions],
-            base_inputs.to_le_bytes().to_vec(),
-            molecule_bytes(base_input_mask),
-            base_outputs.to_le_bytes().to_vec(),
-            molecule_bytes(base_output_mask),
-            base_cell_deps.to_le_bytes().to_vec(),
-            molecule_bytes(base_cell_dep_mask),
-            base_header_deps.to_le_bytes().to_vec(),
-            molecule_bytes(base_header_dep_mask),
-            append_inputs.to_le_bytes().to_vec(),
-            append_outputs.to_le_bytes().to_vec(),
-            append_cell_deps.to_le_bytes().to_vec(),
-            append_header_deps.to_le_bytes().to_vec(),
+            vec![params.append_permissions],
+            params.base_inputs.to_le_bytes().to_vec(),
+            molecule_bytes(params.base_input_mask),
+            params.base_outputs.to_le_bytes().to_vec(),
+            molecule_bytes(params.base_output_mask),
+            params.base_cell_deps.to_le_bytes().to_vec(),
+            molecule_bytes(params.base_cell_dep_mask),
+            params.base_header_deps.to_le_bytes().to_vec(),
+            molecule_bytes(params.base_header_dep_mask),
+            params.append_inputs.to_le_bytes().to_vec(),
+            params.append_outputs.to_le_bytes().to_vec(),
+            params.append_cell_deps.to_le_bytes().to_vec(),
+            params.append_header_deps.to_le_bytes().to_vec(),
             empty_dynvec(),
         ]),
     )

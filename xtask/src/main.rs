@@ -87,6 +87,9 @@ fn generate_family(
             rewrite_lazy_reader_imports(&out_dir.join(schema).with_extension("rs"))?;
         }
         run_rustfmt(&out_dir.join(schema).with_extension("rs"))?;
+        if uses_lazy_support {
+            rewrite_lazy_reader_imports(&out_dir.join(schema).with_extension("rs"))?;
+        }
     }
 
     if let Some(support_source) = support_source {
@@ -153,9 +156,46 @@ fn module_file(uses_lazy_support: bool) -> &'static str {
 
 fn rewrite_lazy_reader_imports(path: &Path) -> Result<()> {
     let text = fs::read_to_string(path)?;
-    let text = text.replace("use molecule::lazy_reader::{", "use super::support::{");
+    let mut text = text.replace("use molecule::lazy_reader::{", "use super::support::{");
+    match path.file_stem().and_then(|name| name.to_str()) {
+        Some("blockchain" | "core") => {
+            text = text.replace(
+                "use super::support::{Cursor, Error, NUMBER_SIZE};",
+                "use super::support::{Cursor, Error};",
+            );
+        }
+        Some("witness") => {
+            text = text.replace("use core::convert::TryInto;\n", "");
+        }
+        _ => {}
+    }
+    text = explicit_iterator_ref_lifetimes(&text);
     fs::write(path, text)?;
     Ok(())
+}
+
+fn explicit_iterator_ref_lifetimes(text: &str) -> String {
+    let mut text = text.to_owned();
+    for name in [
+        "ActionVecIteratorRef",
+        "Byte32VecIteratorRef",
+        "BytesIteratorRef",
+        "BytesOptVecIteratorRef",
+        "BytesVecIteratorRef",
+        "CellDepVecIteratorRef",
+        "CellInputVecIteratorRef",
+        "CellOutputVecIteratorRef",
+        "ProposalShortIdVecIteratorRef",
+        "SealPairVecIteratorRef",
+        "TransactionVecIteratorRef",
+        "UncleBlockVecIteratorRef",
+    ] {
+        text = text.replace(
+            &format!("pub fn iter(&self) -> {name} {{"),
+            &format!("pub fn iter(&self) -> {name}<'_> {{"),
+        );
+    }
+    text
 }
 
 fn run_rustfmt(path: &Path) -> Result<()> {

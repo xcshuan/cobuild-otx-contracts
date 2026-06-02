@@ -8,7 +8,7 @@ pub enum ParsedWitness {
 pub fn parse_witness(data: &[u8]) -> Result<ParsedWitness, CoreError> {
     match WitnessLayoutView::from_slice(data) {
         Ok(view) => Ok(ParsedWitness::Cobuild(view)),
-        Err(CoreError::MalformedCobuild | CoreError::InvalidLayout) => Ok(ParsedWitness::None),
+        Err(CoreError::MalformedCobuild | CoreError::InvalidOtxLayout) => Ok(ParsedWitness::None),
         Err(err) => Err(err),
     }
 }

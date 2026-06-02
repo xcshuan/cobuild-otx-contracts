@@ -29,7 +29,7 @@ fn tx_without_message_hash_is_deterministic() {
 fn len_prefix_rejects_values_larger_than_u32() {
     assert_eq!(
         checked_len_prefix((u32::MAX as usize) + 1),
-        Err(CoreError::MissingHashParts)
+        Err(CoreError::HashInputTooLarge)
     );
 }
 

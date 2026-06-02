@@ -1,9 +1,14 @@
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CoreError {
     MalformedCobuild,
-    InvalidLayout,
+    InvalidOtxLayout,
+    InvalidContextInput,
     InvalidMessageTarget,
-    MissingHashParts,
+    MissingHashInput,
+    HashInputTooLarge,
+    DuplicateSighashAll,
+    MissingLockGroupCoverage,
     MissingSealPair,
     DuplicateSealPair,
+    InvalidSealScope,
 }

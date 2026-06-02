@@ -13,11 +13,16 @@ pub(crate) fn map_sys_error(err: SysError) -> Error {
 pub(crate) fn map_core_error(err: CoreError) -> Error {
     match err {
         CoreError::MalformedCobuild
-        | CoreError::InvalidLayout
+        | CoreError::InvalidOtxLayout
         | CoreError::InvalidMessageTarget
+        | CoreError::DuplicateSighashAll
+        | CoreError::MissingLockGroupCoverage
         | CoreError::MissingSealPair
-        | CoreError::DuplicateSealPair => Error::MalformedCobuild,
-        CoreError::MissingHashParts => Error::InternalFailure,
+        | CoreError::DuplicateSealPair
+        | CoreError::InvalidSealScope => Error::MalformedCobuild,
+        CoreError::InvalidContextInput
+        | CoreError::MissingHashInput
+        | CoreError::HashInputTooLarge => Error::InternalFailure,
     }
 }
 
@@ -33,20 +38,26 @@ mod tests {
     fn core_protocol_errors_map_to_malformed_cobuild() {
         for err in [
             CoreError::MalformedCobuild,
-            CoreError::InvalidLayout,
+            CoreError::InvalidOtxLayout,
             CoreError::InvalidMessageTarget,
+            CoreError::DuplicateSighashAll,
+            CoreError::MissingLockGroupCoverage,
             CoreError::MissingSealPair,
             CoreError::DuplicateSealPair,
+            CoreError::InvalidSealScope,
         ] {
             assert_eq!(map_core_error(err), Error::MalformedCobuild);
         }
     }
 
     #[test]
-    fn missing_hash_parts_maps_to_internal_failure() {
-        assert_eq!(
-            map_core_error(CoreError::MissingHashParts),
-            Error::InternalFailure
-        );
+    fn internal_input_errors_map_to_internal_failure() {
+        for err in [
+            CoreError::InvalidContextInput,
+            CoreError::MissingHashInput,
+            CoreError::HashInputTooLarge,
+        ] {
+            assert_eq!(map_core_error(err), Error::InternalFailure);
+        }
     }
 }

@@ -1,5 +1,5 @@
 extern crate alloc;
-use super::support::{Cursor, Error, NUMBER_SIZE};
+use super::support::{Cursor, Error};
 use core::convert::TryInto;
 #[derive(Clone)]
 pub struct Uint32 {
@@ -198,7 +198,7 @@ impl<'a> core::iter::Iterator for BytesIteratorRef<'a> {
     }
 }
 impl Bytes {
-    pub fn iter(&self) -> BytesIteratorRef {
+    pub fn iter(&self) -> BytesIteratorRef<'_> {
         let len = self.len().unwrap();
         BytesIteratorRef {
             cur: &self,
@@ -293,7 +293,7 @@ impl<'a> core::iter::Iterator for BytesOptVecIteratorRef<'a> {
     }
 }
 impl BytesOptVec {
-    pub fn iter(&self) -> BytesOptVecIteratorRef {
+    pub fn iter(&self) -> BytesOptVecIteratorRef<'_> {
         let len = self.len().unwrap();
         BytesOptVecIteratorRef {
             cur: &self,
@@ -375,7 +375,7 @@ impl<'a> core::iter::Iterator for BytesVecIteratorRef<'a> {
     }
 }
 impl BytesVec {
-    pub fn iter(&self) -> BytesVecIteratorRef {
+    pub fn iter(&self) -> BytesVecIteratorRef<'_> {
         let len = self.len().unwrap();
         BytesVecIteratorRef {
             cur: &self,
@@ -457,7 +457,7 @@ impl<'a> core::iter::Iterator for Byte32VecIteratorRef<'a> {
     }
 }
 impl Byte32Vec {
-    pub fn iter(&self) -> Byte32VecIteratorRef {
+    pub fn iter(&self) -> Byte32VecIteratorRef<'_> {
         let len = self.len().unwrap();
         Byte32VecIteratorRef {
             cur: &self,
@@ -573,7 +573,7 @@ impl<'a> core::iter::Iterator for UncleBlockVecIteratorRef<'a> {
     }
 }
 impl UncleBlockVec {
-    pub fn iter(&self) -> UncleBlockVecIteratorRef {
+    pub fn iter(&self) -> UncleBlockVecIteratorRef<'_> {
         let len = self.len().unwrap();
         UncleBlockVecIteratorRef {
             cur: &self,
@@ -658,7 +658,7 @@ impl<'a> core::iter::Iterator for TransactionVecIteratorRef<'a> {
     }
 }
 impl TransactionVec {
-    pub fn iter(&self) -> TransactionVecIteratorRef {
+    pub fn iter(&self) -> TransactionVecIteratorRef<'_> {
         let len = self.len().unwrap();
         TransactionVecIteratorRef {
             cur: &self,
@@ -743,7 +743,7 @@ impl<'a> core::iter::Iterator for ProposalShortIdVecIteratorRef<'a> {
     }
 }
 impl ProposalShortIdVec {
-    pub fn iter(&self) -> ProposalShortIdVecIteratorRef {
+    pub fn iter(&self) -> ProposalShortIdVecIteratorRef<'_> {
         let len = self.len().unwrap();
         ProposalShortIdVecIteratorRef {
             cur: &self,
@@ -825,7 +825,7 @@ impl<'a> core::iter::Iterator for CellDepVecIteratorRef<'a> {
     }
 }
 impl CellDepVec {
-    pub fn iter(&self) -> CellDepVecIteratorRef {
+    pub fn iter(&self) -> CellDepVecIteratorRef<'_> {
         let len = self.len().unwrap();
         CellDepVecIteratorRef {
             cur: &self,
@@ -907,7 +907,7 @@ impl<'a> core::iter::Iterator for CellInputVecIteratorRef<'a> {
     }
 }
 impl CellInputVec {
-    pub fn iter(&self) -> CellInputVecIteratorRef {
+    pub fn iter(&self) -> CellInputVecIteratorRef<'_> {
         let len = self.len().unwrap();
         CellInputVecIteratorRef {
             cur: &self,
@@ -989,7 +989,7 @@ impl<'a> core::iter::Iterator for CellOutputVecIteratorRef<'a> {
     }
 }
 impl CellOutputVec {
-    pub fn iter(&self) -> CellOutputVecIteratorRef {
+    pub fn iter(&self) -> CellOutputVecIteratorRef<'_> {
         let len = self.len().unwrap();
         CellOutputVecIteratorRef {
             cur: &self,

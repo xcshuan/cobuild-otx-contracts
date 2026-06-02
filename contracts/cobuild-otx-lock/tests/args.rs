@@ -1,4 +1,4 @@
-use cobuild_otx_lock::args::{parse_auth_args, AUTH_KIND_SECP256K1_BLAKE160};
+use cobuild_otx_lock::args::{AUTH_KIND_SECP256K1_BLAKE160, parse_auth_args};
 
 #[test]
 fn parses_auth_kind_and_identity() {

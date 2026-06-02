@@ -12,7 +12,10 @@ fn workspace_declares_clean_cobuild_members() {
         "\"contracts/cobuild-otx-lock\"",
         "\"tests\"",
     ] {
-        assert!(manifest.contains(member), "missing workspace member {member}");
+        assert!(
+            manifest.contains(member),
+            "missing workspace member {member}"
+        );
     }
     assert!(
         !manifest.contains("[patch.crates-io]\ncritical-section"),

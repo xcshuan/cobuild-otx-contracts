@@ -1,7 +1,6 @@
 extern crate alloc;
 use super::core::*;
 use super::support::{Cursor, Error, NUMBER_SIZE};
-use core::convert::TryInto;
 pub enum WitnessLayout {
     SighashAll(SighashAll),
     SighashAllOnly(SighashAllOnly),

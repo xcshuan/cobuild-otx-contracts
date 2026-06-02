@@ -1,6 +1,6 @@
 extern crate alloc;
 use super::blockchain::*;
-use super::support::{Cursor, Error, NUMBER_SIZE};
+use super::support::{Cursor, Error};
 use core::convert::TryInto;
 #[derive(Clone)]
 pub struct Action {
@@ -110,7 +110,7 @@ impl<'a> core::iter::Iterator for ActionVecIteratorRef<'a> {
     }
 }
 impl ActionVec {
-    pub fn iter(&self) -> ActionVecIteratorRef {
+    pub fn iter(&self) -> ActionVecIteratorRef<'_> {
         let len = self.len().unwrap();
         ActionVecIteratorRef {
             cur: &self,
@@ -300,7 +300,7 @@ impl<'a> core::iter::Iterator for SealPairVecIteratorRef<'a> {
     }
 }
 impl SealPairVec {
-    pub fn iter(&self) -> SealPairVecIteratorRef {
+    pub fn iter(&self) -> SealPairVecIteratorRef<'_> {
         let len = self.len().unwrap();
         SealPairVecIteratorRef {
             cur: &self,

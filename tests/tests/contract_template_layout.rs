@@ -105,17 +105,63 @@ fn cobuild_core_uses_explicit_signature_request_names() {
         );
     }
 
-    let tasks_rs = fs::read_to_string(core_src.join("tasks.rs")).expect("core tasks.rs");
+    let signature_rs =
+        fs::read_to_string(core_src.join("signature.rs")).expect("core signature.rs");
     for expected in [
-        "LockSignatureRequest",
+        "SignatureRequest",
         "SignatureOrigin",
         "SighashAll",
         "OtxBase",
         "OtxAppend",
     ] {
         assert!(
-            tasks_rs.contains(expected),
-            "core task layer should expose unified signature request name {expected}"
+            signature_rs.contains(expected),
+            "core signature layer should expose unified signature request name {expected}"
+        );
+    }
+
+    assert!(
+        !core_src.join("tasks.rs").exists(),
+        "core should use signature.rs instead of tasks.rs"
+    );
+    let lib_rs = fs::read_to_string(core_src.join("lib.rs")).expect("core lib.rs");
+    assert!(
+        !lib_rs.contains("pub mod tasks"),
+        "core should not export the old tasks module"
+    );
+
+    let protocol_rs = fs::read_to_string(core_src.join("protocol.rs")).expect("core protocol.rs");
+    for expected in ["ScriptRole", "SealScope", "AppendPermissions"] {
+        assert!(
+            protocol_rs.contains(expected),
+            "core protocol layer should expose typed protocol value {expected}"
+        );
+    }
+    assert!(
+        lib_rs.contains("pub mod protocol"),
+        "core should export the protocol value module"
+    );
+    for module in ["message", "otx_request", "query", "seal", "sighash"] {
+        assert!(
+            lib_rs.contains(&format!("mod {module}")),
+            "core should keep {module}.rs as a focused internal module"
+        );
+        assert!(
+            core_src.join(format!("{module}.rs")).is_file(),
+            "missing focused core module {module}.rs"
+        );
+    }
+
+    let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("core context.rs");
+    for moved_fn in [
+        "collect_sighash_all_signatures",
+        "collect_otx_signatures",
+        "validate_message_targets",
+        "unique_otx_base_seal",
+    ] {
+        assert!(
+            !context_rs.contains(moved_fn),
+            "context.rs should not own {moved_fn}"
         );
     }
 }

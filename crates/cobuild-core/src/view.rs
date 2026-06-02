@@ -88,7 +88,9 @@ impl WitnessLayoutView {
         let cursor = cursor_from_slice(data);
         let inner = WitnessLayout::try_from(cursor).map_err(|_| CoreError::MalformedCobuild)?;
 
-        inner.verify(false).map_err(|_| CoreError::InvalidLayout)?;
+        inner
+            .verify(false)
+            .map_err(|_| CoreError::InvalidOtxLayout)?;
 
         Ok(Self { inner })
     }
@@ -197,7 +199,7 @@ pub(crate) fn message_actions(message_bytes: &[u8]) -> Result<Vec<ActionData>, C
     let message = Message::from(cursor_from_slice(message_bytes));
     message
         .verify(false)
-        .map_err(|_| CoreError::InvalidLayout)?;
+        .map_err(|_| CoreError::InvalidOtxLayout)?;
     let actions = message.actions().map_err(|_| CoreError::MalformedCobuild)?;
     let action_count = actions.len().map_err(|_| CoreError::MalformedCobuild)?;
     let mut out = Vec::with_capacity(action_count);
@@ -325,7 +327,7 @@ fn seal_pair_data(pair: &SealPair) -> Result<SealPairData, CoreError> {
 }
 
 fn usize_from_u32(value: u32) -> Result<usize, CoreError> {
-    usize::try_from(value).map_err(|_| CoreError::InvalidLayout)
+    usize::try_from(value).map_err(|_| CoreError::InvalidOtxLayout)
 }
 
 pub(crate) fn cursor_from_slice(data: &[u8]) -> Cursor {
