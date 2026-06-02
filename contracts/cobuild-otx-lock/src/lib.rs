@@ -12,5 +12,6 @@ extern crate self as cobuild_otx_lock;
 pub mod args;
 pub mod entry;
 pub mod error;
-pub mod runner;
+mod errors;
+mod loader;
 pub mod verify;

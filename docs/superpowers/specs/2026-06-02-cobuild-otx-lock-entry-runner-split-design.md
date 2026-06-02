@@ -30,7 +30,7 @@ effectively meaningless and leaves unrelated responsibilities in one module.
 5. reject empty task sets with `LockSemanticFailure`;
 6. verify every task with `LocalVerifier`.
 
-`chain.rs` should own syscall-backed loading:
+`loader.rs` should own syscall-backed loading:
 
 - current script args;
 - current script hash;
@@ -57,4 +57,3 @@ shape:
 - existing error mapping unit tests must keep passing from their new module.
 
 Existing workspace and contract integration tests must continue passing.
-

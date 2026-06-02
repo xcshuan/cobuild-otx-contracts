@@ -6,7 +6,6 @@ use ckb_std::{
     syscalls,
 };
 use cobuild_core::{
-    error::CoreError,
     hash::ResolvedInputHashPart,
     loader::{
         PreparedContextInput, parse_transaction_info, prepare_context, script_args_from_slice,
@@ -14,49 +13,15 @@ use cobuild_core::{
 };
 
 use crate::{
-    args::parse_auth_args,
     error::Error,
-    verify::{LockVerifier, VerifyError},
+    errors::{map_core_error, map_sys_error},
 };
 
-pub fn run(verifier: &impl LockVerifier) -> Result<(), Error> {
-    let auth = parse_auth_args(&current_script_args()?)?;
-    let current_script_hash = load_script_hash()?;
-    let prepared = load_prepared_context()?;
-    let tx_tasks = prepared
-        .context
-        .lock_query(current_script_hash)
-        .tx_tasks(&prepared.hash_parts)
-        .map_err(map_core_error)?;
-    let otx_tasks = prepared
-        .context
-        .lock_query(current_script_hash)
-        .otx_tasks(&prepared.hash_parts)
-        .map_err(map_core_error)?;
-
-    if tx_tasks.is_empty() && otx_tasks.is_empty() {
-        return Err(Error::LockSemanticFailure);
-    }
-
-    for task in &tx_tasks {
-        verifier
-            .verify(&auth, &task.seal, &task.signing_message_hash)
-            .map_err(map_verify_error)?;
-    }
-    for task in &otx_tasks {
-        verifier
-            .verify(&auth, &task.seal, &task.signing_message_hash)
-            .map_err(map_verify_error)?;
-    }
-
-    Ok(())
-}
-
-fn current_script_args() -> Result<Vec<u8>, Error> {
+pub(crate) fn load_current_script_args() -> Result<Vec<u8>, Error> {
     script_args_from_slice(&load_script()?).map_err(map_core_error)
 }
 
-fn load_prepared_context() -> Result<cobuild_core::context::PreparedContext, Error> {
+pub(crate) fn load_prepared_context() -> Result<cobuild_core::context::PreparedContext, Error> {
     let info = parse_transaction_info(&load_transaction()?).map_err(map_core_error)?;
     let input_count = info.input_count;
     let output_count = info.output_count;
@@ -123,7 +88,7 @@ fn load_tx_hash() -> Result<[u8; 32], Error> {
     Ok(hash)
 }
 
-fn load_script_hash() -> Result<[u8; 32], Error> {
+pub(crate) fn load_script_hash() -> Result<[u8; 32], Error> {
     let mut hash = [0u8; 32];
     syscalls::load_script_hash(&mut hash, 0).map_err(map_sys_error)?;
     Ok(hash)
@@ -165,53 +130,5 @@ fn load_data(
             Ok(data)
         }
         Err(err) => Err(map_sys_error(err)),
-    }
-}
-
-fn map_sys_error(err: SysError) -> Error {
-    match err {
-        SysError::ItemMissing => Error::LockSemanticFailure,
-        _ => Error::SyscallFailure,
-    }
-}
-
-fn map_core_error(err: CoreError) -> Error {
-    match err {
-        CoreError::MalformedCobuild
-        | CoreError::InvalidLayout
-        | CoreError::InvalidMessageTarget
-        | CoreError::MissingSealPair
-        | CoreError::DuplicateSealPair => Error::MalformedCobuild,
-        CoreError::MissingHashParts => Error::InternalFailure,
-    }
-}
-
-fn map_verify_error(_err: VerifyError) -> Error {
-    Error::VerifyFailure
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn core_protocol_errors_map_to_malformed_cobuild() {
-        for err in [
-            CoreError::MalformedCobuild,
-            CoreError::InvalidLayout,
-            CoreError::InvalidMessageTarget,
-            CoreError::MissingSealPair,
-            CoreError::DuplicateSealPair,
-        ] {
-            assert_eq!(map_core_error(err), Error::MalformedCobuild);
-        }
-    }
-
-    #[test]
-    fn missing_hash_parts_maps_to_internal_failure() {
-        assert_eq!(
-            map_core_error(CoreError::MissingHashParts),
-            Error::InternalFailure
-        );
     }
 }
