@@ -62,17 +62,60 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         !entry_rs.contains("runner::run"),
         "entry.rs must not delegate the full contract flow to runner::run"
     );
+    assert!(
+        !entry_rs.contains("tx_tasks") && !entry_rs.contains("otx_tasks"),
+        "entry.rs must consume unified signature requests instead of separate source branches"
+    );
     for expected in [
         "parse_auth_args",
         "load_current_script_args",
         "load_script_hash",
         "load_prepared_context",
         "lock_query",
+        "required_signatures",
+        "signing_hash_parts",
         "LocalVerifier",
     ] {
         assert!(
             entry_rs.contains(expected),
             "entry.rs should expose the high-level contract flow via {expected}"
+        );
+    }
+}
+
+#[test]
+fn cobuild_core_uses_explicit_signature_request_names() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+
+    let view_rs = fs::read_to_string(core_src.join("view.rs")).expect("core view.rs");
+    assert!(
+        !view_rs.contains("TxLevel"),
+        "core view layer should describe sighash-all witness layout, not legacy transaction-level names"
+    );
+    for expected in [
+        "SighashAllWitnessLayout",
+        "WithMessage",
+        "SealOnly",
+        "sighash_all_witness_layout",
+    ] {
+        assert!(
+            view_rs.contains(expected),
+            "core view layer should expose explicit witness layout name {expected}"
+        );
+    }
+
+    let tasks_rs = fs::read_to_string(core_src.join("tasks.rs")).expect("core tasks.rs");
+    for expected in [
+        "LockSignatureRequest",
+        "SignatureOrigin",
+        "SighashAll",
+        "OtxBase",
+        "OtxAppend",
+    ] {
+        assert!(
+            tasks_rs.contains(expected),
+            "core task layer should expose unified signature request name {expected}"
         );
     }
 }

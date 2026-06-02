@@ -10,30 +10,20 @@ pub fn main() -> Result<(), Error> {
     let auth = parse_auth_args(&load_current_script_args()?)?;
     let current_script_hash = load_script_hash()?;
     let prepared = load_prepared_context()?;
-    let tx_tasks = prepared
+    let signature_requests = prepared
         .context
         .lock_query(current_script_hash)
-        .tx_tasks(&prepared.hash_parts)
-        .map_err(map_core_error)?;
-    let otx_tasks = prepared
-        .context
-        .lock_query(current_script_hash)
-        .otx_tasks(&prepared.hash_parts)
+        .required_signatures(&prepared.signing_hash_parts)
         .map_err(map_core_error)?;
 
-    if tx_tasks.is_empty() && otx_tasks.is_empty() {
+    if signature_requests.is_empty() {
         return Err(Error::LockSemanticFailure);
     }
 
     let verifier = LocalVerifier;
-    for task in &tx_tasks {
+    for request in &signature_requests {
         verifier
-            .verify(&auth, &task.seal, &task.signing_message_hash)
-            .map_err(map_verify_error)?;
-    }
-    for task in &otx_tasks {
-        verifier
-            .verify(&auth, &task.seal, &task.signing_message_hash)
+            .verify(&auth, &request.seal, &request.signing_message_hash)
             .map_err(map_verify_error)?;
     }
 

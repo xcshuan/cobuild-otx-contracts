@@ -6,7 +6,7 @@ use cobuild_types::lazy_reader::blockchain::{Script, Transaction};
 use crate::{
     context::{CobuildContext, PreparedContext, TxScriptHashes},
     error::CoreError,
-    hash::{RawTxParts, ResolvedInputHashPart, TxHashParts},
+    hash::{RawTxParts, ResolvedInputHashPart, SigningHashParts},
     layout::LayoutTx,
     view::{cursor_bytes, cursor_from_slice},
 };
@@ -51,13 +51,13 @@ pub fn prepare_context(input: PreparedContextInput) -> Result<PreparedContext, C
         },
         input.raw_parts,
     )?;
-    let hash_parts = TxHashParts {
+    let signing_hash_parts = SigningHashParts {
         tx_hash: input.tx_hash,
         resolved_inputs: input.resolved_inputs,
         trailing_witnesses: input.trailing_witnesses,
     };
 
-    Ok(PreparedContext::new(context, hash_parts))
+    Ok(PreparedContext::new(context, signing_hash_parts))
 }
 
 pub fn parse_transaction_info(data: &[u8]) -> Result<TransactionInfo, CoreError> {

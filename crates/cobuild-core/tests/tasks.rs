@@ -1,12 +1,13 @@
 use cobuild_core::{
     context::{CobuildContext, TxScriptHashes},
     error::CoreError,
-    hash::{tx_with_message_hash, RawTxParts, ResolvedInputHashPart, TxHashParts},
+    hash::{tx_with_message_hash, RawTxParts, ResolvedInputHashPart, SigningHashParts},
     layout::LayoutTx,
+    tasks::SignatureOrigin,
 };
 
 #[test]
-fn lock_query_without_matching_lock_has_no_tasks() {
+fn lock_query_without_matching_lock_has_no_required_signatures() {
     let context = CobuildContext::new(
         LayoutTx {
             witnesses: Vec::new(),
@@ -22,14 +23,14 @@ fn lock_query_without_matching_lock_has_no_tasks() {
         },
     )
     .unwrap();
-    let parts = TxHashParts {
+    let parts = SigningHashParts {
         tx_hash: [0u8; 32],
         resolved_inputs: Vec::new(),
         trailing_witnesses: Vec::new(),
     };
     assert!(context
         .lock_query([2u8; 32])
-        .tx_tasks(&parts)
+        .required_signatures(&parts)
         .unwrap()
         .is_empty());
 }
@@ -51,7 +52,7 @@ fn lock_query_uses_current_lock_group_leading_witness_only() {
         },
     )
     .unwrap();
-    let parts = TxHashParts {
+    let parts = SigningHashParts {
         tx_hash: [0u8; 32],
         resolved_inputs: Vec::new(),
         trailing_witnesses: Vec::new(),
@@ -59,13 +60,17 @@ fn lock_query_uses_current_lock_group_leading_witness_only() {
 
     assert!(context
         .lock_query([1u8; 32])
-        .tx_tasks(&parts)
+        .required_signatures(&parts)
         .unwrap()
         .is_empty());
 
-    let tasks = context.lock_query([2u8; 32]).tx_tasks(&parts).unwrap();
-    assert_eq!(tasks.len(), 1);
-    assert_eq!(tasks[0].carrier_witness_index, 1);
+    let requests = context
+        .lock_query([2u8; 32])
+        .required_signatures(&parts)
+        .unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].origin, SignatureOrigin::SighashAll);
+    assert_eq!(requests[0].carrier_witness_index, 1);
 }
 
 #[test]
@@ -85,14 +90,14 @@ fn lock_query_rejects_malformed_group_leading_witness() {
         },
     )
     .unwrap();
-    let parts = TxHashParts {
+    let parts = SigningHashParts {
         tx_hash: [0u8; 32],
         resolved_inputs: Vec::new(),
         trailing_witnesses: Vec::new(),
     };
 
     assert!(matches!(
-        context.lock_query([1u8; 32]).tx_tasks(&parts),
+        context.lock_query([1u8; 32]).required_signatures(&parts),
         Err(CoreError::MalformedCobuild | CoreError::InvalidLayout)
     ));
 }
@@ -118,16 +123,20 @@ fn sighash_all_only_uses_unique_sighash_all_message_hash() {
         },
     )
     .unwrap();
-    let parts = TxHashParts {
+    let parts = SigningHashParts {
         tx_hash: [0u8; 32],
         resolved_inputs: Vec::new(),
         trailing_witnesses: Vec::new(),
     };
 
-    let tasks = context.lock_query([1u8; 32]).tx_tasks(&parts).unwrap();
-    assert_eq!(tasks.len(), 1);
+    let requests = context
+        .lock_query([1u8; 32])
+        .required_signatures(&parts)
+        .unwrap();
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].origin, SignatureOrigin::SighashAll);
     assert_eq!(
-        tasks[0].signing_message_hash,
+        requests[0].signing_message_hash,
         tx_with_message_hash(&message, &parts).unwrap()
     );
 }
@@ -153,20 +162,20 @@ fn lock_query_rejects_duplicate_sighash_all_witnesses() {
         },
     )
     .unwrap();
-    let parts = TxHashParts {
+    let parts = SigningHashParts {
         tx_hash: [0u8; 32],
         resolved_inputs: Vec::new(),
         trailing_witnesses: Vec::new(),
     };
 
     assert_eq!(
-        context.lock_query([1u8; 32]).tx_tasks(&parts),
+        context.lock_query([1u8; 32]).required_signatures(&parts),
         Err(CoreError::DuplicateSealPair)
     );
 }
 
 #[test]
-fn otx_task_rejects_message_action_target_absent_from_transaction() {
+fn otx_signature_rejects_message_action_target_absent_from_transaction() {
     let target_lock = [1u8; 32];
     let absent_output_type = [9u8; 32];
     let context = CobuildContext::with_raw_parts(
@@ -194,7 +203,7 @@ fn otx_task_rejects_message_action_target_absent_from_transaction() {
         },
     )
     .unwrap();
-    let parts = TxHashParts {
+    let parts = SigningHashParts {
         tx_hash: [0u8; 32],
         resolved_inputs: vec![ResolvedInputHashPart {
             output: Vec::new(),
@@ -204,25 +213,92 @@ fn otx_task_rejects_message_action_target_absent_from_transaction() {
     };
 
     assert_eq!(
-        context.lock_query(target_lock).otx_tasks(&parts),
+        context.lock_query(target_lock).required_signatures(&parts),
         Err(CoreError::InvalidMessageTarget)
     );
 }
 
 #[test]
-fn otx_task_rejects_missing_required_seal_pair() {
+fn required_signatures_marks_otx_base_origin() {
+    let target_lock = [1u8; 32];
+    let context = otx_context(target_lock, &[seal_pair(target_lock, 0, &[7u8; 65])]);
+    let parts = otx_signing_hash_parts();
+
+    let requests = context
+        .lock_query(target_lock)
+        .required_signatures(&parts)
+        .unwrap();
+
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].origin, SignatureOrigin::OtxBase);
+    assert_eq!(requests[0].carrier_witness_index, 1);
+}
+
+#[test]
+fn required_signatures_marks_otx_append_origin() {
+    let target_lock = [1u8; 32];
+    let base_lock = [2u8; 32];
+    let context = CobuildContext::with_raw_parts(
+        LayoutTx {
+            witnesses: vec![
+                otx_start_witness(),
+                otx_append_witness(&[seal_pair(target_lock, 1, &[7u8; 65])]),
+            ],
+            input_count: 2,
+            output_count: 0,
+            cell_dep_count: 0,
+            header_dep_count: 0,
+        },
+        TxScriptHashes {
+            input_locks: vec![base_lock, target_lock],
+            input_types: vec![None, None],
+            output_types: Vec::new(),
+        },
+        RawTxParts {
+            inputs: vec![Vec::new(), Vec::new()],
+            ..RawTxParts::default()
+        },
+    )
+    .unwrap();
+    let parts = SigningHashParts {
+        tx_hash: [0u8; 32],
+        resolved_inputs: vec![
+            ResolvedInputHashPart {
+                output: Vec::new(),
+                data: Vec::new(),
+            },
+            ResolvedInputHashPart {
+                output: Vec::new(),
+                data: Vec::new(),
+            },
+        ],
+        trailing_witnesses: Vec::new(),
+    };
+
+    let requests = context
+        .lock_query(target_lock)
+        .required_signatures(&parts)
+        .unwrap();
+
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].origin, SignatureOrigin::OtxAppend);
+    assert_eq!(requests[0].carrier_witness_index, 1);
+}
+
+#[test]
+fn otx_signature_rejects_missing_required_seal_pair() {
     let target_lock = [1u8; 32];
     let context = otx_context(target_lock, &[]);
-    let parts = otx_hash_parts();
+    let parts = otx_signing_hash_parts();
 
     assert_eq!(
-        context.lock_query(target_lock).otx_tasks(&parts),
+        context.lock_query(target_lock).required_signatures(&parts),
         Err(CoreError::MissingSealPair)
     );
 }
 
 #[test]
-fn otx_task_rejects_duplicate_required_seal_pair() {
+fn otx_signature_rejects_duplicate_required_seal_pair() {
     let target_lock = [1u8; 32];
     let context = otx_context(
         target_lock,
@@ -231,44 +307,44 @@ fn otx_task_rejects_duplicate_required_seal_pair() {
             seal_pair(target_lock, 0, &[8u8; 65]),
         ],
     );
-    let parts = otx_hash_parts();
+    let parts = otx_signing_hash_parts();
 
     assert_eq!(
-        context.lock_query(target_lock).otx_tasks(&parts),
+        context.lock_query(target_lock).required_signatures(&parts),
         Err(CoreError::DuplicateSealPair)
     );
 }
 
 #[test]
-fn otx_task_rejects_invalid_seal_scope() {
+fn otx_signature_rejects_invalid_seal_scope() {
     let target_lock = [1u8; 32];
     let context = otx_context(target_lock, &[seal_pair(target_lock, 2, &[7u8; 65])]);
-    let parts = otx_hash_parts();
+    let parts = otx_signing_hash_parts();
 
     assert_eq!(
-        context.lock_query(target_lock).otx_tasks(&parts),
+        context.lock_query(target_lock).required_signatures(&parts),
         Err(CoreError::InvalidLayout)
     );
 }
 
 #[test]
-fn otx_task_rejects_invalid_message_action_role() {
+fn otx_signature_rejects_invalid_message_action_role() {
     let target_lock = [1u8; 32];
     let context = otx_context_with_message(
         target_lock,
         &message_with_action(9, target_lock),
         &[seal_pair(target_lock, 0, &[7u8; 65])],
     );
-    let parts = otx_hash_parts();
+    let parts = otx_signing_hash_parts();
 
     assert_eq!(
-        context.lock_query(target_lock).otx_tasks(&parts),
+        context.lock_query(target_lock).required_signatures(&parts),
         Err(CoreError::InvalidMessageTarget)
     );
 }
 
 #[test]
-fn tx_level_unrelated_malformed_witness_does_not_force_cobuild_flow() {
+fn unrelated_malformed_witness_does_not_force_cobuild_flow() {
     let context = CobuildContext::new(
         LayoutTx {
             witnesses: vec![sighash_all_only_witness(&[7u8; 65]), vec![1, 2, 3, 4]],
@@ -284,14 +360,18 @@ fn tx_level_unrelated_malformed_witness_does_not_force_cobuild_flow() {
         },
     )
     .unwrap();
-    let parts = TxHashParts {
+    let parts = SigningHashParts {
         tx_hash: [0u8; 32],
         resolved_inputs: Vec::new(),
         trailing_witnesses: Vec::new(),
     };
 
     assert_eq!(
-        context.lock_query([1u8; 32]).tx_tasks(&parts).unwrap().len(),
+        context
+            .lock_query([1u8; 32])
+            .required_signatures(&parts)
+            .unwrap()
+            .len(),
         1
     );
 }
@@ -394,8 +474,8 @@ fn otx_context_with_message(
     .unwrap()
 }
 
-fn otx_hash_parts() -> TxHashParts {
-    TxHashParts {
+fn otx_signing_hash_parts() -> SigningHashParts {
+    SigningHashParts {
         tx_hash: [0u8; 32],
         resolved_inputs: vec![ResolvedInputHashPart {
             output: Vec::new(),
@@ -418,12 +498,26 @@ fn otx_start_witness() -> Vec<u8> {
 }
 
 fn otx_witness(message: &[u8], seals: &[Vec<u8>]) -> Vec<u8> {
+    otx_witness_custom(message, 0, 1, 0, seals)
+}
+
+fn otx_append_witness(seals: &[Vec<u8>]) -> Vec<u8> {
+    otx_witness_custom(&empty_message(), 0x01, 1, 1, seals)
+}
+
+fn otx_witness_custom(
+    message: &[u8],
+    append_permissions: u8,
+    base_input_cells: u32,
+    append_input_cells: u32,
+    seals: &[Vec<u8>],
+) -> Vec<u8> {
     witness_union(
         0xff00_0003,
         &table(&[
             message.to_vec(),
-            vec![0],
-            1u32.to_le_bytes().to_vec(),
+            vec![append_permissions],
+            base_input_cells.to_le_bytes().to_vec(),
             molecule_bytes(&[0]),
             0u32.to_le_bytes().to_vec(),
             molecule_bytes(&[]),
@@ -431,7 +525,7 @@ fn otx_witness(message: &[u8], seals: &[Vec<u8>]) -> Vec<u8> {
             molecule_bytes(&[]),
             0u32.to_le_bytes().to_vec(),
             molecule_bytes(&[]),
-            0u32.to_le_bytes().to_vec(),
+            append_input_cells.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),

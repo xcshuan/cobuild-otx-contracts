@@ -38,9 +38,9 @@ pub struct WitnessLayoutView {
     pub(crate) inner: WitnessLayout,
 }
 
-pub enum TxLevelWitness {
-    SighashAll { seal: Vec<u8>, message: Vec<u8> },
-    SighashAllOnly { seal: Vec<u8> },
+pub enum SighashAllWitnessLayout {
+    WithMessage { seal: Vec<u8>, message: Vec<u8> },
+    SealOnly { seal: Vec<u8> },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -114,7 +114,7 @@ impl WitnessLayoutView {
         }
     }
 
-    pub fn tx_level_witness(&self) -> Result<Option<TxLevelWitness>, CoreError> {
+    pub fn sighash_all_witness_layout(&self) -> Result<Option<SighashAllWitnessLayout>, CoreError> {
         match &self.inner {
             WitnessLayout::SighashAll(witness) => {
                 let seal = witness
@@ -122,7 +122,7 @@ impl WitnessLayoutView {
                     .and_then(|cursor| cursor.try_into())
                     .map_err(|_| CoreError::MalformedCobuild)?;
                 let message = witness.message().map_err(|_| CoreError::MalformedCobuild)?;
-                Ok(Some(TxLevelWitness::SighashAll {
+                Ok(Some(SighashAllWitnessLayout::WithMessage {
                     seal,
                     message: cursor_bytes(&message.cursor)?,
                 }))
@@ -130,7 +130,7 @@ impl WitnessLayoutView {
             WitnessLayout::SighashAllOnly(witness) => witness
                 .seal()
                 .and_then(TryInto::try_into)
-                .map(|seal| Some(TxLevelWitness::SighashAllOnly { seal }))
+                .map(|seal| Some(SighashAllWitnessLayout::SealOnly { seal }))
                 .map_err(|_| CoreError::MalformedCobuild),
             _ => Ok(None),
         }

@@ -129,7 +129,7 @@ pub mod fixtures {
         },
         context::Context,
     };
-    use cobuild_core::hash::{tx_without_message_hash, ResolvedInputHashPart, TxHashParts};
+    use cobuild_core::hash::{ResolvedInputHashPart, SigningHashParts, tx_without_message_hash};
     use cobuild_types::entity::{
         core::{ActionVec, Message as CobuildMessage, Otx, OtxStart, SealPair, SighashAllOnly},
         witness::WitnessLayout,
@@ -153,13 +153,13 @@ pub mod fixtures {
         build_case(Bytes::from(vec![0u8]))
     }
 
-    pub fn no_relevant_task_case() -> Case {
+    pub fn no_relevant_signature_request_case() -> Case {
         let mut args = vec![0u8];
         args.extend_from_slice(&[1u8; 20]);
         build_case(Bytes::from(args))
     }
 
-    pub fn signed_tx_level_case() -> Case {
+    pub fn signed_sighash_all_case() -> Case {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::from_slice(&[1u8; 32]).expect("fixed secret key");
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
@@ -198,7 +198,7 @@ pub mod fixtures {
             .witness(Bytes::new().pack())
             .build();
 
-        let signing_message_hash = tx_without_message_hash(&TxHashParts {
+        let signing_message_hash = tx_without_message_hash(&SigningHashParts {
             tx_hash: packed_hash_to_array(unsigned_tx.hash()),
             resolved_inputs: vec![ResolvedInputHashPart {
                 output: input_output.as_slice().to_vec(),
@@ -221,7 +221,7 @@ pub mod fixtures {
         signed_otx_case(false, false)
     }
 
-    pub fn mixed_tx_and_otx_case() -> Case {
+    pub fn mixed_sighash_all_and_otx_case() -> Case {
         signed_otx_case(true, false)
     }
 
@@ -251,12 +251,12 @@ pub mod fixtures {
         signed_otx_case_with_options(false, false, Some(0x10))
     }
 
-    fn signed_otx_case(include_tx_level: bool, corrupt_append_seal: bool) -> Case {
-        signed_otx_case_with_options(include_tx_level, corrupt_append_seal, None)
+    fn signed_otx_case(include_sighash_all: bool, corrupt_append_seal: bool) -> Case {
+        signed_otx_case_with_options(include_sighash_all, corrupt_append_seal, None)
     }
 
     fn signed_otx_case_with_options(
-        include_tx_level: bool,
+        include_sighash_all: bool,
         corrupt_append_seal: bool,
         override_append_permissions: Option<u8>,
     ) -> Case {
@@ -283,7 +283,7 @@ pub mod fixtures {
             .capacity(100_000_000_000u64)
             .lock(lock)
             .build();
-        let input_count = if include_tx_level { 3 } else { 2 };
+        let input_count = if include_sighash_all { 3 } else { 2 };
         let mut input_out_points = Vec::with_capacity(input_count);
         for _ in 0..input_count {
             input_out_points.push(context.create_cell(input_output.clone(), Bytes::new()));
@@ -311,7 +311,7 @@ pub mod fixtures {
             .witness(Bytes::new().pack())
             .build();
 
-        let start_input = if include_tx_level { 1 } else { 0 };
+        let start_input = if include_sighash_all { 1 } else { 0 };
         let otx_parts = OtxFixtureParts {
             message: empty_message_entity().as_slice().to_vec(),
             append_permissions: override_append_permissions.unwrap_or(0x01),
@@ -352,8 +352,8 @@ pub mod fixtures {
         ));
 
         let mut witnesses = Vec::new();
-        if include_tx_level {
-            let signing_message_hash = tx_without_message_hash(&TxHashParts {
+        if include_sighash_all {
+            let signing_message_hash = tx_without_message_hash(&SigningHashParts {
                 tx_hash: packed_hash_to_array(unsigned_tx.hash()),
                 resolved_inputs: vec![
                     ResolvedInputHashPart {
@@ -364,7 +364,7 @@ pub mod fixtures {
                 ],
                 trailing_witnesses: Vec::new(),
             })
-            .expect("tx-level signing message hash");
+            .expect("sighash-all signing message hash");
             let tx_seal = sign_recoverable(&secp, &secret_key, signing_message_hash);
             witnesses.push(
                 Bytes::copy_from_slice(

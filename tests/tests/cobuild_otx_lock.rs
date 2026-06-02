@@ -7,14 +7,14 @@ fn contract_rejects_invalid_args() {
 }
 
 #[test]
-fn contract_rejects_without_relevant_task() {
-    let result = fixtures::no_relevant_task_case().verify();
+fn contract_rejects_without_relevant_signature_request() {
+    let result = fixtures::no_relevant_signature_request_case().verify();
     assert_lock_script_exit(result, 3);
 }
 
 #[test]
-fn contract_accepts_tx_level_cobuild_signature() {
-    let result = fixtures::signed_tx_level_case().verify();
+fn contract_accepts_sighash_all_cobuild_signature() {
+    let result = fixtures::signed_sighash_all_case().verify();
     assert!(result.is_ok(), "{result:?}");
 }
 
@@ -25,8 +25,8 @@ fn contract_accepts_otx_base_and_append_signatures() {
 }
 
 #[test]
-fn contract_accepts_mixed_tx_level_and_otx_tasks() {
-    let result = fixtures::mixed_tx_and_otx_case().verify();
+fn contract_accepts_mixed_sighash_all_and_otx_signature_requests() {
+    let result = fixtures::mixed_sighash_all_and_otx_case().verify();
     assert!(result.is_ok(), "{result:?}");
 }
 

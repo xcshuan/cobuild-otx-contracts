@@ -4,11 +4,11 @@ use crate::{
     error::CoreError,
     hash::{
         otx_append_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash, RawTxParts,
-        TxHashParts,
+        SigningHashParts,
     },
     layout::{build_layout, BuiltLayout, LayoutTx, Range},
-    tasks::{OtxLockTask, OtxScope, TxLevelLockTask},
-    view::{message_actions, TxLevelWitness, WitnessLayoutView},
+    tasks::{LockSignatureRequest, SignatureOrigin},
+    view::{message_actions, SighashAllWitnessLayout, WitnessLayoutView},
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -71,7 +71,19 @@ impl CobuildContext {
 }
 
 impl LockScriptQuery<'_> {
-    pub fn tx_tasks(&self, parts: &TxHashParts) -> Result<Vec<TxLevelLockTask>, CoreError> {
+    pub fn required_signatures(
+        &self,
+        parts: &SigningHashParts,
+    ) -> Result<Vec<LockSignatureRequest>, CoreError> {
+        let mut requests = self.collect_sighash_all_signatures(parts)?;
+        requests.extend(self.collect_otx_signatures(parts)?);
+        Ok(requests)
+    }
+
+    fn collect_sighash_all_signatures(
+        &self,
+        parts: &SigningHashParts,
+    ) -> Result<Vec<LockSignatureRequest>, CoreError> {
         let Some(carrier_witness_index) = self
             .context
             .script_hashes
@@ -90,18 +102,18 @@ impl LockScriptQuery<'_> {
         }
 
         let view = WitnessLayoutView::from_slice(witness)?;
-        let Some(tx_level_witness) = view.tx_level_witness()? else {
+        let Some(sighash_all_witness_layout) = view.sighash_all_witness_layout()? else {
             return Ok(Vec::new());
         };
         let tx_message = self.unique_sighash_all_message()?;
-        let (seal, signing_message_hash) = match tx_level_witness {
-            TxLevelWitness::SighashAll { seal, message } => {
+        let (seal, signing_message_hash) = match sighash_all_witness_layout {
+            SighashAllWitnessLayout::WithMessage { seal, message } => {
                 let message = tx_message.as_deref().unwrap_or(&message);
                 self.validate_message_targets(message)?;
                 let signing_message_hash = tx_with_message_hash(message, parts)?;
                 (seal, signing_message_hash)
             }
-            TxLevelWitness::SighashAllOnly { seal } => {
+            SighashAllWitnessLayout::SealOnly { seal } => {
                 let signing_message_hash = match tx_message {
                     Some(message) => {
                         self.validate_message_targets(&message)?;
@@ -113,18 +125,22 @@ impl LockScriptQuery<'_> {
             }
         };
 
-        Ok(alloc::vec![TxLevelLockTask {
+        Ok(alloc::vec![LockSignatureRequest {
             script_hash: self.script_hash,
             carrier_witness_index,
+            origin: SignatureOrigin::SighashAll,
             seal,
             signing_message_hash,
         }])
     }
 
-    pub fn otx_tasks(&self, parts: &TxHashParts) -> Result<Vec<OtxLockTask>, CoreError> {
-        let mut tasks = Vec::new();
+    fn collect_otx_signatures(
+        &self,
+        parts: &SigningHashParts,
+    ) -> Result<Vec<LockSignatureRequest>, CoreError> {
+        let mut requests = Vec::new();
         if self.context.layout.otx_data.is_empty() {
-            return Ok(tasks);
+            return Ok(requests);
         }
         let raw_parts = self
             .context
@@ -143,20 +159,20 @@ impl LockScriptQuery<'_> {
             let base_hash =
                 otx_base_hash(&otx.witness, &otx.layout, raw_parts, &parts.resolved_inputs)?;
             if base_relevant {
-                tasks.push(OtxLockTask {
+                requests.push(LockSignatureRequest {
                     script_hash: self.script_hash,
                     carrier_witness_index: otx.layout.witness_index,
-                    scope: OtxScope::Base,
-                    seal: self.unique_otx_seal(&otx.witness.seals, OtxScope::Base)?,
+                    origin: SignatureOrigin::OtxBase,
+                    seal: self.unique_otx_base_seal(&otx.witness.seals)?,
                     signing_message_hash: base_hash,
                 });
             }
             if append_relevant {
-                tasks.push(OtxLockTask {
+                requests.push(LockSignatureRequest {
                     script_hash: self.script_hash,
                     carrier_witness_index: otx.layout.witness_index,
-                    scope: OtxScope::Append,
-                    seal: self.unique_otx_seal(&otx.witness.seals, OtxScope::Append)?,
+                    origin: SignatureOrigin::OtxAppend,
+                    seal: self.unique_otx_append_seal(&otx.witness.seals)?,
                     signing_message_hash: otx_append_hash(
                         &otx.witness,
                         &otx.layout,
@@ -168,7 +184,7 @@ impl LockScriptQuery<'_> {
             }
         }
 
-        Ok(tasks)
+        Ok(requests)
     }
 
     fn unique_sighash_all_message(&self) -> Result<Option<Vec<u8>>, CoreError> {
@@ -232,15 +248,25 @@ impl LockScriptQuery<'_> {
         Ok(())
     }
 
-    fn unique_otx_seal(
+    fn unique_otx_base_seal(
         &self,
         seals: &[crate::view::SealPairData],
-        scope: OtxScope,
     ) -> Result<Vec<u8>, CoreError> {
-        let scope = match scope {
-            OtxScope::Base => 0,
-            OtxScope::Append => 1,
-        };
+        self.unique_otx_seal_by_scope(seals, 0)
+    }
+
+    fn unique_otx_append_seal(
+        &self,
+        seals: &[crate::view::SealPairData],
+    ) -> Result<Vec<u8>, CoreError> {
+        self.unique_otx_seal_by_scope(seals, 1)
+    }
+
+    fn unique_otx_seal_by_scope(
+        &self,
+        seals: &[crate::view::SealPairData],
+        scope: u8,
+    ) -> Result<Vec<u8>, CoreError> {
         let mut found = None;
         for seal in seals {
             if seal.scope > 1 {
@@ -259,14 +285,14 @@ impl LockScriptQuery<'_> {
 
 pub struct PreparedContext {
     pub context: CobuildContext,
-    pub hash_parts: TxHashParts,
+    pub signing_hash_parts: SigningHashParts,
 }
 
 impl PreparedContext {
-    pub fn new(context: CobuildContext, hash_parts: TxHashParts) -> Self {
+    pub fn new(context: CobuildContext, signing_hash_parts: SigningHashParts) -> Self {
         Self {
             context,
-            hash_parts,
+            signing_hash_parts,
         }
     }
 }

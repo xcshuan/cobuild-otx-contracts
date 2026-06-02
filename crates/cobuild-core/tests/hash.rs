@@ -2,10 +2,10 @@ use cobuild_core::{
     error::CoreError,
     hash::{
         checked_len_prefix, otx_base_hash, tx_without_message_hash, RawTxParts,
-        ResolvedInputHashPart, TxHashParts,
+        ResolvedInputHashPart, SigningHashParts,
     },
     layout::{OtxLayout, Range},
-    view::{OwnedReader, OtxData},
+    view::{OtxData, OwnedReader},
 };
 use cobuild_types::lazy_reader::{
     blockchain::{CellInput, CellOutput},
@@ -14,7 +14,7 @@ use cobuild_types::lazy_reader::{
 
 #[test]
 fn tx_without_message_hash_is_deterministic() {
-    let parts = TxHashParts {
+    let parts = SigningHashParts {
         tx_hash: [7u8; 32],
         resolved_inputs: Vec::new(),
         trailing_witnesses: Vec::new(),
@@ -35,7 +35,7 @@ fn len_prefix_rejects_values_larger_than_u32() {
 
 #[test]
 fn resolved_input_output_is_not_length_prefixed() {
-    let parts = TxHashParts {
+    let parts = SigningHashParts {
         tx_hash: [9u8; 32],
         resolved_inputs: vec![ResolvedInputHashPart {
             output: vec![1, 2, 3],
