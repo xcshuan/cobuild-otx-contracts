@@ -212,3 +212,37 @@ fn cobuild_core_reader_helpers_are_not_owned_by_view() {
         );
     }
 }
+
+#[test]
+fn cobuild_core_exposes_source_boundary_without_ckb_std() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+
+    assert!(
+        core_src.join("source.rs").is_file(),
+        "source.rs must own source traits"
+    );
+
+    let lib_rs = fs::read_to_string(core_src.join("lib.rs")).expect("core lib.rs");
+    assert!(
+        lib_rs.contains("pub mod source"),
+        "core should export source traits"
+    );
+
+    let source_rs = fs::read_to_string(core_src.join("source.rs")).expect("source.rs");
+    for expected in [
+        "ClassifiedCursor",
+        "CursorReadContext",
+        "TransactionSource",
+        "SigningDataSource",
+    ] {
+        assert!(
+            source_rs.contains(expected),
+            "source.rs should define {expected}"
+        );
+    }
+    assert!(
+        !source_rs.contains("ckb_std"),
+        "core source boundary must not import ckb_std"
+    );
+}

@@ -14,6 +14,7 @@ pub mod reader;
 mod seal;
 mod sighash;
 pub mod signature;
+pub mod source;
 pub mod view;
 pub mod witness;
 

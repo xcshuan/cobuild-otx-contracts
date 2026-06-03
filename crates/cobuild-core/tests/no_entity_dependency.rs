@@ -18,6 +18,7 @@ const CORE_SOURCE_PATHS: &[&str] = &[
     "src/seal.rs",
     "src/signature.rs",
     "src/sighash.rs",
+    "src/source.rs",
     "src/view.rs",
     "src/witness.rs",
 ];
