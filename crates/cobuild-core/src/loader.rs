@@ -8,7 +8,7 @@ use crate::{
     error::CoreError,
     hash::{RawTxParts, ResolvedInputHashPart, SigningHashParts},
     layout::LayoutTx,
-    view::{cursor_bytes, cursor_from_slice},
+    reader::{cursor_bytes, cursor_from_slice},
 };
 
 pub struct TransactionInfo {

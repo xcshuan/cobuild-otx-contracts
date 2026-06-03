@@ -6,7 +6,8 @@ use cobuild_types::lazy_reader::blockchain::{CellInput, CellOutput};
 use crate::{
     error::CoreError,
     layout::{OtxLayout, Range},
-    view::{cursor_from_slice, update_cursor, OtxData},
+    reader::{cursor_from_slice, update_cursor},
+    view::OtxData,
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]

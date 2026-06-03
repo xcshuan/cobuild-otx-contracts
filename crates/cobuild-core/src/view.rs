@@ -1,37 +1,15 @@
-use alloc::{boxed::Box, vec, vec::Vec};
-use core::{cmp::min, convert::TryInto};
+use alloc::vec::Vec;
+use core::convert::TryInto;
 
 use cobuild_types::lazy_reader::{
     core::{Message, Otx, OtxStart, SealPair},
-    support::{Cursor, Error as MoleculeError, Read},
     witness::WitnessLayout,
 };
 
-use crate::error::CoreError;
-
-pub struct OwnedReader {
-    data: Vec<u8>,
-}
-
-impl OwnedReader {
-    pub fn new(data: &[u8]) -> Self {
-        Self {
-            data: data.to_vec(),
-        }
-    }
-}
-
-impl Read for OwnedReader {
-    fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, MoleculeError> {
-        if offset >= self.data.len() {
-            return Err(MoleculeError::OutOfBound(offset, self.data.len()));
-        }
-
-        let read_len = min(buf.len(), self.data.len() - offset);
-        buf[..read_len].copy_from_slice(&self.data[offset..offset + read_len]);
-        Ok(read_len)
-    }
-}
+use crate::{
+    error::CoreError,
+    reader::{cursor_bytes, cursor_from_slice},
+};
 
 pub struct WitnessLayoutView {
     #[allow(dead_code)]
@@ -151,48 +129,6 @@ impl WitnessLayoutView {
             _ => Ok(None),
         }
     }
-}
-
-pub(crate) fn cursor_bytes(cursor: &Cursor) -> Result<Vec<u8>, CoreError> {
-    let mut bytes = vec![0; cursor.size];
-    let read = cursor
-        .read_at(&mut bytes)
-        .map_err(|_| CoreError::MalformedCobuild)?;
-    if read != bytes.len() {
-        return Err(CoreError::MalformedCobuild);
-    }
-    Ok(bytes)
-}
-
-pub(crate) fn update_cursor(
-    hasher: &mut blake2b_ref::Blake2b,
-    cursor: &Cursor,
-) -> Result<(), CoreError> {
-    let mut offset = 0usize;
-    let mut buf = [0u8; 256];
-
-    while offset < cursor.size {
-        let read_len = min(buf.len(), cursor.size - offset);
-        let mut chunk = cursor.clone();
-        chunk
-            .add_offset(offset)
-            .map_err(|_| CoreError::MalformedCobuild)?;
-        chunk.size = read_len;
-
-        let read = chunk
-            .read_at(&mut buf[..read_len])
-            .map_err(|_| CoreError::MalformedCobuild)?;
-        if read != read_len {
-            return Err(CoreError::MalformedCobuild);
-        }
-
-        hasher.update(&buf[..read_len]);
-        offset = offset
-            .checked_add(read_len)
-            .ok_or(CoreError::MalformedCobuild)?;
-    }
-
-    Ok(())
 }
 
 pub(crate) fn message_actions(message_bytes: &[u8]) -> Result<Vec<ActionData>, CoreError> {
@@ -328,9 +264,4 @@ fn seal_pair_data(pair: &SealPair) -> Result<SealPairData, CoreError> {
 
 fn usize_from_u32(value: u32) -> Result<usize, CoreError> {
     usize::try_from(value).map_err(|_| CoreError::InvalidOtxLayout)
-}
-
-pub(crate) fn cursor_from_slice(data: &[u8]) -> Cursor {
-    let reader: Box<dyn Read> = Box::new(OwnedReader::new(data));
-    Cursor::new(data.len(), reader)
 }

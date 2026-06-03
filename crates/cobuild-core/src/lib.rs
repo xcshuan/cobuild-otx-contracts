@@ -10,6 +10,7 @@ mod message;
 mod otx_request;
 pub mod protocol;
 mod query;
+pub mod reader;
 mod seal;
 mod sighash;
 pub mod signature;

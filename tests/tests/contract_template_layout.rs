@@ -165,3 +165,45 @@ fn cobuild_core_uses_explicit_signature_request_names() {
         );
     }
 }
+
+#[test]
+fn cobuild_core_reader_helpers_are_not_owned_by_view() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+
+    assert!(
+        core_src.join("reader.rs").is_file(),
+        "reader.rs must own cursor helpers"
+    );
+    let lib_rs = fs::read_to_string(core_src.join("lib.rs")).expect("core lib.rs");
+    assert!(
+        lib_rs.contains("pub mod reader"),
+        "core should export reader helpers"
+    );
+
+    let reader_rs = fs::read_to_string(core_src.join("reader.rs")).expect("reader.rs");
+    for expected in [
+        "OwnedReader",
+        "cursor_from_slice",
+        "cursor_bytes",
+        "update_cursor",
+    ] {
+        assert!(
+            reader_rs.contains(expected),
+            "reader.rs should define {expected}"
+        );
+    }
+
+    let view_rs = fs::read_to_string(core_src.join("view.rs")).expect("view.rs");
+    for forbidden in [
+        "struct OwnedReader",
+        "fn cursor_from_slice",
+        "fn cursor_bytes",
+        "fn update_cursor",
+    ] {
+        assert!(
+            !view_rs.contains(forbidden),
+            "view.rs must not define {forbidden}"
+        );
+    }
+}

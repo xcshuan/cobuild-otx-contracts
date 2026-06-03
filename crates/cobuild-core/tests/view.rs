@@ -1,4 +1,4 @@
-use cobuild_core::view::OwnedReader;
+use cobuild_core::reader::OwnedReader;
 use cobuild_core::view::WitnessLayoutView;
 use cobuild_types::lazy_reader::support::{Error as MoleculeError, Read};
 

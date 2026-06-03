@@ -5,7 +5,8 @@ use cobuild_core::{
         ResolvedInputHashPart, SigningHashParts,
     },
     layout::{OtxLayout, Range},
-    view::{OtxData, OwnedReader},
+    reader::OwnedReader,
+    view::OtxData,
 };
 use cobuild_types::lazy_reader::{
     blockchain::{CellInput, CellOutput},
