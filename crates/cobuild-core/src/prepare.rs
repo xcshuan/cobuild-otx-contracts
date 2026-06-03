@@ -46,6 +46,10 @@ pub struct PreparedContextInput {
     pub raw_header_deps: Vec<[u8; 32]>,
 }
 
+pub struct SourcePreparedContext {
+    pub context: CobuildContext,
+}
+
 pub fn prepare_context(input: PreparedContextInput) -> Result<PreparedContext, CoreError> {
     let context = CobuildContext::new(
         LayoutTx {
@@ -83,7 +87,7 @@ pub fn prepare_context(input: PreparedContextInput) -> Result<PreparedContext, C
 
 pub fn prepare_context_from_source<S: TransactionSource>(
     source: &S,
-) -> Result<PreparedContext, CoreError> {
+) -> Result<SourcePreparedContext, CoreError> {
     let transaction_cursor = source.transaction_cursor()?;
     let transaction_read_error = transaction_cursor.read_error();
     let tx = Transaction::from(transaction_cursor.cursor);
@@ -148,7 +152,7 @@ pub fn prepare_context_from_source<S: TransactionSource>(
         },
     )?;
 
-    Ok(PreparedContext::new(context, InMemorySource::default()))
+    Ok(SourcePreparedContext { context })
 }
 
 pub fn parse_transaction_info(data: &[u8]) -> Result<TransactionInfo, CoreError> {

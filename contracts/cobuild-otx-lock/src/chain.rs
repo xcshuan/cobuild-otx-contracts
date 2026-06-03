@@ -7,9 +7,8 @@ use ckb_std::{
     syscalls,
 };
 use cobuild_core::{
-    context::PreparedContext,
     error::CoreError,
-    prepare::{prepare_context_from_source, script_args_from_slice},
+    prepare::{SourcePreparedContext, prepare_context_from_source, script_args_from_slice},
     source::{ClassifiedCursor, SigningDataSource, TransactionSource},
 };
 use cobuild_types::lazy_reader::{
@@ -28,7 +27,7 @@ pub(crate) fn load_current_script_args() -> Result<Vec<u8>, Error> {
 
 pub(crate) struct LoadedContext {
     pub source: ChainSource,
-    pub prepared: PreparedContext,
+    pub prepared: SourcePreparedContext,
 }
 
 pub(crate) fn load_prepared_context() -> Result<LoadedContext, Error> {

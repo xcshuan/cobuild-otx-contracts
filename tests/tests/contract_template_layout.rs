@@ -108,6 +108,18 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
         !chain_rs.contains("parse_transaction_info(&load_transaction()?"),
         "lock path must parse transaction from source cursor"
     );
+
+    let core_prepare_rs =
+        fs::read_to_string(workspace_root.join("crates/cobuild-core/src/prepare.rs"))
+            .expect("prepare.rs");
+    assert!(
+        core_prepare_rs.contains("pub struct SourcePreparedContext"),
+        "source-backed prepare should return an explicit context-only type"
+    );
+    assert!(
+        !core_prepare_rs.contains("InMemorySource::default()"),
+        "source-backed prepare must not hide a dummy signing_source"
+    );
 }
 
 #[test]
