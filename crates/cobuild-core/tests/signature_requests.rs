@@ -5,7 +5,7 @@ use cobuild_core::{
     layout::LayoutTx,
     reader::cursor_from_slice,
     signature::SignatureOrigin,
-    source::InMemorySource,
+    source::{ClassifiedCursor, InMemorySource, SigningDataSource, TransactionSource},
 };
 
 #[test]
@@ -356,6 +356,63 @@ fn unrelated_otx_lock_query_does_not_require_raw_hash_parts() {
 }
 
 #[test]
+fn unrelated_otx_query_does_not_read_hash_payloads() {
+    let target_lock = [1u8; 32];
+    let unrelated_lock = [9u8; 32];
+    let context = CobuildContext::new(
+        LayoutTx {
+            witnesses: vec![otx_start_witness(), otx_witness(&empty_message(), &[])],
+            input_count: 1,
+            output_count: 0,
+            cell_dep_count: 0,
+            header_dep_count: 0,
+        },
+        ScriptHashIndex {
+            input_locks: vec![target_lock],
+            input_types: vec![None],
+            output_types: Vec::new(),
+        },
+    )
+    .unwrap();
+    let source = CountingSource::new(InMemorySource::default());
+
+    let requests = context
+        .lock_query(unrelated_lock)
+        .required_signatures(&source)
+        .unwrap();
+    assert!(requests.is_empty());
+    assert_eq!(source.counters.resolved_outputs.get(), 0);
+    assert_eq!(source.counters.resolved_data.get(), 0);
+    assert_eq!(source.counters.raw_inputs.get(), 0);
+    assert_eq!(source.counters.raw_outputs.get(), 0);
+    assert_eq!(source.counters.raw_outputs_data.get(), 0);
+    assert_eq!(source.counters.raw_cell_deps.get(), 0);
+    assert_eq!(source.counters.raw_header_deps.get(), 0);
+}
+
+#[test]
+fn relevant_otx_query_reads_hash_payloads() {
+    let target_lock = [1u8; 32];
+    let context = otx_context(target_lock, &[seal_pair(target_lock, 0, &[7u8; 65])]);
+    let source = CountingSource::new(otx_signing_source(1));
+
+    let requests = context
+        .lock_query(target_lock)
+        .required_signatures(&source)
+        .unwrap();
+
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].origin, SignatureOrigin::OtxBase);
+    assert_eq!(source.counters.raw_inputs.get(), 1);
+    assert_eq!(source.counters.resolved_outputs.get(), 1);
+    assert_eq!(source.counters.resolved_data.get(), 1);
+    assert_eq!(source.counters.raw_outputs.get(), 0);
+    assert_eq!(source.counters.raw_outputs_data.get(), 0);
+    assert_eq!(source.counters.raw_cell_deps.get(), 0);
+    assert_eq!(source.counters.raw_header_deps.get(), 0);
+}
+
+#[test]
 fn unrelated_malformed_otx_layout_does_not_fail_tx_level_lock_query() {
     let tx_lock = [1u8; 32];
     let otx_lock = [2u8; 32];
@@ -551,6 +608,110 @@ fn otx_signing_source(input_count: usize) -> InMemorySource {
         resolved_outputs: vec![Vec::new(); input_count],
         resolved_data: vec![Vec::new(); input_count],
         ..InMemorySource::default()
+    }
+}
+
+#[derive(Default)]
+struct ReadCounters {
+    resolved_outputs: core::cell::Cell<usize>,
+    resolved_data: core::cell::Cell<usize>,
+    raw_inputs: core::cell::Cell<usize>,
+    raw_outputs: core::cell::Cell<usize>,
+    raw_outputs_data: core::cell::Cell<usize>,
+    raw_cell_deps: core::cell::Cell<usize>,
+    raw_header_deps: core::cell::Cell<usize>,
+}
+
+struct CountingSource {
+    inner: InMemorySource,
+    counters: ReadCounters,
+}
+
+impl CountingSource {
+    fn new(inner: InMemorySource) -> Self {
+        Self {
+            inner,
+            counters: ReadCounters::default(),
+        }
+    }
+}
+
+fn increment(counter: &core::cell::Cell<usize>) {
+    counter.set(counter.get() + 1);
+}
+
+impl TransactionSource for CountingSource {
+    fn transaction_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
+        self.inner.transaction_cursor()
+    }
+
+    fn script_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
+        self.inner.script_cursor()
+    }
+
+    fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
+        self.inner.tx_hash()
+    }
+
+    fn input_lock_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
+        self.inner.input_lock_hash(index)
+    }
+
+    fn input_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        self.inner.input_type_hash(index)
+    }
+
+    fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        self.inner.output_type_hash(index)
+    }
+
+    fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.resolved_outputs);
+        self.inner.resolved_input_output_cursor(index)
+    }
+
+    fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.resolved_data);
+        self.inner.resolved_input_data_cursor(index)
+    }
+}
+
+impl SigningDataSource for CountingSource {
+    fn input_count(&self) -> Result<usize, CoreError> {
+        self.inner.input_count()
+    }
+
+    fn witness_count(&self) -> Result<usize, CoreError> {
+        self.inner.witness_count()
+    }
+
+    fn witness_cursor(&self, absolute_index: usize) -> Result<ClassifiedCursor, CoreError> {
+        self.inner.witness_cursor(absolute_index)
+    }
+
+    fn raw_input_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.raw_inputs);
+        self.inner.raw_input_cursor(index)
+    }
+
+    fn raw_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.raw_outputs);
+        self.inner.raw_output_cursor(index)
+    }
+
+    fn raw_output_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.raw_outputs_data);
+        self.inner.raw_output_data_cursor(index)
+    }
+
+    fn raw_cell_dep_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.raw_cell_deps);
+        self.inner.raw_cell_dep_cursor(index)
+    }
+
+    fn raw_header_dep_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
+        increment(&self.counters.raw_header_deps);
+        self.inner.raw_header_dep_hash(index)
     }
 }
 
