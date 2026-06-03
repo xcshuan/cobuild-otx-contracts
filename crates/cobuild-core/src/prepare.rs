@@ -7,8 +7,8 @@ use crate::{
     context::{CobuildContext, PreparedContext, ScriptHashIndex},
     error::CoreError,
     layout::LayoutTx,
-    reader::{cursor_bytes, cursor_from_slice},
-    source::InMemorySource,
+    reader::{cursor_bytes, cursor_bytes_with_error, cursor_from_slice},
+    source::{InMemorySource, TransactionSource},
 };
 
 pub struct TransactionInfo {
@@ -79,6 +79,76 @@ pub fn prepare_context(input: PreparedContextInput) -> Result<PreparedContext, C
     };
 
     Ok(PreparedContext::new(context, signing_source))
+}
+
+pub fn prepare_context_from_source<S: TransactionSource>(
+    source: &S,
+) -> Result<PreparedContext, CoreError> {
+    let transaction_cursor = source.transaction_cursor()?;
+    let transaction_read_error = transaction_cursor.read_error();
+    let tx = Transaction::from(transaction_cursor.cursor);
+    tx.verify(false)
+        .map_err(|_| transaction_read_error.clone())?;
+    let raw = tx.raw().map_err(|_| transaction_read_error.clone())?;
+    let witnesses_reader = tx.witnesses().map_err(|_| transaction_read_error.clone())?;
+    let witness_count = witnesses_reader
+        .len()
+        .map_err(|_| transaction_read_error.clone())?;
+    let mut witnesses = Vec::with_capacity(witness_count);
+    for index in 0..witness_count {
+        let witness = witnesses_reader
+            .get(index)
+            .map_err(|_| transaction_read_error.clone())?;
+        witnesses.push(cursor_bytes_with_error(
+            &witness,
+            transaction_read_error.clone(),
+        )?);
+    }
+
+    let inputs = raw.inputs().map_err(|_| transaction_read_error.clone())?;
+    let outputs = raw.outputs().map_err(|_| transaction_read_error.clone())?;
+    let cell_deps = raw
+        .cell_deps()
+        .map_err(|_| transaction_read_error.clone())?;
+    let header_deps = raw
+        .header_deps()
+        .map_err(|_| transaction_read_error.clone())?;
+
+    let input_count = inputs.len().map_err(|_| transaction_read_error.clone())?;
+    let output_count = outputs.len().map_err(|_| transaction_read_error.clone())?;
+    let cell_dep_count = cell_deps
+        .len()
+        .map_err(|_| transaction_read_error.clone())?;
+    let header_dep_count = header_deps.len().map_err(|_| transaction_read_error)?;
+
+    let mut input_locks = Vec::with_capacity(input_count);
+    let mut input_types = Vec::with_capacity(input_count);
+    for index in 0..input_count {
+        input_locks.push(source.input_lock_hash(index)?);
+        input_types.push(source.input_type_hash(index)?);
+    }
+
+    let mut output_types = Vec::with_capacity(output_count);
+    for index in 0..output_count {
+        output_types.push(source.output_type_hash(index)?);
+    }
+
+    let context = CobuildContext::new(
+        LayoutTx {
+            witnesses,
+            input_count,
+            output_count,
+            cell_dep_count,
+            header_dep_count,
+        },
+        ScriptHashIndex {
+            input_locks,
+            input_types,
+            output_types,
+        },
+    )?;
+
+    Ok(PreparedContext::new(context, InMemorySource::default()))
 }
 
 pub fn parse_transaction_info(data: &[u8]) -> Result<TransactionInfo, CoreError> {

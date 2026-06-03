@@ -632,6 +632,7 @@ dependencies = [
  "ckb-hash",
  "ckb-std",
  "cobuild-core",
+ "cobuild-types",
  "secp256k1",
 ]
 

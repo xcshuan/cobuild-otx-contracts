@@ -30,12 +30,17 @@ impl Read for OwnedReader {
 }
 
 pub fn cursor_bytes(cursor: &Cursor) -> Result<Vec<u8>, CoreError> {
+    cursor_bytes_with_error(cursor, CoreError::MalformedCobuild)
+}
+
+pub fn cursor_bytes_with_error(
+    cursor: &Cursor,
+    read_error: CoreError,
+) -> Result<Vec<u8>, CoreError> {
     let mut bytes = vec![0; cursor.size];
-    let read = cursor
-        .read_at(&mut bytes)
-        .map_err(|_| CoreError::MalformedCobuild)?;
+    let read = cursor.read_at(&mut bytes).map_err(|_| read_error.clone())?;
     if read != bytes.len() {
-        return Err(CoreError::MalformedCobuild);
+        return Err(read_error);
     }
     Ok(bytes)
 }

@@ -45,12 +45,12 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
 
     let lib_rs = fs::read_to_string(contract_src.join("lib.rs")).expect("lib.rs");
     assert!(
-        lib_rs.contains("mod loader"),
-        "contract crate should keep chain-loading helpers in loader.rs"
+        lib_rs.contains("mod chain"),
+        "contract crate should keep chain-loading helpers in chain.rs"
     );
     assert!(
-        !lib_rs.contains("mod chain"),
-        "contract crate should not use the less precise chain module name"
+        !lib_rs.contains("mod loader"),
+        "contract crate should not keep the old loader module name"
     );
     assert!(
         !lib_rs.contains("pub mod runner"),
@@ -73,7 +73,7 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         "load_prepared_context",
         "lock_query",
         "required_signatures",
-        "signing_source",
+        "loaded.source",
         "LocalVerifier",
     ] {
         assert!(
@@ -81,6 +81,33 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
             "entry.rs should expose the high-level contract flow via {expected}"
         );
     }
+}
+
+#[test]
+fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let lock_src = workspace_root.join("contracts/cobuild-otx-lock/src");
+    assert!(
+        lock_src.join("chain.rs").is_file(),
+        "chain.rs must own syscall-backed source"
+    );
+    assert!(
+        !lock_src.join("loader.rs").exists(),
+        "loader.rs should be renamed to chain.rs"
+    );
+    let chain_rs = fs::read_to_string(lock_src.join("chain.rs")).expect("chain.rs");
+    assert!(
+        chain_rs.contains("struct ChainSource"),
+        "chain.rs should define ChainSource"
+    );
+    assert!(
+        !chain_rs.contains("fn load_transaction() -> Result<Vec<u8>"),
+        "lock path must not load the full transaction into Vec"
+    );
+    assert!(
+        !chain_rs.contains("parse_transaction_info(&load_transaction()?"),
+        "lock path must parse transaction from source cursor"
+    );
 }
 
 #[test]
