@@ -132,6 +132,33 @@ Use a source-oriented design with three layers:
 This avoids adding `ckb-std` to core while allowing the lock contract to parse
 and hash without materializing whole transaction data.
 
+Source-backed cursors must carry error-classification metadata. Molecule
+`Cursor::read_at` can only return lazy-reader errors, so core cannot infer
+whether a failed read came from malformed protocol bytes or from a source
+failure. Core should therefore use a small wrapper around `Cursor` for data
+obtained from a `TransactionSource`:
+
+```rust
+pub enum CursorReadContext {
+    Protocol,
+    SourceInput,
+    HashInput,
+}
+
+pub struct ClassifiedCursor {
+    pub cursor: Cursor,
+    pub read_context: CursorReadContext,
+}
+```
+
+The exact names can change, but the behavior must not: reader/hash helpers must
+map read failures according to the cursor context. Protocol/view cursors map
+failed reads to malformed Cobuild data. Transaction/script source cursors map
+failed source reads to internal/source input failure. Raw transaction,
+resolved-input, and witness hash cursors map failed source reads to
+`MissingHashInput` or an equivalent internal hash-input failure. This preserves
+public lock exit-code categories after owned buffers are removed.
+
 Implement this as two rounds:
 
 1. **Round 1: Streaming source and hash input boundary.** Remove full
@@ -173,14 +200,14 @@ Introduce source traits that core can use without depending on syscalls:
 
 ```rust
 pub trait TransactionSource {
-    fn transaction_cursor(&self) -> Result<Cursor, CoreError>;
-    fn script_cursor(&self) -> Result<Cursor, CoreError>;
+    fn transaction_cursor(&self) -> Result<ClassifiedCursor, CoreError>;
+    fn script_cursor(&self) -> Result<ClassifiedCursor, CoreError>;
     fn tx_hash(&self) -> Result<[u8; 32], CoreError>;
     fn input_lock_hash(&self, index: usize) -> Result<[u8; 32], CoreError>;
     fn input_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError>;
     fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError>;
-    fn resolved_input_output_cursor(&self, index: usize) -> Result<Cursor, CoreError>;
-    fn resolved_input_data_cursor(&self, index: usize) -> Result<Cursor, CoreError>;
+    fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
+    fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
 }
 ```
 
@@ -213,9 +240,9 @@ Replace:
 
 ```rust
 TxScriptHashes
-LayoutTx { witnesses: Vec<Vec<u8>>, ... }
+LayoutTx with owned witness bytes
 raw_parts: Option<RawTxParts>
-SigningHashParts { trailing_witnesses: Vec<Vec<u8>>, ... }
+SigningHashParts with owned trailing witness bytes
 ```
 
 with names that reflect the new model:
@@ -243,15 +270,16 @@ Replace `RawTxParts` and owned `ResolvedInputHashPart` with streaming access:
 ```rust
 pub trait SigningDataSource {
     fn tx_hash(&self) -> Result<[u8; 32], CoreError>;
-    fn input_count(&self) -> usize;
-    fn trailing_witness_cursor(&self, index: usize) -> Result<Option<Cursor>, CoreError>;
-    fn raw_input_cursor(&self, index: usize) -> Result<Cursor, CoreError>;
-    fn raw_output_cursor(&self, index: usize) -> Result<Cursor, CoreError>;
-    fn raw_output_data_cursor(&self, index: usize) -> Result<Cursor, CoreError>;
-    fn raw_cell_dep_cursor(&self, index: usize) -> Result<Cursor, CoreError>;
+    fn input_count(&self) -> Result<usize, CoreError>;
+    fn witness_count(&self) -> Result<usize, CoreError>;
+    fn witness_cursor(&self, absolute_index: usize) -> Result<ClassifiedCursor, CoreError>;
+    fn raw_input_cursor(&self, tx_index: usize) -> Result<ClassifiedCursor, CoreError>;
+    fn raw_output_cursor(&self, tx_index: usize) -> Result<ClassifiedCursor, CoreError>;
+    fn raw_output_data_cursor(&self, tx_index: usize) -> Result<ClassifiedCursor, CoreError>;
+    fn raw_cell_dep_cursor(&self, tx_index: usize) -> Result<ClassifiedCursor, CoreError>;
     fn raw_header_dep_hash(&self, index: usize) -> Result<[u8; 32], CoreError>;
-    fn resolved_input_output_cursor(&self, index: usize) -> Result<Cursor, CoreError>;
-    fn resolved_input_data_cursor(&self, index: usize) -> Result<Cursor, CoreError>;
+    fn resolved_input_output_cursor(&self, tx_index: usize) -> Result<ClassifiedCursor, CoreError>;
+    fn resolved_input_data_cursor(&self, tx_index: usize) -> Result<ClassifiedCursor, CoreError>;
 }
 ```
 
@@ -269,6 +297,12 @@ names.
 
 OTX base/append hash should stream raw inputs, outputs, output data, cell deps,
 header deps, and resolved input data by index.
+
+Witness indexes are absolute transaction witness indexes. The tx-level trailing
+witness loop must iterate `input_count..witness_count` in ascending order and
+hash each witness exactly once. Do not use a trailing-relative index API unless
+the implementation also makes the conversion from absolute transaction order
+explicit and tested.
 
 ### View DTOs
 
@@ -359,6 +393,11 @@ entry.rs
 There should be no owned `trailing_witnesses` vector and no full
 `RawTxParts` vector on the lock path.
 
+Witness layout discovery is still allowed to read witness layout cursors before
+a queried lock is known to be OTX-relevant. The no-unnecessary-read requirement
+applies to hash payloads: raw transaction parts and resolved input output/data
+for irrelevant OTX ranges must not be read.
+
 After Round 2, the flow from witness parsing to hash construction should remain
 cursor-backed:
 
@@ -391,9 +430,11 @@ Core should keep a precise split:
   - `MissingHashInput`
   - `HashInputTooLarge`
 
-If source reads can distinguish out-of-bounds transaction indices from syscall
-failures, use names that preserve the same public mapping. Do not collapse
-protocol failures into syscall failures or vice versa.
+Source cursor read failures must be classified by cursor context as described
+above. Do not collapse source/hash-input failures into malformed protocol data
+or malformed protocol data into syscall/source failures. If a source accessor is
+called with an out-of-range index while building a relevant hash preimage, map
+that to `MissingHashInput` or an equivalent internal hash-input error.
 
 ## Testing Requirements
 
@@ -412,8 +453,8 @@ Add focused tests for the new boundary:
 - lock loader no longer calls `load_transaction()` into a full `Vec<u8>`.
 - tx signing hash streams trailing witnesses through a source/cursor API.
 - OTX hash reads only ranges required by relevant OTX requests.
-- an unrelated OTX lock query does not read resolved input data or raw OTX hash
-  inputs.
+- an unrelated OTX lock query may read witness layout cursors, but does not read
+  resolved input data or raw OTX hash inputs.
 - source-boundary tests ensure `cobuild-core` does not import `ckb_std`.
 - source-boundary tests ensure `cobuild-core` still does not import generated
   `entity` modules.
@@ -437,7 +478,8 @@ compatibility is not required. Split it into two rounds.
 
 Round 1:
 
-1. Move reader helpers out of `view.rs` into `reader.rs`.
+1. Move reader helpers out of `view.rs` into `reader.rs` as a prerequisite for
+   source-backed cursors. DTO and view naming cleanup remains Round 2.
 2. Remove `trailing_witnesses` from `SigningHashParts` and derive it from the
    witness source.
 3. Introduce in-memory source traits and adapt tests.
@@ -475,7 +517,9 @@ for the streaming boundary:
   `cobuild-otx-lock` verification path.
 - No separate owned `trailing_witnesses` vector exists.
 - Relevant tx-level and OTX signing hashes are byte-for-byte unchanged.
-- Irrelevant OTX data is not read from source during unrelated lock queries.
+- Irrelevant OTX hash payloads are not read from source during unrelated lock
+  queries; witness layout cursors may still be read for protocol layout
+  discovery.
 - Core has no dependency on `ckb_std`.
 - Core public abstractions do not expose generated entity module types.
 - `view.rs` only owns Molecule-to-core protocol view conversion.
