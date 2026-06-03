@@ -133,7 +133,7 @@ fn cobuild_core_uses_explicit_signature_request_names() {
         "core view layer should describe sighash-all witness layout, not legacy transaction-level names"
     );
     for expected in [
-        "SighashAllWitnessLayout",
+        "SighashAllWitnessView",
         "WithMessage",
         "SealOnly",
         "sighash_all_witness_layout",

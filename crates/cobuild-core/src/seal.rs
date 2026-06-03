@@ -1,25 +1,28 @@
 use alloc::vec::Vec;
 
-use crate::{context::LockScriptQuery, error::CoreError, protocol::SealScope, view::SealPairData};
+use crate::{
+    context::LockScriptQuery, error::CoreError, protocol::SealScope, reader::cursor_bytes,
+    view::SealPairView,
+};
 
 impl LockScriptQuery<'_> {
     pub(crate) fn unique_otx_base_seal(
         &self,
-        seals: &[SealPairData],
+        seals: &[SealPairView],
     ) -> Result<Vec<u8>, CoreError> {
         self.unique_otx_seal_by_scope(seals, SealScope::Base)
     }
 
     pub(crate) fn unique_otx_append_seal(
         &self,
-        seals: &[SealPairData],
+        seals: &[SealPairView],
     ) -> Result<Vec<u8>, CoreError> {
         self.unique_otx_seal_by_scope(seals, SealScope::Append)
     }
 
     fn unique_otx_seal_by_scope(
         &self,
-        seals: &[SealPairData],
+        seals: &[SealPairView],
         scope: SealScope,
     ) -> Result<Vec<u8>, CoreError> {
         let mut found = None;
@@ -29,7 +32,7 @@ impl LockScriptQuery<'_> {
                 if found.is_some() {
                     return Err(CoreError::DuplicateSealPair);
                 }
-                found = Some(seal.seal.clone());
+                found = Some(cursor_bytes(&seal.seal)?);
             }
         }
         found.ok_or(CoreError::MissingSealPair)

@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use crate::{
     error::CoreError,
     protocol::AppendPermissions,
-    view::{OtxStartData, WitnessLayoutView},
+    view::{MaskView, OtxStartView, OtxView, WitnessLayoutView},
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -34,24 +34,24 @@ pub struct OtxLayout {
     pub append_header_deps: Range,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct OtxLayoutData {
     pub layout: OtxLayout,
-    pub witness: crate::view::OtxData,
+    pub witness: OtxView,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct BuiltLayout {
     pub otxs: Vec<OtxLayout>,
     pub otx_data: Vec<OtxLayoutData>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub enum OtxLayoutScan {
     None,
     Complete(BuiltLayout),
     Invalid {
-        anchor: Option<OtxStartData>,
+        anchor: Option<OtxStartView>,
         error: CoreError,
     },
 }
@@ -213,7 +213,7 @@ pub fn scan_layout(tx: &LayoutTx) -> OtxLayoutScan {
     OtxLayoutScan::Complete(BuiltLayout { otxs, otx_data })
 }
 
-fn invalid_layout(anchor: Option<&OtxStartData>, error: CoreError) -> OtxLayoutScan {
+fn invalid_layout(anchor: Option<&OtxStartView>, error: CoreError) -> OtxLayoutScan {
     OtxLayoutScan::Invalid {
         anchor: anchor.cloned(),
         error,
@@ -246,7 +246,7 @@ fn ensure_within(value: usize, max: usize) -> Result<(), CoreError> {
     }
 }
 
-fn validate_otx_data(data: &crate::view::OtxData) -> Result<(), CoreError> {
+fn validate_otx_data(data: &OtxView) -> Result<(), CoreError> {
     if data.base_input_cells == 0 {
         return Err(CoreError::InvalidOtxLayout);
     }
@@ -262,7 +262,7 @@ fn validate_otx_data(data: &crate::view::OtxData) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn validate_mask(mask: &[u8], bit_count: usize) -> Result<(), CoreError> {
+fn validate_mask(mask: &MaskView, bit_count: usize) -> Result<(), CoreError> {
     let expected_len = bit_count.div_ceil(8);
     if mask.len() != expected_len {
         return Err(CoreError::InvalidOtxLayout);
@@ -274,9 +274,10 @@ fn validate_mask(mask: &[u8], bit_count: usize) -> Result<(), CoreError> {
     if used_bits == 0 {
         return Ok(());
     }
-    let allowed = (1u8 << used_bits) - 1;
-    if mask[mask.len() - 1] & !allowed != 0 {
-        return Err(CoreError::InvalidOtxLayout);
+    for index in bit_count..(expected_len * 8) {
+        if mask.bit(index)? {
+            return Err(CoreError::InvalidOtxLayout);
+        }
     }
     Ok(())
 }

@@ -1,13 +1,15 @@
 use alloc::vec::Vec;
 
+use cobuild_types::lazy_reader::support::Cursor;
+
 use crate::{
     context::LockScriptQuery,
     error::CoreError,
     hash::{tx_with_message_hash, tx_without_message_hash},
-    reader::cursor_from_slice,
+    reader::cursor_bytes,
     signature::{SignatureOrigin, SignatureRequest},
     source::SigningDataSource,
-    view::{SighashAllWitnessLayout, WitnessLayoutView},
+    view::{SighashAllWitnessView, WitnessLayoutView},
 };
 
 impl LockScriptQuery<'_> {
@@ -38,23 +40,21 @@ impl LockScriptQuery<'_> {
         };
         let tx_message = self.unique_sighash_all_message()?;
         let (seal, signing_message_hash) = match sighash_all_witness_layout {
-            SighashAllWitnessLayout::WithMessage { seal, message } => {
-                let message = tx_message.as_deref().unwrap_or(&message);
+            SighashAllWitnessView::WithMessage { seal, message } => {
+                let message = tx_message.as_ref().unwrap_or(&message);
                 self.validate_message_targets(message)?;
-                let message = cursor_from_slice(message);
-                let signing_message_hash = tx_with_message_hash(&message, source)?;
-                (seal, signing_message_hash)
+                let signing_message_hash = tx_with_message_hash(message, source)?;
+                (cursor_bytes(&seal)?, signing_message_hash)
             }
-            SighashAllWitnessLayout::SealOnly { seal } => {
+            SighashAllWitnessView::SealOnly { seal } => {
                 let signing_message_hash = match tx_message {
                     Some(message) => {
                         self.validate_message_targets(&message)?;
-                        let message = cursor_from_slice(&message);
                         tx_with_message_hash(&message, source)?
                     }
                     None => tx_without_message_hash(source)?,
                 };
-                (seal, signing_message_hash)
+                (cursor_bytes(&seal)?, signing_message_hash)
             }
         };
 
@@ -67,7 +67,7 @@ impl LockScriptQuery<'_> {
         }])
     }
 
-    pub(crate) fn unique_sighash_all_message(&self) -> Result<Option<Vec<u8>>, CoreError> {
+    pub(crate) fn unique_sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
         let mut message = None;
         for witness in &self.context.tx.witnesses {
             if witness.is_empty() {

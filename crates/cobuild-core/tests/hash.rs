@@ -2,9 +2,9 @@ use cobuild_core::{
     error::CoreError,
     hash::{checked_len_prefix, otx_base_hash, tx_without_message_hash},
     layout::{OtxLayout, Range},
-    reader::OwnedReader,
+    reader::{cursor_from_slice, OwnedReader},
     source::InMemorySource,
-    view::OtxData,
+    view::{MaskView, OtxView},
 };
 use cobuild_types::lazy_reader::{
     blockchain::{CellInput, CellOutput},
@@ -59,17 +59,18 @@ fn resolved_input_output_is_not_length_prefixed() {
 
 #[test]
 fn otx_base_hash_includes_local_indices_for_base_deps_and_headers() {
-    let otx = OtxData {
-        message: vec![0x11],
+    let message = vec![0x11];
+    let otx = OtxView {
+        message: cursor_from_slice(&message),
         append_permissions: 0,
         base_input_cells: 0,
-        base_input_masks: Vec::new(),
+        base_input_masks: mask_view(&[]),
         base_output_cells: 0,
-        base_output_masks: Vec::new(),
+        base_output_masks: mask_view(&[]),
         base_cell_deps: 1,
-        base_cell_dep_masks: vec![1],
+        base_cell_dep_masks: mask_view(&[1]),
         base_header_deps: 1,
-        base_header_dep_masks: vec![1],
+        base_header_dep_masks: mask_view(&[1]),
         append_input_cells: 0,
         append_output_cells: 0,
         append_cell_deps: 0,
@@ -99,7 +100,7 @@ fn otx_base_hash_includes_local_indices_for_base_deps_and_headers() {
     let mut hasher = blake2b_ref::Blake2bBuilder::new(32)
         .personal(b"ckbcb_otb_core1\0")
         .build();
-    hasher.update(&otx.message);
+    hasher.update(&message);
     hasher.update(&[otx.append_permissions]);
     hasher.update(&0u32.to_le_bytes());
     update_len_prefixed_for_test(&mut hasher, &[]);
@@ -138,17 +139,20 @@ fn otx_base_hash_streamed_cursor_fields_match_independent_preimage() {
     let resolved_output = vec![0x71, 0x72, 0x73];
     let resolved_data = vec![0x81, 0x82];
 
-    let otx = OtxData {
-        message: vec![0x91, 0x92],
+    let message = vec![0x91, 0x92];
+    let base_input_masks = vec![0b0000_0011];
+    let base_output_masks = vec![0b0000_0110];
+    let otx = OtxView {
+        message: cursor_from_slice(&message),
         append_permissions: 0x03,
         base_input_cells: 1,
-        base_input_masks: vec![0b0000_0011],
+        base_input_masks: mask_view(&base_input_masks),
         base_output_cells: 1,
-        base_output_masks: vec![0b0000_0110],
+        base_output_masks: mask_view(&base_output_masks),
         base_cell_deps: 0,
-        base_cell_dep_masks: Vec::new(),
+        base_cell_dep_masks: mask_view(&[]),
         base_header_deps: 0,
-        base_header_dep_masks: Vec::new(),
+        base_header_dep_masks: mask_view(&[]),
         append_input_cells: 0,
         append_output_cells: 0,
         append_cell_deps: 0,
@@ -181,17 +185,17 @@ fn otx_base_hash_streamed_cursor_fields_match_independent_preimage() {
     let mut hasher = blake2b_ref::Blake2bBuilder::new(32)
         .personal(b"ckbcb_otb_core1\0")
         .build();
-    hasher.update(&otx.message);
+    hasher.update(&message);
     hasher.update(&[otx.append_permissions]);
     hasher.update(&1u32.to_le_bytes());
-    update_len_prefixed_for_test(&mut hasher, &[0b0000_0011]);
+    update_len_prefixed_for_test(&mut hasher, &base_input_masks);
     hasher.update(&0u32.to_le_bytes());
     hasher.update(&0x0102_0304_0506_0708u64.to_le_bytes());
     hasher.update(&previous_output);
     hasher.update(&resolved_output);
     update_len_prefixed_for_test(&mut hasher, &resolved_data);
     hasher.update(&1u32.to_le_bytes());
-    update_len_prefixed_for_test(&mut hasher, &[0b0000_0110]);
+    update_len_prefixed_for_test(&mut hasher, &base_output_masks);
     hasher.update(&0u32.to_le_bytes());
     hasher.update(&lock);
     hasher.update(&type_script);
@@ -206,6 +210,10 @@ fn otx_base_hash_streamed_cursor_fields_match_independent_preimage() {
 
 fn range(start: usize, count: usize) -> Range {
     Range { start, count }
+}
+
+fn mask_view(bytes: &[u8]) -> MaskView {
+    MaskView::new(cursor_from_slice(bytes))
 }
 
 fn out_point_bytes(tx_hash: [u8; 32], index: u32) -> Vec<u8> {

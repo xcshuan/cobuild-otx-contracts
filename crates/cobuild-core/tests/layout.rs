@@ -26,7 +26,7 @@ fn otx_without_start_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn otx_witnesses_must_be_contiguous_after_start() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -57,7 +57,7 @@ fn duplicate_otx_start_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn otx_start_without_following_otx_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn zero_base_inputs_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -99,7 +99,7 @@ fn reserved_append_permission_bits_are_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn append_count_without_permission_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn append_output_without_permission_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn append_cell_dep_without_permission_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -163,7 +163,7 @@ fn append_header_dep_without_permission_is_invalid() {
         header_dep_count: 1,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn invalid_base_input_mask_length_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn invalid_base_output_mask_length_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -208,7 +208,7 @@ fn invalid_base_cell_dep_mask_length_is_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -224,7 +224,7 @@ fn invalid_base_header_dep_mask_length_is_invalid() {
         header_dep_count: 1,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -240,7 +240,7 @@ fn non_zero_base_input_mask_padding_bits_are_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -256,7 +256,7 @@ fn non_zero_base_output_mask_padding_bits_are_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -272,7 +272,7 @@ fn non_zero_base_cell_dep_mask_padding_bits_are_invalid() {
         header_dep_count: 0,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 #[test]
@@ -288,7 +288,7 @@ fn non_zero_base_header_dep_mask_padding_bits_are_invalid() {
         header_dep_count: 1,
     });
 
-    assert_eq!(result, Err(CoreError::InvalidOtxLayout));
+    assert_invalid(result, CoreError::InvalidOtxLayout);
 }
 
 fn otx_start_witness() -> Vec<u8> {
@@ -301,6 +301,10 @@ fn otx_start_witness() -> Vec<u8> {
             0u32.to_le_bytes().to_vec(),
         ]),
     )
+}
+
+fn assert_invalid<T>(result: Result<T, CoreError>, expected: CoreError) {
+    assert_eq!(result.err(), Some(expected));
 }
 
 fn otx_witness() -> Vec<u8> {

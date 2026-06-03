@@ -62,7 +62,7 @@ impl LockScriptQuery<'_> {
 
     fn invalid_otx_layout_signatures(
         &self,
-        anchor: Option<&crate::view::OtxStartData>,
+        anchor: Option<&crate::view::OtxStartView>,
         error: CoreError,
     ) -> Result<Vec<SignatureRequest>, CoreError> {
         let Some(anchor) = anchor else {

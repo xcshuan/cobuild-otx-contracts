@@ -9,7 +9,7 @@ use crate::{
     layout::{OtxLayout, Range},
     reader::{update_cursor_with_error, update_len_prefixed_cursor},
     source::SigningDataSource,
-    view::OtxData,
+    view::{MaskView, OtxView},
 };
 
 pub fn tx_without_message_hash<S: SigningDataSource>(source: &S) -> Result<[u8; 32], CoreError> {
@@ -57,7 +57,7 @@ pub fn checked_len_prefix(len: usize) -> Result<[u8; 4], CoreError> {
 }
 
 pub fn otx_base_hash<S: SigningDataSource>(
-    otx: &OtxData,
+    otx: &OtxView,
     layout: &OtxLayout,
     source: &S,
 ) -> Result<[u8; 32], CoreError> {
@@ -66,10 +66,14 @@ pub fn otx_base_hash<S: SigningDataSource>(
         .personal(b"ckbcb_otb_core1\0")
         .build();
 
-    hasher.update(&otx.message);
+    update_cursor_with_error(&mut hasher, &otx.message, CoreError::MalformedCobuild)?;
     hasher.update(&[otx.append_permissions]);
     update_count(&mut hasher, otx.base_input_cells)?;
-    update_len_prefixed(&mut hasher, &otx.base_input_masks)?;
+    update_len_prefixed_cursor(
+        &mut hasher,
+        otx.base_input_masks.cursor(),
+        CoreError::MalformedCobuild,
+    )?;
     for local_index in 0..otx.base_input_cells {
         let tx_index = checked_index(layout.base_inputs, local_index)?;
         let input = source.raw_input_cursor(tx_index)?;
@@ -105,7 +109,11 @@ pub fn otx_base_hash<S: SigningDataSource>(
     }
 
     update_count(&mut hasher, otx.base_output_cells)?;
-    update_len_prefixed(&mut hasher, &otx.base_output_masks)?;
+    update_len_prefixed_cursor(
+        &mut hasher,
+        otx.base_output_masks.cursor(),
+        CoreError::MalformedCobuild,
+    )?;
     for local_index in 0..otx.base_output_cells {
         let tx_index = checked_index(layout.base_outputs, local_index)?;
         let output = source.raw_output_cursor(tx_index)?;
@@ -138,7 +146,11 @@ pub fn otx_base_hash<S: SigningDataSource>(
     }
 
     update_count(&mut hasher, otx.base_cell_deps)?;
-    update_len_prefixed(&mut hasher, &otx.base_cell_dep_masks)?;
+    update_len_prefixed_cursor(
+        &mut hasher,
+        otx.base_cell_dep_masks.cursor(),
+        CoreError::MalformedCobuild,
+    )?;
     for local_index in 0..otx.base_cell_deps {
         if mask_bit(&otx.base_cell_dep_masks, local_index)? {
             let tx_index = checked_index(layout.base_cell_deps, local_index)?;
@@ -149,7 +161,11 @@ pub fn otx_base_hash<S: SigningDataSource>(
     }
 
     update_count(&mut hasher, otx.base_header_deps)?;
-    update_len_prefixed(&mut hasher, &otx.base_header_dep_masks)?;
+    update_len_prefixed_cursor(
+        &mut hasher,
+        otx.base_header_dep_masks.cursor(),
+        CoreError::MalformedCobuild,
+    )?;
     for local_index in 0..otx.base_header_deps {
         if mask_bit(&otx.base_header_dep_masks, local_index)? {
             let tx_index = checked_index(layout.base_header_deps, local_index)?;
@@ -163,7 +179,7 @@ pub fn otx_base_hash<S: SigningDataSource>(
 }
 
 pub fn otx_append_hash<S: SigningDataSource>(
-    otx: &OtxData,
+    otx: &OtxView,
     layout: &OtxLayout,
     source: &S,
     base_hash: [u8; 32],
@@ -173,7 +189,7 @@ pub fn otx_append_hash<S: SigningDataSource>(
         .personal(b"ckbcb_ota_core1\0")
         .build();
 
-    hasher.update(&otx.message);
+    update_cursor_with_error(&mut hasher, &otx.message, CoreError::MalformedCobuild)?;
     hasher.update(&base_hash);
     update_count(&mut hasher, otx.append_input_cells)?;
     for local_index in 0..otx.append_input_cells {
@@ -224,12 +240,6 @@ pub fn otx_append_hash<S: SigningDataSource>(
     Ok(out)
 }
 
-fn update_len_prefixed(hasher: &mut blake2b_ref::Blake2b, bytes: &[u8]) -> Result<(), CoreError> {
-    hasher.update(&checked_len_prefix(bytes.len())?);
-    hasher.update(bytes);
-    Ok(())
-}
-
 fn update_count(hasher: &mut blake2b_ref::Blake2b, count: usize) -> Result<(), CoreError> {
     hasher.update(&checked_len_prefix(count)?);
     Ok(())
@@ -245,7 +255,6 @@ fn checked_index(range: Range, local_index: usize) -> Result<usize, CoreError> {
         .ok_or(CoreError::InvalidOtxLayout)
 }
 
-fn mask_bit(mask: &[u8], index: usize) -> Result<bool, CoreError> {
-    let byte = mask.get(index / 8).ok_or(CoreError::InvalidOtxLayout)?;
-    Ok(byte & (1 << (index % 8)) != 0)
+fn mask_bit(mask: &MaskView, index: usize) -> Result<bool, CoreError> {
+    mask.bit(index)
 }

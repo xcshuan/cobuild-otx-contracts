@@ -134,8 +134,9 @@ pub mod fixtures {
             tx_without_message_hash,
         },
         layout::{OtxLayout, Range},
+        reader::cursor_from_slice,
         source::InMemorySource,
-        view::OtxData,
+        view::{MaskView, OtxView},
     };
     use cobuild_types::entity::{
         core::{ActionVec, Message as CobuildMessage, Otx, OtxStart, SealPair, SighashAllOnly},
@@ -459,7 +460,7 @@ pub mod fixtures {
         core_otx_append_hash(&otx, &layout, &source, base_hash).expect("otx append hash")
     }
 
-    fn otx_hash_inputs(parts: &OtxFixtureParts) -> (OtxData, OtxLayout, InMemorySource) {
+    fn otx_hash_inputs(parts: &OtxFixtureParts) -> (OtxView, OtxLayout, InMemorySource) {
         let base_start = parts.start_input;
         let append_start = base_start + parts.base_inputs.len();
         let mut raw_inputs = vec![Vec::new(); parts.input_count];
@@ -479,17 +480,17 @@ pub mod fixtures {
             resolved_data[index] = input.data.clone();
         }
 
-        let otx = OtxData {
-            message: parts.message.clone(),
+        let otx = OtxView {
+            message: cursor_from_slice(&parts.message),
             append_permissions: parts.append_permissions,
             base_input_cells: parts.base_inputs.len(),
-            base_input_masks: parts.base_input_masks.clone(),
+            base_input_masks: mask_view(&parts.base_input_masks),
             base_output_cells: 0,
-            base_output_masks: Vec::new(),
+            base_output_masks: mask_view(&[]),
             base_cell_deps: 0,
-            base_cell_dep_masks: Vec::new(),
+            base_cell_dep_masks: mask_view(&[]),
             base_header_deps: 0,
-            base_header_dep_masks: Vec::new(),
+            base_header_dep_masks: mask_view(&[]),
             append_input_cells: parts.append_inputs.len(),
             append_output_cells: 0,
             append_cell_deps: 0,
@@ -514,6 +515,10 @@ pub mod fixtures {
             ..InMemorySource::default()
         };
         (otx, layout, source)
+    }
+
+    fn mask_view(bytes: &[u8]) -> MaskView {
+        MaskView::new(cursor_from_slice(bytes))
     }
 
     fn range(start: usize, count: usize) -> Range {

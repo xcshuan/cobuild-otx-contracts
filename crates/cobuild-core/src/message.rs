@@ -1,9 +1,11 @@
+use cobuild_types::lazy_reader::support::Cursor;
+
 use crate::{
     context::LockScriptQuery, error::CoreError, protocol::ScriptRole, view::message_actions,
 };
 
 impl LockScriptQuery<'_> {
-    pub(crate) fn validate_message_targets(&self, message: &[u8]) -> Result<(), CoreError> {
+    pub(crate) fn validate_message_targets(&self, message: &Cursor) -> Result<(), CoreError> {
         for action in message_actions(message)? {
             let role = ScriptRole::try_from(action.script_role)?;
             let target_exists = match role {
