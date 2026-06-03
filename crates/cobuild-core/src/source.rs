@@ -87,7 +87,7 @@ pub struct InMemorySource {
 }
 
 fn hash_input_cursor(items: &[Vec<u8>], index: usize) -> Result<ClassifiedCursor, CoreError> {
-    let item = items.get(index).ok_or(CoreError::InvalidContextInput)?;
+    let item = items.get(index).ok_or(CoreError::MissingHashInput)?;
     Ok(ClassifiedCursor::hash_input(cursor_from_slice(item)))
 }
 
@@ -171,6 +171,6 @@ impl SigningDataSource for InMemorySource {
         self.raw_header_deps
             .get(index)
             .copied()
-            .ok_or(CoreError::InvalidContextInput)
+            .ok_or(CoreError::MissingHashInput)
     }
 }
