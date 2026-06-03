@@ -253,6 +253,42 @@ fn cobuild_core_reader_helpers_are_not_owned_by_view() {
 }
 
 #[test]
+fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+    let view_rs = fs::read_to_string(core_src.join("view.rs")).expect("view.rs");
+
+    for forbidden in [
+        "OtxStartData",
+        "OtxData",
+        "SealPairData",
+        "ActionData",
+        "message: Vec<u8>",
+        "base_input_masks: Vec<u8>",
+        "seal: Vec<u8>",
+    ] {
+        assert!(
+            !view_rs.contains(forbidden),
+            "view.rs should not expose owned DTO pattern {forbidden}"
+        );
+    }
+
+    for expected in [
+        "SighashAllWitnessView",
+        "OtxStartView",
+        "OtxView",
+        "SealPairView",
+        "MessageActionView",
+        "MaskView",
+    ] {
+        assert!(
+            view_rs.contains(expected),
+            "view.rs should expose cursor-backed view {expected}"
+        );
+    }
+}
+
+#[test]
 fn cobuild_core_exposes_source_boundary_without_ckb_std() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let core_src = workspace_root.join("crates/cobuild-core/src");

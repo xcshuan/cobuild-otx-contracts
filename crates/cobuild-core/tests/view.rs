@@ -1,5 +1,5 @@
-use cobuild_core::reader::OwnedReader;
-use cobuild_core::view::WitnessLayoutView;
+use cobuild_core::reader::{cursor_bytes, OwnedReader};
+use cobuild_core::view::{SighashAllWitnessView, WitnessLayoutView};
 use cobuild_types::lazy_reader::support::{Error as MoleculeError, Read};
 
 #[test]
@@ -30,11 +30,44 @@ fn parsed_view_survives_source_slice_drop() {
     );
 }
 
+#[test]
+fn parsed_sighash_all_view_carries_cursor_backed_seal_and_message() {
+    let seal = [0x11, 0x22, 0x33];
+    let message = empty_message();
+    let witness = sighash_all_witness_bytes(&seal, &message);
+    let view = WitnessLayoutView::from_slice(&witness).unwrap();
+
+    let layout = view.sighash_all_witness_layout().unwrap().unwrap();
+    match layout {
+        SighashAllWitnessView::WithMessage {
+            seal: seal_cursor,
+            message: message_cursor,
+        } => {
+            assert_eq!(cursor_bytes(&seal_cursor).unwrap(), seal.to_vec());
+            assert_eq!(cursor_bytes(&message_cursor).unwrap(), message);
+        }
+        SighashAllWitnessView::SealOnly { .. } => panic!("expected sighash-all message view"),
+    }
+}
+
+fn sighash_all_witness_bytes(seal: &[u8], message: &[u8]) -> Vec<u8> {
+    let seal_bytes = molecule_bytes(seal);
+    let item = table_bytes(&[seal_bytes, message.to_vec()]);
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&4_278_190_081u32.to_le_bytes());
+    bytes.extend_from_slice(&item);
+    bytes
+}
+
 fn sighash_all_only_witness_bytes(seal: &[u8]) -> Vec<u8> {
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&4_278_190_082u32.to_le_bytes());
     bytes.extend_from_slice(&table_bytes(&[molecule_bytes(seal)]));
     bytes
+}
+
+fn empty_message() -> Vec<u8> {
+    table_bytes(&[4u32.to_le_bytes().to_vec()])
 }
 
 fn molecule_bytes(raw: &[u8]) -> Vec<u8> {
