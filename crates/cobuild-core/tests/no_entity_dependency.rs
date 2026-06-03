@@ -16,6 +16,7 @@ fn core_source_does_not_import_entity_module() {
         "src/otx_request.rs",
         "src/protocol.rs",
         "src/query.rs",
+        "src/reader.rs",
         "src/seal.rs",
         "src/signature.rs",
         "src/sighash.rs",

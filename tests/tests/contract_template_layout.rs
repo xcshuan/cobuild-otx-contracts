@@ -187,6 +187,8 @@ fn cobuild_core_reader_helpers_are_not_owned_by_view() {
         "cursor_from_slice",
         "cursor_bytes",
         "update_cursor",
+        "update_cursor_with_error",
+        "update_len_prefixed_cursor",
     ] {
         assert!(
             reader_rs.contains(expected),
