@@ -39,14 +39,14 @@ pub(crate) fn load_prepared_context() -> Result<LoadedContext, Error> {
 pub(crate) struct ChainSource;
 
 #[derive(Clone, Copy)]
-enum SyscallLoader {
+enum SyscallTarget {
     Transaction,
     Script,
     Cell { index: usize, source: Source },
     CellData { index: usize, source: Source },
 }
 
-impl SyscallLoader {
+impl SyscallTarget {
     fn load(&self, buf: &mut [u8], offset: usize) -> Result<usize, SysError> {
         match *self {
             Self::Transaction => syscalls::load_transaction(buf, offset),
@@ -61,18 +61,18 @@ impl SyscallLoader {
 
 struct SyscallReader {
     total_size: usize,
-    loader: SyscallLoader,
+    target: SyscallTarget,
 }
 
 impl SyscallReader {
-    fn new(loader: SyscallLoader) -> Result<Self, SysError> {
+    fn new(target: SyscallTarget) -> Result<Self, SysError> {
         let mut probe = [0u8; 1];
-        let total_size = match loader.load(&mut probe, 0) {
+        let total_size = match target.load(&mut probe, 0) {
             Ok(size) => size,
             Err(SysError::LengthNotEnough(size)) => size,
             Err(err) => return Err(err),
         };
-        Ok(Self { total_size, loader })
+        Ok(Self { total_size, target })
     }
 }
 
@@ -86,7 +86,7 @@ impl Read for SyscallReader {
         }
 
         let read_len = min(buf.len(), self.total_size - offset);
-        match self.loader.load(&mut buf[..read_len], offset) {
+        match self.target.load(&mut buf[..read_len], offset) {
             Ok(size) => Ok(min(size, read_len)),
             Err(SysError::LengthNotEnough(available)) if available >= read_len => Ok(read_len),
             Err(SysError::LengthNotEnough(available)) => {
@@ -97,14 +97,14 @@ impl Read for SyscallReader {
     }
 }
 
-fn syscall_cursor(loader: SyscallLoader) -> Result<Cursor, SysError> {
-    let reader = SyscallReader::new(loader)?;
+fn syscall_cursor(target: SyscallTarget) -> Result<Cursor, SysError> {
+    let reader = SyscallReader::new(target)?;
     let total_size = reader.total_size;
     Ok(Cursor::new(total_size, Box::new(reader)))
 }
 
-fn load_owned(loader: SyscallLoader) -> Result<Vec<u8>, Error> {
-    let cursor = syscall_cursor(loader).map_err(map_sys_error)?;
+fn load_owned(target: SyscallTarget) -> Result<Vec<u8>, Error> {
+    let cursor = syscall_cursor(target).map_err(map_sys_error)?;
     let mut data = vec![0; cursor.size];
     let read = cursor
         .read_at(&mut data)
@@ -115,14 +115,14 @@ fn load_owned(loader: SyscallLoader) -> Result<Vec<u8>, Error> {
     Ok(data)
 }
 
-fn source_cursor(loader: SyscallLoader) -> Result<ClassifiedCursor, CoreError> {
-    syscall_cursor(loader)
+fn source_cursor(target: SyscallTarget) -> Result<ClassifiedCursor, CoreError> {
+    syscall_cursor(target)
         .map(ClassifiedCursor::source_input)
         .map_err(|_| CoreError::InvalidContextInput)
 }
 
-fn hash_cursor(loader: SyscallLoader) -> Result<ClassifiedCursor, CoreError> {
-    syscall_cursor(loader)
+fn hash_cursor(target: SyscallTarget) -> Result<ClassifiedCursor, CoreError> {
+    syscall_cursor(target)
         .map(ClassifiedCursor::hash_input)
         .map_err(|_| CoreError::MissingHashInput)
 }
@@ -140,7 +140,7 @@ pub(crate) fn load_script_hash() -> Result<[u8; 32], Error> {
 }
 
 fn load_script() -> Result<Vec<u8>, Error> {
-    load_owned(SyscallLoader::Script)
+    load_owned(SyscallTarget::Script)
 }
 
 fn load_cell_field_hash(
@@ -163,17 +163,17 @@ fn source_type_hash(index: usize, source: Source) -> Result<Option<[u8; 32]>, Co
 
 fn hash_transaction() -> Result<Transaction, CoreError> {
     let cursor =
-        syscall_cursor(SyscallLoader::Transaction).map_err(|_| CoreError::MissingHashInput)?;
+        syscall_cursor(SyscallTarget::Transaction).map_err(|_| CoreError::MissingHashInput)?;
     Ok(Transaction::from(cursor))
 }
 
 impl TransactionSource for ChainSource {
     fn transaction_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
-        source_cursor(SyscallLoader::Transaction)
+        source_cursor(SyscallTarget::Transaction)
     }
 
     fn script_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
-        source_cursor(SyscallLoader::Script)
+        source_cursor(SyscallTarget::Script)
     }
 
     fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
@@ -194,14 +194,14 @@ impl TransactionSource for ChainSource {
     }
 
     fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
-        hash_cursor(SyscallLoader::Cell {
+        hash_cursor(SyscallTarget::Cell {
             index,
             source: Source::Input,
         })
     }
 
     fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
-        hash_cursor(SyscallLoader::CellData {
+        hash_cursor(SyscallTarget::CellData {
             index,
             source: Source::Input,
         })
