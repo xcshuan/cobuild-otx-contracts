@@ -1,5 +1,5 @@
 use cobuild_core::{
-    context::{CobuildContext, TxScriptHashes},
+    context::{CobuildContext, ScriptHashIndex},
     error::CoreError,
     hash::tx_with_message_hash,
     layout::LayoutTx,
@@ -18,7 +18,7 @@ fn lock_query_without_matching_lock_has_no_required_signatures() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![[1u8; 32]],
             input_types: vec![None],
             output_types: Vec::new(),
@@ -43,7 +43,7 @@ fn lock_query_uses_current_lock_group_leading_witness_only() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![[1u8; 32], [2u8; 32]],
             input_types: vec![None, None],
             output_types: Vec::new(),
@@ -77,7 +77,7 @@ fn lock_query_rejects_malformed_group_leading_witness() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![[1u8; 32]],
             input_types: vec![None],
             output_types: Vec::new(),
@@ -106,7 +106,7 @@ fn sighash_all_only_uses_unique_sighash_all_message_hash() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![[1u8; 32], [2u8; 32]],
             input_types: vec![None, None],
             output_types: Vec::new(),
@@ -141,7 +141,7 @@ fn lock_query_rejects_duplicate_sighash_all_witnesses() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![[1u8; 32], [2u8; 32]],
             input_types: vec![None, None],
             output_types: Vec::new(),
@@ -174,7 +174,7 @@ fn otx_signature_rejects_message_action_target_absent_from_transaction() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![target_lock],
             input_types: vec![None],
             output_types: Vec::new(),
@@ -220,7 +220,7 @@ fn required_signatures_marks_otx_append_origin() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![base_lock, target_lock],
             input_types: vec![None, None],
             output_types: Vec::new(),
@@ -307,7 +307,7 @@ fn unrelated_malformed_witness_does_not_force_cobuild_flow() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![[1u8; 32], [2u8; 32]],
             input_types: vec![None, None],
             output_types: Vec::new(),
@@ -338,7 +338,7 @@ fn unrelated_otx_lock_query_does_not_require_raw_hash_parts() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![target_lock],
             input_types: vec![None],
             output_types: Vec::new(),
@@ -371,7 +371,7 @@ fn unrelated_malformed_otx_layout_does_not_fail_tx_level_lock_query() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![tx_lock, otx_lock],
             input_types: vec![None, None],
             output_types: Vec::new(),
@@ -402,7 +402,7 @@ fn otx_signature_rejects_uncovered_same_lock_remainder_input() {
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![target_lock, target_lock],
             input_types: vec![None, None],
             output_types: Vec::new(),
@@ -433,7 +433,7 @@ fn duplicate_otx_start_after_tx_level_lock_does_not_fail_unrelated_lock_query() 
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![tx_lock, otx_lock],
             input_types: vec![None, None],
             output_types: Vec::new(),
@@ -535,7 +535,7 @@ fn otx_context_with_message(
             cell_dep_count: 0,
             header_dep_count: 0,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: vec![target_lock],
             input_types: vec![None],
             output_types: Vec::new(),

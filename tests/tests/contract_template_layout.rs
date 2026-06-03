@@ -282,6 +282,41 @@ fn cobuild_core_exposes_source_boundary_without_ckb_std() {
 }
 
 #[test]
+fn cobuild_core_prepares_context_in_prepare_module() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+
+    assert!(
+        core_src.join("prepare.rs").is_file(),
+        "prepare.rs must own context preparation"
+    );
+    assert!(
+        !core_src.join("loader.rs").exists(),
+        "core loader.rs should be renamed to prepare.rs"
+    );
+
+    let lib_rs = fs::read_to_string(core_src.join("lib.rs")).expect("core lib.rs");
+    assert!(
+        lib_rs.contains("pub mod prepare"),
+        "core should export prepare"
+    );
+    assert!(
+        !lib_rs.contains("pub mod loader"),
+        "core should not export loader"
+    );
+
+    let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("core context.rs");
+    assert!(
+        context_rs.contains("ScriptHashIndex"),
+        "context.rs should expose ScriptHashIndex"
+    );
+    assert!(
+        !context_rs.contains("TxScriptHashes"),
+        "context.rs should not expose TxScriptHashes"
+    );
+}
+
+#[test]
 fn cobuild_core_hashing_uses_source_not_owned_hash_parts() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let core_src = workspace_root.join("crates/cobuild-core/src");

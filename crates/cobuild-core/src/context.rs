@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct TxScriptHashes {
+pub struct ScriptHashIndex {
     pub input_locks: Vec<[u8; 32]>,
     pub input_types: Vec<Option<[u8; 32]>>,
     pub output_types: Vec<Option<[u8; 32]>>,
@@ -15,7 +15,7 @@ pub struct TxScriptHashes {
 
 pub struct CobuildContext {
     pub(crate) tx: LayoutTx,
-    pub(crate) script_hashes: TxScriptHashes,
+    pub(crate) script_hashes: ScriptHashIndex,
     pub(crate) layout_scan: OtxLayoutScan,
 }
 
@@ -25,7 +25,7 @@ pub struct LockScriptQuery<'a> {
 }
 
 impl CobuildContext {
-    pub fn new(tx: LayoutTx, script_hashes: TxScriptHashes) -> Result<Self, CoreError> {
+    pub fn new(tx: LayoutTx, script_hashes: ScriptHashIndex) -> Result<Self, CoreError> {
         if script_hashes.input_locks.len() != tx.input_count {
             return Err(CoreError::InvalidContextInput);
         }

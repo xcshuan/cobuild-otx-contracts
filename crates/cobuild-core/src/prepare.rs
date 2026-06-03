@@ -4,7 +4,7 @@ use core::convert::TryInto;
 use cobuild_types::lazy_reader::blockchain::{Script, Transaction};
 
 use crate::{
-    context::{CobuildContext, PreparedContext, TxScriptHashes},
+    context::{CobuildContext, PreparedContext, ScriptHashIndex},
     error::CoreError,
     layout::LayoutTx,
     reader::{cursor_bytes, cursor_from_slice},
@@ -55,7 +55,7 @@ pub fn prepare_context(input: PreparedContextInput) -> Result<PreparedContext, C
             cell_dep_count: input.cell_dep_count,
             header_dep_count: input.header_dep_count,
         },
-        TxScriptHashes {
+        ScriptHashIndex {
             input_locks: input.input_locks.clone(),
             input_types: input.input_types.clone(),
             output_types: input.output_types.clone(),

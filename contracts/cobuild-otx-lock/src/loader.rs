@@ -5,7 +5,7 @@ use ckb_std::{
     error::SysError,
     syscalls,
 };
-use cobuild_core::loader::{
+use cobuild_core::prepare::{
     PreparedContextInput, parse_transaction_info, prepare_context, script_args_from_slice,
 };
 
