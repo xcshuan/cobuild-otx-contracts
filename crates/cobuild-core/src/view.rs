@@ -81,6 +81,10 @@ impl MaskView {
         self.cursor.size
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     pub fn cursor(&self) -> &Cursor {
         &self.cursor
     }
