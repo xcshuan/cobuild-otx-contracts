@@ -23,7 +23,7 @@ pub(crate) fn load_prepared_context() -> Result<cobuild_core::context::PreparedC
     let input_count = info.input_count;
     let output_count = info.output_count;
     let witnesses = info.witnesses;
-    let (resolved_outputs, resolved_data) = load_resolved_inputs(input_count)?;
+    let resolved_inputs = load_resolved_inputs(input_count)?;
 
     prepare_context(PreparedContextInput {
         transaction: info.transaction,
@@ -37,8 +37,8 @@ pub(crate) fn load_prepared_context() -> Result<cobuild_core::context::PreparedC
         input_types: load_type_hashes(input_count, Source::Input)?,
         output_types: load_type_hashes(output_count, Source::Output)?,
         tx_hash: load_tx_hash()?,
-        resolved_outputs,
-        resolved_data,
+        resolved_outputs: resolved_inputs.outputs,
+        resolved_data: resolved_inputs.data,
         raw_inputs: info.raw_inputs,
         raw_outputs: info.raw_outputs,
         raw_outputs_data: info.raw_outputs_data,
@@ -74,14 +74,19 @@ fn load_type_hashes(count: usize, source: Source) -> Result<Vec<Option<[u8; 32]>
     Ok(hashes)
 }
 
-fn load_resolved_inputs(input_count: usize) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), Error> {
+struct ResolvedInputPayloads {
+    outputs: Vec<Vec<u8>>,
+    data: Vec<Vec<u8>>,
+}
+
+fn load_resolved_inputs(input_count: usize) -> Result<ResolvedInputPayloads, Error> {
     let mut outputs = Vec::with_capacity(input_count);
     let mut data = Vec::with_capacity(input_count);
     for index in 0..input_count {
         outputs.push(load_cell(index, Source::Input)?);
         data.push(load_cell_data(index, Source::Input)?);
     }
-    Ok((outputs, data))
+    Ok(ResolvedInputPayloads { outputs, data })
 }
 
 fn load_tx_hash() -> Result<[u8; 32], Error> {
