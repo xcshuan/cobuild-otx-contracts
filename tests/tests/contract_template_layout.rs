@@ -181,31 +181,34 @@ fn cobuild_core_reader_helpers_are_not_owned_by_view() {
         "core should export reader helpers"
     );
 
+    let helper_definitions = [
+        ("pub struct OwnedReader", "struct OwnedReader"),
+        ("pub fn cursor_from_slice(", "fn cursor_from_slice("),
+        ("pub fn cursor_bytes(", "fn cursor_bytes("),
+        ("pub fn update_cursor(", "fn update_cursor("),
+        (
+            "pub fn update_cursor_with_error(",
+            "fn update_cursor_with_error(",
+        ),
+        (
+            "pub fn update_len_prefixed_cursor(",
+            "fn update_len_prefixed_cursor(",
+        ),
+    ];
+
     let reader_rs = fs::read_to_string(core_src.join("reader.rs")).expect("reader.rs");
-    for expected in [
-        "OwnedReader",
-        "cursor_from_slice",
-        "cursor_bytes",
-        "update_cursor",
-        "update_cursor_with_error",
-        "update_len_prefixed_cursor",
-    ] {
+    for (reader_definition, _) in helper_definitions {
         assert!(
-            reader_rs.contains(expected),
-            "reader.rs should define {expected}"
+            reader_rs.contains(reader_definition),
+            "reader.rs should define {reader_definition}"
         );
     }
 
     let view_rs = fs::read_to_string(core_src.join("view.rs")).expect("view.rs");
-    for forbidden in [
-        "struct OwnedReader",
-        "fn cursor_from_slice",
-        "fn cursor_bytes",
-        "fn update_cursor",
-    ] {
+    for (_, view_definition) in helper_definitions {
         assert!(
-            !view_rs.contains(forbidden),
-            "view.rs must not define {forbidden}"
+            !view_rs.contains(view_definition),
+            "view.rs must not define {view_definition}"
         );
     }
 }
