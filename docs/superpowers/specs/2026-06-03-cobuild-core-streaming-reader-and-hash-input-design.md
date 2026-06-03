@@ -6,10 +6,13 @@ This document defines the next refactor phase for `cobuild-core` and
 `contracts/cobuild-otx-lock`.
 
 The goal is to turn the existing lazy-reader usage from a parsing convenience
-into a real streaming data boundary for on-chain verification. The current
-implementation still loads the full transaction, all witnesses, resolved input
-cells, and raw transaction parts into owned `Vec` structures before hashing.
-That weakens the memory benefit expected from lazy readers.
+into a real streaming data boundary for on-chain verification, and then cleanly
+separate the view layer from reader infrastructure and owned payload storage.
+The current implementation still loads the full transaction, all witnesses,
+resolved input cells, and raw transaction parts into owned `Vec` structures
+before hashing. It also lets `view.rs` own reader helpers and eager DTO
+copying. That weakens the memory benefit expected from lazy readers and leaves
+the protocol-view boundary less crisp than it should be.
 
 This phase may break Rust helper APIs, module names, and test target names. It
 must not change Cobuild Core protocol semantics.
@@ -77,11 +80,15 @@ OTX hashing only needs ranges selected by relevant OTX layouts. Loading all
 raw parts up front makes relevance-aware query flow less useful from a memory
 perspective.
 
-### View DTOs Own Hash Payloads
+### View DTOs Own Hash Payloads And Reader Infrastructure
 
 `view.rs` converts message bytes, masks, and seals from cursors into `Vec<u8>`.
 This is acceptable for small values and returned seals, but it should not be
 the default for hash inputs that can be streamed from a cursor.
+
+`view.rs` also owns `OwnedReader`, `cursor_from_slice`, `cursor_bytes`, and
+`update_cursor`. Those are reader/hash support utilities, not protocol-view
+conversion responsibilities.
 
 ## Goals
 
@@ -96,6 +103,9 @@ the default for hash inputs that can be streamed from a cursor.
 - Keep `unsafe` out of core and lock code.
 - Keep `entry.rs` as the high-level contract flow.
 - Keep tests expressive around streaming behavior and source boundaries.
+- Make `view.rs` a clean Molecule-to-core protocol view boundary.
+- Remove default owned payload conversion from view DTOs unless ownership is
+  needed by an external consumer such as signature verification.
 
 ## Non-Goals
 
@@ -121,6 +131,20 @@ Use a source-oriented design with three layers:
 
 This avoids adding `ckb-std` to core while allowing the lock contract to parse
 and hash without materializing whole transaction data.
+
+Implement this as two rounds:
+
+1. **Round 1: Streaming source and hash input boundary.** Remove full
+   transaction loading, duplicate trailing witnesses, eager raw hash inputs,
+   and owned resolved input data from the lock verification path.
+2. **Round 2: Clean cursor-backed view layer.** After the streaming boundary is
+   stable, make `view.rs` purely responsible for protocol view conversion and
+   replace owned DTO payloads with cursor-backed views where ownership is not
+   semantically required.
+
+Both rounds must pass the full verification matrix. Round 2 is not optional;
+it is separated only to keep failures diagnosable and avoid coupling hash
+source migration bugs with protocol-view migration bugs.
 
 ## Core Module Changes
 
@@ -248,16 +272,48 @@ header deps, and resolved input data by index.
 
 ### View DTOs
 
-Move DTOs toward cursor-backed payloads:
+Round 2 should replace the current owned DTO shape with a clean cursor-backed
+view model.
+
+Target names:
+
+```text
+WitnessLayoutView
+SighashAllWitnessView
+OtxStartView
+OtxView
+SealPairView
+MessageActionView
+```
+
+The exact names can be adjusted during implementation, but the vocabulary must
+make these values views over Molecule data, not owned data records.
+
+Required changes:
 
 - message payload should be available as a cursor for hashing and validation;
-- masks should be available as cursor-backed bytes or a small mask view;
-- seals may be copied into `Vec<u8>` only when producing `SignatureRequest`;
+- masks should be cursor-backed bytes or a small `MaskView` that reads bits
+  without cloning the whole mask;
+- seal payloads should remain cursor-backed inside `SealPairView` and be copied
+  only when producing `SignatureRequest`;
 - message action validation should parse directly from a message cursor instead
   of requiring `message: Vec<u8>`.
+- `OwnedReader`, `cursor_from_slice`, `cursor_bytes`, and `update_cursor`
+  should live in `reader.rs`, not `view.rs`;
+- `view.rs` should not expose generated lazy-reader internals, but it may expose
+  core-owned cursor-backed view types;
+- helper names ending in `Data` should be removed or renamed when the value is
+  no longer owned data.
 
 Do not expose generated lazy-reader entity internals as public core types.
 Cursor-backed core DTOs are allowed.
+
+Owned bytes are still allowed at the final boundary where an owned value is
+needed:
+
+- `SignatureRequest.seal`;
+- public helper APIs that intentionally return script args or test fixtures;
+- small copied values such as `[u8; 32]` hashes and numeric counts.
 
 ## Lock Crate Changes
 
@@ -302,6 +358,18 @@ entry.rs
 
 There should be no owned `trailing_witnesses` vector and no full
 `RawTxParts` vector on the lock path.
+
+After Round 2, the flow from witness parsing to hash construction should remain
+cursor-backed:
+
+```text
+witness cursor
+  -> WitnessLayoutView
+  -> SighashAllWitnessView / OtxView
+  -> message cursor, mask cursor, seal cursor
+  -> validation/hash streaming
+  -> copy seal only when building SignatureRequest
+```
 
 ## Error Handling
 
@@ -350,6 +418,14 @@ Add focused tests for the new boundary:
 - source-boundary tests ensure `cobuild-core` still does not import generated
   `entity` modules.
 - source-boundary tests ensure no `unsafe` is introduced.
+- `view.rs` does not define `OwnedReader`, `cursor_from_slice`,
+  `cursor_bytes`, or `update_cursor`.
+- `view.rs` does not expose DTO names ending in `Data` for cursor-backed
+  values.
+- message validation accepts a cursor-backed message view and does not require
+  `Vec<u8>`.
+- OTX hash paths use cursor-backed message and mask views.
+- seal payload is copied only at `SignatureRequest` construction.
 
 Tests should include a counting fake source that records which cursors were
 requested. That gives direct evidence that irrelevant data is not loaded.
@@ -357,7 +433,9 @@ requested. That gives direct evidence that irrelevant data is not loaded.
 ## Implementation Order
 
 The implementation plan should be conservative even though Rust API
-compatibility is not required:
+compatibility is not required. Split it into two rounds.
+
+Round 1:
 
 1. Move reader helpers out of `view.rs` into `reader.rs`.
 2. Remove `trailing_witnesses` from `SigningHashParts` and derive it from the
@@ -367,9 +445,17 @@ compatibility is not required:
 5. Replace full transaction loading with transaction cursor parsing.
 6. Replace `RawTxParts` and owned resolved inputs with streaming hash source
    reads.
-7. Convert message validation and OTX hash payloads from owned bytes to cursor
-   views where useful.
-8. Rename modules after the data flow is stable.
+
+Round 2:
+
+7. Replace `SighashAllWitnessLayout`, `OtxStartData`, `OtxData`,
+   `SealPairData`, and `ActionData` with view-oriented names.
+8. Convert message validation from owned message bytes to message cursor/view
+   parsing.
+9. Convert OTX message and masks from owned `Vec<u8>` fields to cursor-backed
+   view fields.
+10. Keep seal payloads cursor-backed until `SignatureRequest` construction.
+11. Rename modules after the data flow and view boundary are stable.
 
 ## Deferred Work
 
@@ -380,7 +466,7 @@ for the streaming boundary:
 - changing verifier implementation details;
 - changing auth args format;
 - optimizing small copied seals and masks that are not material to memory
-  pressure;
+  pressure, unless they are part of the Round 2 view cleanup boundary;
 - introducing a generic async or allocator-free IO framework.
 
 ## Acceptance Criteria
@@ -392,4 +478,8 @@ for the streaming boundary:
 - Irrelevant OTX data is not read from source during unrelated lock queries.
 - Core has no dependency on `ckb_std`.
 - Core public abstractions do not expose generated entity module types.
+- `view.rs` only owns Molecule-to-core protocol view conversion.
+- reader/hash cursor helpers live outside `view.rs`.
+- Cursor-backed view names replace owned `*Data` DTO names where payloads are
+  not actually owned by design.
 - The full verification matrix passes offline.
