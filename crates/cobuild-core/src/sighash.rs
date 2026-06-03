@@ -3,15 +3,17 @@ use alloc::vec::Vec;
 use crate::{
     context::LockScriptQuery,
     error::CoreError,
-    hash::{tx_with_message_hash, tx_without_message_hash, SigningHashParts},
+    hash::{tx_with_message_hash, tx_without_message_hash},
+    reader::cursor_from_slice,
     signature::{SignatureOrigin, SignatureRequest},
+    source::SigningDataSource,
     view::{SighashAllWitnessLayout, WitnessLayoutView},
 };
 
 impl LockScriptQuery<'_> {
-    pub(crate) fn collect_sighash_all_signatures(
+    pub(crate) fn collect_sighash_all_signatures<S: SigningDataSource>(
         &self,
-        parts: &SigningHashParts,
+        source: &S,
     ) -> Result<Vec<SignatureRequest>, CoreError> {
         let Some(carrier_witness_index) = self
             .context
@@ -39,16 +41,18 @@ impl LockScriptQuery<'_> {
             SighashAllWitnessLayout::WithMessage { seal, message } => {
                 let message = tx_message.as_deref().unwrap_or(&message);
                 self.validate_message_targets(message)?;
-                let signing_message_hash = tx_with_message_hash(message, parts)?;
+                let message = cursor_from_slice(message);
+                let signing_message_hash = tx_with_message_hash(&message, source)?;
                 (seal, signing_message_hash)
             }
             SighashAllWitnessLayout::SealOnly { seal } => {
                 let signing_message_hash = match tx_message {
                     Some(message) => {
                         self.validate_message_targets(&message)?;
-                        tx_with_message_hash(&message, parts)?
+                        let message = cursor_from_slice(&message);
+                        tx_with_message_hash(&message, source)?
                     }
-                    None => tx_without_message_hash(parts)?,
+                    None => tx_without_message_hash(source)?,
                 };
                 (seal, signing_message_hash)
             }

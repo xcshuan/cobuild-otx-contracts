@@ -5,11 +5,8 @@ use ckb_std::{
     error::SysError,
     syscalls,
 };
-use cobuild_core::{
-    hash::ResolvedInputHashPart,
-    loader::{
-        PreparedContextInput, parse_transaction_info, prepare_context, script_args_from_slice,
-    },
+use cobuild_core::loader::{
+    PreparedContextInput, parse_transaction_info, prepare_context, script_args_from_slice,
 };
 
 use crate::{
@@ -26,9 +23,11 @@ pub(crate) fn load_prepared_context() -> Result<cobuild_core::context::PreparedC
     let input_count = info.input_count;
     let output_count = info.output_count;
     let witnesses = info.witnesses;
-    let trailing_witnesses = witnesses.iter().skip(input_count).cloned().collect();
+    let (resolved_outputs, resolved_data) = load_resolved_inputs(input_count)?;
 
     prepare_context(PreparedContextInput {
+        transaction: info.transaction,
+        script: load_script()?,
         witnesses,
         input_count,
         output_count,
@@ -38,9 +37,13 @@ pub(crate) fn load_prepared_context() -> Result<cobuild_core::context::PreparedC
         input_types: load_type_hashes(input_count, Source::Input)?,
         output_types: load_type_hashes(output_count, Source::Output)?,
         tx_hash: load_tx_hash()?,
-        resolved_inputs: load_resolved_inputs(input_count)?,
-        trailing_witnesses,
-        raw_parts: info.raw_parts,
+        resolved_outputs,
+        resolved_data,
+        raw_inputs: info.raw_inputs,
+        raw_outputs: info.raw_outputs,
+        raw_outputs_data: info.raw_outputs_data,
+        raw_cell_deps: info.raw_cell_deps,
+        raw_header_deps: info.raw_header_deps,
     })
     .map_err(map_core_error)
 }
@@ -71,15 +74,14 @@ fn load_type_hashes(count: usize, source: Source) -> Result<Vec<Option<[u8; 32]>
     Ok(hashes)
 }
 
-fn load_resolved_inputs(input_count: usize) -> Result<Vec<ResolvedInputHashPart>, Error> {
-    let mut inputs = Vec::with_capacity(input_count);
+fn load_resolved_inputs(input_count: usize) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), Error> {
+    let mut outputs = Vec::with_capacity(input_count);
+    let mut data = Vec::with_capacity(input_count);
     for index in 0..input_count {
-        inputs.push(ResolvedInputHashPart {
-            output: load_cell(index, Source::Input)?,
-            data: load_cell_data(index, Source::Input)?,
-        });
+        outputs.push(load_cell(index, Source::Input)?);
+        data.push(load_cell_data(index, Source::Input)?);
     }
-    Ok(inputs)
+    Ok((outputs, data))
 }
 
 fn load_tx_hash() -> Result<[u8; 32], Error> {

@@ -2,8 +2,8 @@ use alloc::vec::Vec;
 
 use crate::{
     error::CoreError,
-    hash::{RawTxParts, SigningHashParts},
     layout::{scan_layout, LayoutTx, OtxLayoutScan},
+    source::InMemorySource,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -17,7 +17,6 @@ pub struct CobuildContext {
     pub(crate) tx: LayoutTx,
     pub(crate) script_hashes: TxScriptHashes,
     pub(crate) layout_scan: OtxLayoutScan,
-    pub(crate) raw_parts: Option<RawTxParts>,
 }
 
 pub struct LockScriptQuery<'a> {
@@ -43,18 +42,7 @@ impl CobuildContext {
             tx,
             script_hashes,
             layout_scan,
-            raw_parts: None,
         })
-    }
-
-    pub fn with_raw_parts(
-        tx: LayoutTx,
-        script_hashes: TxScriptHashes,
-        raw_parts: RawTxParts,
-    ) -> Result<Self, CoreError> {
-        let mut context = Self::new(tx, script_hashes)?;
-        context.raw_parts = Some(raw_parts);
-        Ok(context)
     }
 
     pub fn lock_query(&self, script_hash: [u8; 32]) -> LockScriptQuery<'_> {
@@ -67,14 +55,14 @@ impl CobuildContext {
 
 pub struct PreparedContext {
     pub context: CobuildContext,
-    pub signing_hash_parts: SigningHashParts,
+    pub signing_source: InMemorySource,
 }
 
 impl PreparedContext {
-    pub fn new(context: CobuildContext, signing_hash_parts: SigningHashParts) -> Self {
+    pub fn new(context: CobuildContext, signing_source: InMemorySource) -> Self {
         Self {
             context,
-            signing_hash_parts,
+            signing_source,
         }
     }
 }

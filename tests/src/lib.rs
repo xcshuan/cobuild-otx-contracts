@@ -117,7 +117,6 @@ pub fn verify_and_dump_failed_tx(
 }
 
 pub mod fixtures {
-    use ckb_hash::Blake2bBuilder;
     use ckb_testtool::{
         builtin::ALWAYS_SUCCESS,
         ckb_error::Error,
@@ -129,7 +128,15 @@ pub mod fixtures {
         },
         context::Context,
     };
-    use cobuild_core::hash::{ResolvedInputHashPart, SigningHashParts, tx_without_message_hash};
+    use cobuild_core::{
+        hash::{
+            otx_append_hash as core_otx_append_hash, otx_base_hash as core_otx_base_hash,
+            tx_without_message_hash,
+        },
+        layout::{OtxLayout, Range},
+        source::InMemorySource,
+        view::OtxData,
+    };
     use cobuild_types::entity::{
         core::{ActionVec, Message as CobuildMessage, Otx, OtxStart, SealPair, SighashAllOnly},
         witness::WitnessLayout,
@@ -198,15 +205,13 @@ pub mod fixtures {
             .witness(Bytes::new().pack())
             .build();
 
-        let signing_message_hash = tx_without_message_hash(&SigningHashParts {
-            tx_hash: packed_hash_to_array(unsigned_tx.hash()),
-            resolved_inputs: vec![ResolvedInputHashPart {
-                output: input_output.as_slice().to_vec(),
-                data: Vec::new(),
-            }],
-            trailing_witnesses: Vec::new(),
-        })
-        .expect("signing message hash");
+        let signing_source = tx_signing_source(
+            packed_hash_to_array(unsigned_tx.hash()),
+            1,
+            input_output.as_slice(),
+        );
+        let signing_message_hash =
+            tx_without_message_hash(&signing_source).expect("signing message hash");
         let seal = sign_recoverable(&secp, &secret_key, signing_message_hash);
         let witness = WitnessLayout::from(SighashAllOnly::new_builder().seal(seal).build());
         let tx = unsigned_tx
@@ -313,6 +318,8 @@ pub mod fixtures {
 
         let start_input = if include_sighash_all { 1 } else { 0 };
         let otx_parts = OtxFixtureParts {
+            start_input,
+            input_count,
             message: empty_message_entity().as_slice().to_vec(),
             append_permissions: override_append_permissions.unwrap_or(0x01),
             base_input_masks: vec![0b0000_0011],
@@ -353,18 +360,13 @@ pub mod fixtures {
 
         let mut witnesses = Vec::new();
         if include_sighash_all {
-            let signing_message_hash = tx_without_message_hash(&SigningHashParts {
-                tx_hash: packed_hash_to_array(unsigned_tx.hash()),
-                resolved_inputs: vec![
-                    ResolvedInputHashPart {
-                        output: input_output.as_slice().to_vec(),
-                        data: Vec::new(),
-                    };
-                    input_count
-                ],
-                trailing_witnesses: Vec::new(),
-            })
-            .expect("sighash-all signing message hash");
+            let signing_source = tx_signing_source(
+                packed_hash_to_array(unsigned_tx.hash()),
+                input_count,
+                input_output.as_slice(),
+            );
+            let signing_message_hash =
+                tx_without_message_hash(&signing_source).expect("sighash-all signing message hash");
             let tx_seal = sign_recoverable(&secp, &secret_key, signing_message_hash);
             witnesses.push(
                 Bytes::copy_from_slice(
@@ -393,6 +395,8 @@ pub mod fixtures {
     }
 
     struct OtxFixtureParts {
+        start_input: usize,
+        input_count: usize,
         message: Vec<u8>,
         append_permissions: u8,
         base_input_masks: Vec<u8>,
@@ -446,65 +450,74 @@ pub mod fixtures {
     }
 
     fn otx_base_hash(parts: &OtxFixtureParts) -> [u8; 32] {
-        let mut out = [0u8; 32];
-        let mut hasher = Blake2bBuilder::new(32)
-            .personal(b"ckbcb_otb_core1\0")
-            .build();
-        hasher.update(&parts.message);
-        hasher.update(&[parts.append_permissions]);
-        hasher.update(&(parts.base_inputs.len() as u32).to_le_bytes());
-        update_len_prefixed(&mut hasher, &parts.base_input_masks);
-        for (index, input) in parts.base_inputs.iter().enumerate() {
-            hasher.update(&(index as u32).to_le_bytes());
-            if mask_bit(&parts.base_input_masks, index * 2) {
-                hasher.update(&input.raw[..8]);
-            }
-            if mask_bit(&parts.base_input_masks, index * 2 + 1) {
-                hasher.update(&input.raw[8..44]);
-            }
-            hasher.update(&input.resolved_output);
-            update_len_prefixed(&mut hasher, &input.data);
-        }
-        hasher.update(&0u32.to_le_bytes());
-        update_len_prefixed(&mut hasher, &[]);
-        hasher.update(&0u32.to_le_bytes());
-        update_len_prefixed(&mut hasher, &[]);
-        hasher.update(&0u32.to_le_bytes());
-        update_len_prefixed(&mut hasher, &[]);
-        hasher.finalize(&mut out);
-        out
+        let (otx, layout, source) = otx_hash_inputs(parts);
+        core_otx_base_hash(&otx, &layout, &source).expect("otx base hash")
     }
 
     fn otx_append_hash(parts: &OtxFixtureParts, base_hash: [u8; 32]) -> [u8; 32] {
-        let mut out = [0u8; 32];
-        let mut hasher = Blake2bBuilder::new(32)
-            .personal(b"ckbcb_ota_core1\0")
-            .build();
-        hasher.update(&parts.message);
-        hasher.update(&base_hash);
-        hasher.update(&(parts.append_inputs.len() as u32).to_le_bytes());
-        for (index, input) in parts.append_inputs.iter().enumerate() {
-            hasher.update(&(index as u32).to_le_bytes());
-            hasher.update(&input.raw);
-            hasher.update(&input.resolved_output);
-            update_len_prefixed(&mut hasher, &input.data);
+        let (otx, layout, source) = otx_hash_inputs(parts);
+        core_otx_append_hash(&otx, &layout, &source, base_hash).expect("otx append hash")
+    }
+
+    fn otx_hash_inputs(parts: &OtxFixtureParts) -> (OtxData, OtxLayout, InMemorySource) {
+        let base_start = parts.start_input;
+        let append_start = base_start + parts.base_inputs.len();
+        let mut raw_inputs = vec![Vec::new(); parts.input_count];
+        let mut resolved_outputs = vec![Vec::new(); parts.input_count];
+        let mut resolved_data = vec![Vec::new(); parts.input_count];
+
+        for (offset, input) in parts.base_inputs.iter().enumerate() {
+            let index = base_start + offset;
+            raw_inputs[index] = input.raw.clone();
+            resolved_outputs[index] = input.resolved_output.clone();
+            resolved_data[index] = input.data.clone();
         }
-        hasher.update(&0u32.to_le_bytes());
-        hasher.update(&0u32.to_le_bytes());
-        hasher.update(&0u32.to_le_bytes());
-        hasher.finalize(&mut out);
-        out
+        for (offset, input) in parts.append_inputs.iter().enumerate() {
+            let index = append_start + offset;
+            raw_inputs[index] = input.raw.clone();
+            resolved_outputs[index] = input.resolved_output.clone();
+            resolved_data[index] = input.data.clone();
+        }
+
+        let otx = OtxData {
+            message: parts.message.clone(),
+            append_permissions: parts.append_permissions,
+            base_input_cells: parts.base_inputs.len(),
+            base_input_masks: parts.base_input_masks.clone(),
+            base_output_cells: 0,
+            base_output_masks: Vec::new(),
+            base_cell_deps: 0,
+            base_cell_dep_masks: Vec::new(),
+            base_header_deps: 0,
+            base_header_dep_masks: Vec::new(),
+            append_input_cells: parts.append_inputs.len(),
+            append_output_cells: 0,
+            append_cell_deps: 0,
+            append_header_deps: 0,
+            seals: Vec::new(),
+        };
+        let layout = OtxLayout {
+            witness_index: 0,
+            base_inputs: range(base_start, parts.base_inputs.len()),
+            append_inputs: range(append_start, parts.append_inputs.len()),
+            base_outputs: range(0, 0),
+            append_outputs: range(0, 0),
+            base_cell_deps: range(1, 0),
+            append_cell_deps: range(1, 0),
+            base_header_deps: range(0, 0),
+            append_header_deps: range(0, 0),
+        };
+        let source = InMemorySource {
+            raw_inputs,
+            resolved_outputs,
+            resolved_data,
+            ..InMemorySource::default()
+        };
+        (otx, layout, source)
     }
 
-    fn update_len_prefixed(hasher: &mut ckb_hash::Blake2b, bytes: &[u8]) {
-        hasher.update(&(bytes.len() as u32).to_le_bytes());
-        hasher.update(bytes);
-    }
-
-    fn mask_bit(mask: &[u8], index: usize) -> bool {
-        let byte = mask[index / 8];
-        let bit = index % 8;
-        byte & (1 << bit) != 0
+    fn range(start: usize, count: usize) -> Range {
+        Range { start, count }
     }
 
     fn build_case(args: Bytes) -> Case {
@@ -546,6 +559,21 @@ pub mod fixtures {
         let mut out = [0u8; 32];
         out.copy_from_slice(hash.as_slice());
         out
+    }
+
+    fn tx_signing_source(
+        tx_hash: [u8; 32],
+        input_count: usize,
+        resolved_output: &[u8],
+    ) -> InMemorySource {
+        InMemorySource {
+            tx_hash,
+            raw_inputs: vec![Vec::new(); input_count],
+            resolved_outputs: vec![resolved_output.to_vec(); input_count],
+            resolved_data: vec![Vec::new(); input_count],
+            witnesses: vec![Vec::new(); input_count],
+            ..InMemorySource::default()
+        }
     }
 
     fn sign_recoverable(

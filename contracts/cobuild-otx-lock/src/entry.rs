@@ -13,7 +13,7 @@ pub fn main() -> Result<(), Error> {
     let signature_requests = prepared
         .context
         .lock_query(current_script_hash)
-        .required_signatures(&prepared.signing_hash_parts)
+        .required_signatures(&prepared.signing_source)
         .map_err(map_core_error)?;
 
     if signature_requests.is_empty() {

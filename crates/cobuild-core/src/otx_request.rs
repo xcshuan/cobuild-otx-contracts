@@ -3,15 +3,16 @@ use alloc::vec::Vec;
 use crate::{
     context::LockScriptQuery,
     error::CoreError,
-    hash::{otx_append_hash, otx_base_hash, SigningHashParts},
+    hash::{otx_append_hash, otx_base_hash},
     layout::{OtxLayoutScan, Range},
     signature::{SignatureOrigin, SignatureRequest},
+    source::SigningDataSource,
 };
 
 impl LockScriptQuery<'_> {
-    pub(crate) fn collect_otx_signatures(
+    pub(crate) fn collect_otx_signatures<S: SigningDataSource>(
         &self,
-        parts: &SigningHashParts,
+        source: &S,
     ) -> Result<Vec<SignatureRequest>, CoreError> {
         let mut requests = Vec::new();
         let layout = match &self.context.layout_scan {
@@ -29,14 +30,8 @@ impl LockScriptQuery<'_> {
                 continue;
             }
 
-            let raw_parts = self
-                .context
-                .raw_parts
-                .as_ref()
-                .ok_or(CoreError::MissingHashInput)?;
             self.validate_message_targets(&otx.witness.message)?;
-            let base_hash =
-                otx_base_hash(&otx.witness, &otx.layout, raw_parts, &parts.resolved_inputs)?;
+            let base_hash = otx_base_hash(&otx.witness, &otx.layout, source)?;
             if base_relevant {
                 requests.push(SignatureRequest {
                     script_hash: self.script_hash,
@@ -55,8 +50,7 @@ impl LockScriptQuery<'_> {
                     signing_message_hash: otx_append_hash(
                         &otx.witness,
                         &otx.layout,
-                        raw_parts,
-                        &parts.resolved_inputs,
+                        source,
                         base_hash,
                     )?,
                 });

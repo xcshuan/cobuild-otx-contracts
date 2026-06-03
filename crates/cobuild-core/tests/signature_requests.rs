@@ -1,9 +1,11 @@
 use cobuild_core::{
     context::{CobuildContext, TxScriptHashes},
     error::CoreError,
-    hash::{tx_with_message_hash, RawTxParts, ResolvedInputHashPart, SigningHashParts},
+    hash::tx_with_message_hash,
     layout::LayoutTx,
+    reader::cursor_from_slice,
     signature::SignatureOrigin,
+    source::InMemorySource,
 };
 
 #[test]
@@ -23,14 +25,10 @@ fn lock_query_without_matching_lock_has_no_required_signatures() {
         },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
-    };
+    let source = InMemorySource::default();
     assert!(context
         .lock_query([2u8; 32])
-        .required_signatures(&parts)
+        .required_signatures(&source)
         .unwrap()
         .is_empty());
 }
@@ -52,21 +50,17 @@ fn lock_query_uses_current_lock_group_leading_witness_only() {
         },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
-    };
+    let source = InMemorySource::default();
 
     assert!(context
         .lock_query([1u8; 32])
-        .required_signatures(&parts)
+        .required_signatures(&source)
         .unwrap()
         .is_empty());
 
     let requests = context
         .lock_query([2u8; 32])
-        .required_signatures(&parts)
+        .required_signatures(&source)
         .unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].origin, SignatureOrigin::SighashAll);
@@ -90,14 +84,10 @@ fn lock_query_rejects_malformed_group_leading_witness() {
         },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
-    };
+    let source = InMemorySource::default();
 
     assert!(matches!(
-        context.lock_query([1u8; 32]).required_signatures(&parts),
+        context.lock_query([1u8; 32]).required_signatures(&source),
         Err(CoreError::MalformedCobuild | CoreError::InvalidOtxLayout)
     ));
 }
@@ -123,21 +113,17 @@ fn sighash_all_only_uses_unique_sighash_all_message_hash() {
         },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
-    };
+    let source = InMemorySource::default();
 
     let requests = context
         .lock_query([1u8; 32])
-        .required_signatures(&parts)
+        .required_signatures(&source)
         .unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].origin, SignatureOrigin::SighashAll);
     assert_eq!(
         requests[0].signing_message_hash,
-        tx_with_message_hash(&message, &parts).unwrap()
+        tx_with_message_hash(&cursor_from_slice(&message), &source).unwrap()
     );
 }
 
@@ -162,14 +148,10 @@ fn lock_query_rejects_duplicate_sighash_all_witnesses() {
         },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
-    };
+    let source = InMemorySource::default();
 
     assert_eq!(
-        context.lock_query([1u8; 32]).required_signatures(&parts),
+        context.lock_query([1u8; 32]).required_signatures(&source),
         Err(CoreError::DuplicateSighashAll)
     );
 }
@@ -178,7 +160,7 @@ fn lock_query_rejects_duplicate_sighash_all_witnesses() {
 fn otx_signature_rejects_message_action_target_absent_from_transaction() {
     let target_lock = [1u8; 32];
     let absent_output_type = [9u8; 32];
-    let context = CobuildContext::with_raw_parts(
+    let context = CobuildContext::new(
         LayoutTx {
             witnesses: vec![
                 otx_start_witness(),
@@ -197,23 +179,12 @@ fn otx_signature_rejects_message_action_target_absent_from_transaction() {
             input_types: vec![None],
             output_types: Vec::new(),
         },
-        RawTxParts {
-            inputs: vec![Vec::new()],
-            ..RawTxParts::default()
-        },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: vec![ResolvedInputHashPart {
-            output: Vec::new(),
-            data: Vec::new(),
-        }],
-        trailing_witnesses: Vec::new(),
-    };
+    let source = otx_signing_source(1);
 
     assert_eq!(
-        context.lock_query(target_lock).required_signatures(&parts),
+        context.lock_query(target_lock).required_signatures(&source),
         Err(CoreError::InvalidMessageTarget)
     );
 }
@@ -222,11 +193,11 @@ fn otx_signature_rejects_message_action_target_absent_from_transaction() {
 fn required_signatures_marks_otx_base_origin() {
     let target_lock = [1u8; 32];
     let context = otx_context(target_lock, &[seal_pair(target_lock, 0, &[7u8; 65])]);
-    let parts = otx_signing_hash_parts();
+    let source = otx_signing_source(1);
 
     let requests = context
         .lock_query(target_lock)
-        .required_signatures(&parts)
+        .required_signatures(&source)
         .unwrap();
 
     assert_eq!(requests.len(), 1);
@@ -238,7 +209,7 @@ fn required_signatures_marks_otx_base_origin() {
 fn required_signatures_marks_otx_append_origin() {
     let target_lock = [1u8; 32];
     let base_lock = [2u8; 32];
-    let context = CobuildContext::with_raw_parts(
+    let context = CobuildContext::new(
         LayoutTx {
             witnesses: vec![
                 otx_start_witness(),
@@ -254,30 +225,13 @@ fn required_signatures_marks_otx_append_origin() {
             input_types: vec![None, None],
             output_types: Vec::new(),
         },
-        RawTxParts {
-            inputs: vec![Vec::new(), Vec::new()],
-            ..RawTxParts::default()
-        },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: vec![
-            ResolvedInputHashPart {
-                output: Vec::new(),
-                data: Vec::new(),
-            },
-            ResolvedInputHashPart {
-                output: Vec::new(),
-                data: Vec::new(),
-            },
-        ],
-        trailing_witnesses: Vec::new(),
-    };
+    let source = otx_signing_source(2);
 
     let requests = context
         .lock_query(target_lock)
-        .required_signatures(&parts)
+        .required_signatures(&source)
         .unwrap();
 
     assert_eq!(requests.len(), 1);
@@ -289,10 +243,10 @@ fn required_signatures_marks_otx_append_origin() {
 fn otx_signature_rejects_missing_required_seal_pair() {
     let target_lock = [1u8; 32];
     let context = otx_context(target_lock, &[]);
-    let parts = otx_signing_hash_parts();
+    let source = otx_signing_source(1);
 
     assert_eq!(
-        context.lock_query(target_lock).required_signatures(&parts),
+        context.lock_query(target_lock).required_signatures(&source),
         Err(CoreError::MissingSealPair)
     );
 }
@@ -307,10 +261,10 @@ fn otx_signature_rejects_duplicate_required_seal_pair() {
             seal_pair(target_lock, 0, &[8u8; 65]),
         ],
     );
-    let parts = otx_signing_hash_parts();
+    let source = otx_signing_source(1);
 
     assert_eq!(
-        context.lock_query(target_lock).required_signatures(&parts),
+        context.lock_query(target_lock).required_signatures(&source),
         Err(CoreError::DuplicateSealPair)
     );
 }
@@ -319,10 +273,10 @@ fn otx_signature_rejects_duplicate_required_seal_pair() {
 fn otx_signature_rejects_invalid_seal_scope() {
     let target_lock = [1u8; 32];
     let context = otx_context(target_lock, &[seal_pair(target_lock, 2, &[7u8; 65])]);
-    let parts = otx_signing_hash_parts();
+    let source = otx_signing_source(1);
 
     assert_eq!(
-        context.lock_query(target_lock).required_signatures(&parts),
+        context.lock_query(target_lock).required_signatures(&source),
         Err(CoreError::InvalidSealScope)
     );
 }
@@ -335,10 +289,10 @@ fn otx_signature_rejects_invalid_message_action_role() {
         &message_with_action(9, target_lock),
         &[seal_pair(target_lock, 0, &[7u8; 65])],
     );
-    let parts = otx_signing_hash_parts();
+    let source = otx_signing_source(1);
 
     assert_eq!(
-        context.lock_query(target_lock).required_signatures(&parts),
+        context.lock_query(target_lock).required_signatures(&source),
         Err(CoreError::InvalidMessageTarget)
     );
 }
@@ -360,16 +314,12 @@ fn unrelated_malformed_witness_does_not_force_cobuild_flow() {
         },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
-    };
+    let source = InMemorySource::default();
 
     assert_eq!(
         context
             .lock_query([1u8; 32])
-            .required_signatures(&parts)
+            .required_signatures(&source)
             .unwrap()
             .len(),
         1
@@ -395,16 +345,12 @@ fn unrelated_otx_lock_query_does_not_require_raw_hash_parts() {
         },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
-    };
+    let source = InMemorySource::default();
 
     assert_eq!(
         context
             .lock_query(unrelated_lock)
-            .required_signatures(&parts),
+            .required_signatures(&source),
         Ok(Vec::new())
     );
 }
@@ -432,15 +378,11 @@ fn unrelated_malformed_otx_layout_does_not_fail_tx_level_lock_query() {
         },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
-    };
+    let source = InMemorySource::default();
 
     let requests = context
         .lock_query(tx_lock)
-        .required_signatures(&parts)
+        .required_signatures(&source)
         .unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].origin, SignatureOrigin::SighashAll);
@@ -449,7 +391,7 @@ fn unrelated_malformed_otx_layout_does_not_fail_tx_level_lock_query() {
 #[test]
 fn otx_signature_rejects_uncovered_same_lock_remainder_input() {
     let target_lock = [1u8; 32];
-    let context = CobuildContext::with_raw_parts(
+    let context = CobuildContext::new(
         LayoutTx {
             witnesses: vec![
                 otx_start_witness(),
@@ -465,29 +407,12 @@ fn otx_signature_rejects_uncovered_same_lock_remainder_input() {
             input_types: vec![None, None],
             output_types: Vec::new(),
         },
-        RawTxParts {
-            inputs: vec![Vec::new(), Vec::new()],
-            ..RawTxParts::default()
-        },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: vec![
-            ResolvedInputHashPart {
-                output: Vec::new(),
-                data: Vec::new(),
-            },
-            ResolvedInputHashPart {
-                output: Vec::new(),
-                data: Vec::new(),
-            },
-        ],
-        trailing_witnesses: Vec::new(),
-    };
+    let source = otx_signing_source(2);
 
     assert_eq!(
-        context.lock_query(target_lock).required_signatures(&parts),
+        context.lock_query(target_lock).required_signatures(&source),
         Err(CoreError::MissingLockGroupCoverage)
     );
 }
@@ -515,15 +440,11 @@ fn duplicate_otx_start_after_tx_level_lock_does_not_fail_unrelated_lock_query() 
         },
     )
     .unwrap();
-    let parts = SigningHashParts {
-        tx_hash: [0u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
-    };
+    let source = InMemorySource::default();
 
     let requests = context
         .lock_query(tx_lock)
-        .required_signatures(&parts)
+        .required_signatures(&source)
         .unwrap();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].origin, SignatureOrigin::SighashAll);
@@ -606,7 +527,7 @@ fn otx_context_with_message(
     message: &[u8],
     seals: &[Vec<u8>],
 ) -> CobuildContext {
-    CobuildContext::with_raw_parts(
+    CobuildContext::new(
         LayoutTx {
             witnesses: vec![otx_start_witness(), otx_witness(message, seals)],
             input_count: 1,
@@ -619,22 +540,17 @@ fn otx_context_with_message(
             input_types: vec![None],
             output_types: Vec::new(),
         },
-        RawTxParts {
-            inputs: vec![Vec::new()],
-            ..RawTxParts::default()
-        },
     )
     .unwrap()
 }
 
-fn otx_signing_hash_parts() -> SigningHashParts {
-    SigningHashParts {
+fn otx_signing_source(input_count: usize) -> InMemorySource {
+    InMemorySource {
         tx_hash: [0u8; 32],
-        resolved_inputs: vec![ResolvedInputHashPart {
-            output: Vec::new(),
-            data: Vec::new(),
-        }],
-        trailing_witnesses: Vec::new(),
+        raw_inputs: vec![Vec::new(); input_count],
+        resolved_outputs: vec![Vec::new(); input_count],
+        resolved_data: vec![Vec::new(); input_count],
+        ..InMemorySource::default()
     }
 }
 

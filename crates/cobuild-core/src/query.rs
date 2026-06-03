@@ -1,16 +1,17 @@
 use alloc::vec::Vec;
 
 use crate::{
-    context::LockScriptQuery, error::CoreError, hash::SigningHashParts, signature::SignatureRequest,
+    context::LockScriptQuery, error::CoreError, signature::SignatureRequest,
+    source::SigningDataSource,
 };
 
 impl LockScriptQuery<'_> {
-    pub fn required_signatures(
+    pub fn required_signatures<S: SigningDataSource>(
         &self,
-        parts: &SigningHashParts,
+        source: &S,
     ) -> Result<Vec<SignatureRequest>, CoreError> {
-        let sighash_all_requests = self.collect_sighash_all_signatures(parts)?;
-        let otx_requests = self.collect_otx_signatures(parts)?;
+        let sighash_all_requests = self.collect_sighash_all_signatures(source)?;
+        let otx_requests = self.collect_otx_signatures(source)?;
         if !otx_requests.is_empty() && sighash_all_requests.is_empty() {
             self.ensure_otx_covers_current_lock_group()?;
         }

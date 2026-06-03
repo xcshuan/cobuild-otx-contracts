@@ -73,7 +73,7 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         "load_prepared_context",
         "lock_query",
         "required_signatures",
-        "signing_hash_parts",
+        "signing_source",
         "LocalVerifier",
     ] {
         assert!(
@@ -278,5 +278,28 @@ fn cobuild_core_exposes_source_boundary_without_ckb_std() {
     assert!(
         !source_rs.contains("ckb_std"),
         "core source boundary must not import ckb_std"
+    );
+}
+
+#[test]
+fn cobuild_core_hashing_uses_source_not_owned_hash_parts() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+    let hash_rs = fs::read_to_string(core_src.join("hash.rs")).expect("hash.rs");
+
+    for forbidden in [
+        "struct RawTxParts",
+        "struct ResolvedInputHashPart",
+        "struct SigningHashParts",
+        "trailing_witnesses",
+    ] {
+        assert!(
+            !hash_rs.contains(forbidden),
+            "hash.rs must not define {forbidden}"
+        );
+    }
+    assert!(
+        hash_rs.contains("SigningDataSource"),
+        "hash.rs should hash through SigningDataSource"
     );
 }

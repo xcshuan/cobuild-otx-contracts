@@ -1,11 +1,9 @@
 use cobuild_core::{
     error::CoreError,
-    hash::{
-        checked_len_prefix, otx_base_hash, tx_without_message_hash, RawTxParts,
-        ResolvedInputHashPart, SigningHashParts,
-    },
+    hash::{checked_len_prefix, otx_base_hash, tx_without_message_hash},
     layout::{OtxLayout, Range},
     reader::OwnedReader,
+    source::InMemorySource,
     view::OtxData,
 };
 use cobuild_types::lazy_reader::{
@@ -15,14 +13,13 @@ use cobuild_types::lazy_reader::{
 
 #[test]
 fn tx_without_message_hash_is_deterministic() {
-    let parts = SigningHashParts {
+    let source = InMemorySource {
         tx_hash: [7u8; 32],
-        resolved_inputs: Vec::new(),
-        trailing_witnesses: Vec::new(),
+        ..InMemorySource::default()
     };
     assert_eq!(
-        tx_without_message_hash(&parts).unwrap(),
-        tx_without_message_hash(&parts).unwrap()
+        tx_without_message_hash(&source).unwrap(),
+        tx_without_message_hash(&source).unwrap()
     );
 }
 
@@ -36,20 +33,20 @@ fn len_prefix_rejects_values_larger_than_u32() {
 
 #[test]
 fn resolved_input_output_is_not_length_prefixed() {
-    let parts = SigningHashParts {
+    let source = InMemorySource {
         tx_hash: [9u8; 32],
-        resolved_inputs: vec![ResolvedInputHashPart {
-            output: vec![1, 2, 3],
-            data: vec![4, 5],
-        }],
-        trailing_witnesses: vec![vec![6, 7, 8]],
+        resolved_outputs: vec![vec![1, 2, 3]],
+        resolved_data: vec![vec![4, 5]],
+        raw_inputs: vec![Vec::new()],
+        witnesses: vec![Vec::new(), vec![6, 7, 8]],
+        ..InMemorySource::default()
     };
 
     let mut expected = [0u8; 32];
     let mut hasher = blake2b_ref::Blake2bBuilder::new(32)
         .personal(b"ckbcb_tnm_core1\0")
         .build();
-    hasher.update(&parts.tx_hash);
+    hasher.update(&source.tx_hash);
     hasher.update(&[1, 2, 3]);
     hasher.update(&(2u32.to_le_bytes()));
     hasher.update(&[4, 5]);
@@ -57,7 +54,7 @@ fn resolved_input_output_is_not_length_prefixed() {
     hasher.update(&[6, 7, 8]);
     hasher.finalize(&mut expected);
 
-    assert_eq!(tx_without_message_hash(&parts).unwrap(), expected);
+    assert_eq!(tx_without_message_hash(&source).unwrap(), expected);
 }
 
 #[test]
@@ -90,13 +87,13 @@ fn otx_base_hash_includes_local_indices_for_base_deps_and_headers() {
         base_header_deps: range(0, 1),
         append_header_deps: range(1, 0),
     };
-    let raw = RawTxParts {
-        cell_deps: vec![vec![0x22]],
-        header_deps: vec![[0x33; 32]],
-        ..RawTxParts::default()
+    let source = InMemorySource {
+        raw_cell_deps: vec![vec![0x22]],
+        raw_header_deps: vec![[0x33; 32]],
+        ..InMemorySource::default()
     };
 
-    let actual = otx_base_hash(&otx, &layout, &raw, &[]).unwrap();
+    let actual = otx_base_hash(&otx, &layout, &source).unwrap();
 
     let mut expected = [0u8; 32];
     let mut hasher = blake2b_ref::Blake2bBuilder::new(32)
@@ -169,18 +166,16 @@ fn otx_base_hash_streamed_cursor_fields_match_independent_preimage() {
         base_header_deps: range(0, 0),
         append_header_deps: range(0, 0),
     };
-    let raw = RawTxParts {
-        inputs: vec![input],
-        outputs: vec![output],
-        outputs_data: vec![vec![0xa1, 0xa2]],
-        ..RawTxParts::default()
+    let source = InMemorySource {
+        raw_inputs: vec![input],
+        raw_outputs: vec![output],
+        raw_outputs_data: vec![vec![0xa1, 0xa2]],
+        resolved_outputs: vec![resolved_output.clone()],
+        resolved_data: vec![resolved_data.clone()],
+        ..InMemorySource::default()
     };
-    let resolved_inputs = vec![ResolvedInputHashPart {
-        output: resolved_output.clone(),
-        data: resolved_data.clone(),
-    }];
 
-    let actual = otx_base_hash(&otx, &layout, &raw, &resolved_inputs).unwrap();
+    let actual = otx_base_hash(&otx, &layout, &source).unwrap();
 
     let mut expected = [0u8; 32];
     let mut hasher = blake2b_ref::Blake2bBuilder::new(32)
