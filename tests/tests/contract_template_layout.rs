@@ -1,4 +1,33 @@
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
+
+fn rust_source_files(dir: &Path) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    collect_rust_source_files(dir, &mut paths);
+    paths.sort();
+    paths
+}
+
+fn collect_rust_source_files(dir: &Path, paths: &mut Vec<PathBuf>) {
+    for entry in fs::read_dir(dir).unwrap_or_else(|err| panic!("read {}: {err}", dir.display())) {
+        let path = entry.expect("read directory entry").path();
+        if path.is_dir() {
+            collect_rust_source_files(&path, paths);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            paths.push(path);
+        }
+    }
+}
+
+fn joined_rust_source_text(dirs: &[&Path]) -> String {
+    dirs.iter()
+        .flat_map(|dir| rust_source_files(dir))
+        .map(|path| fs::read_to_string(&path).unwrap_or_else(|err| panic!("read {path:?}: {err}")))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 #[test]
 fn cobuild_otx_lock_uses_ckb_contract_template_scaffold() {
@@ -44,8 +73,9 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
     );
 
     let lib_rs = fs::read_to_string(contract_src.join("lib.rs")).expect("lib.rs");
+    let lock_chain_module = format!("{} {}", "mod", "chain");
     assert!(
-        !lib_rs.contains("mod chain"),
+        !lib_rs.contains(&lock_chain_module),
         "contract crate should not keep chain-loading helpers"
     );
     assert!(
@@ -82,15 +112,15 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         );
     }
     for forbidden in [
-        "from_lock_args",
-        "load_current_script_args",
-        "prepare_cobuild_from_syscalls",
-        "PreparedCobuildContext",
-        "context.tx_reader",
-        "chain::",
+        format!("{}_{}", "from_lock", "args"),
+        format!("{}_{}_{}", "load_current", "script", "args"),
+        format!("{}_{}", "prepare_cobuild_from", "syscalls"),
+        format!("{}{}", "PreparedCobuild", "Context"),
+        format!("{}.{}", "context", "tx_reader"),
+        format!("{}{}", "chain", "::"),
     ] {
         assert!(
-            !entry_rs.contains(forbidden),
+            !entry_rs.contains(&forbidden),
             "entry.rs should not use removed wrapper {forbidden}"
         );
     }
@@ -123,7 +153,7 @@ fn cobuild_core_owns_syscall_streaming_without_full_transaction_load() {
     for expected in [
         "struct SyscallBackedReader",
         "fn syscall_cursor(",
-        "fn transaction_cursor(",
+        "fn hash_transaction_cursor(",
         "fn resolved_input_output_cursor(",
         "fn resolved_input_data_cursor(",
         "fn map_syscall_read_error(",
@@ -325,9 +355,12 @@ fn cobuild_core_uses_concrete_syscall_reader_without_source_traits() {
         core_src.join("syscalls.rs").is_file(),
         "cobuild-core must own syscall-backed transaction reading"
     );
+    let removed_file = format!("{}{}", "source", ".rs");
+    let transaction_source = format!("{}{}", "Transaction", "Source");
+    let hash_input_source = format!("{}{}", "HashInput", "Source");
     assert!(
-        !core_src.join("source.rs").exists(),
-        "source.rs must be removed with TransactionSource/HashInputSource"
+        !core_src.join(&removed_file).exists(),
+        "{removed_file} must be removed with {transaction_source}/{hash_input_source}"
     );
     assert!(
         !lock_src.join("chain.rs").exists(),
@@ -343,27 +376,36 @@ fn cobuild_core_uses_concrete_syscall_reader_without_source_traits() {
         lib_rs.contains("mod syscalls"),
         "core should keep syscall helpers internal"
     );
+    let public_source_module = format!("{} {}", "pub mod", "source");
     assert!(
-        !lib_rs.contains("pub mod source"),
+        !lib_rs.contains(&public_source_module),
         "core should not export source traits"
     );
 
-    let core_text = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs")
-        + &fs::read_to_string(core_src.join("hash/mod.rs")).expect("hash/mod.rs")
-        + &fs::read_to_string(core_src.join("hash/writer.rs")).expect("hash/writer.rs")
-        + &fs::read_to_string(core_src.join("layout.rs")).expect("layout.rs");
+    let all_relevant_text = joined_rust_source_text(&[&core_src, &lock_src]);
     for forbidden in [
-        "TransactionSource",
-        "HashInputSource",
-        "InMemorySource",
-        "ClassifiedCursor",
-        "CursorReadContext",
-        "WitnessCursorSource",
-        "<S:",
-        "source: &S",
+        format!("{}{}", "Transaction", "Source"),
+        format!("{}{}", "HashInput", "Source"),
+        format!("{}{}", "InMemory", "Source"),
+        format!("{}{}", "Classified", "Cursor"),
+        format!("{}{}", "CursorRead", "Context"),
+        format!("{}{}", "PreparedCobuild", "Context"),
+        format!("{}{}", "SyscallTx", "Reader"),
+        format!("{} {}", "mod", "chain"),
+        format!("{}{}", "source", ".rs"),
     ] {
         assert!(
-            !core_text.contains(forbidden),
+            !all_relevant_text.contains(&forbidden),
+            "deleted abstraction must not remain: {forbidden}"
+        );
+    }
+    for forbidden in [
+        format!("{}{}", "WitnessCursor", "Source"),
+        format!("{}{}", "<", "S:"),
+        format!("{}{}", "source", ": &S"),
+    ] {
+        assert!(
+            !all_relevant_text.contains(&forbidden),
             "core production path must not keep deleted source abstraction {forbidden}"
         );
     }
@@ -376,6 +418,7 @@ fn cobuild_core_uses_concrete_syscall_reader_without_source_traits() {
         "pub(crate) fn counts(",
         "pub(crate) fn witness_cursor(",
         "pub(crate) fn raw_input_cursor(",
+        "pub(crate) fn hash_transaction_cursor(",
         "pub(crate) fn resolved_input_output_cursor(",
         "pub(crate) fn input_lock_hash(",
     ] {
@@ -442,12 +485,13 @@ fn cobuild_core_hashing_uses_syscalls_not_owned_hash_parts() {
         );
     }
     assert!(
-        hash_mod_rs.contains("crate::syscalls"),
+        hash_mod_rs.contains("syscalls::"),
         "hash/mod.rs should hash through concrete syscall helpers"
     );
+    let hash_input_source = format!("{}{}", "HashInput", "Source");
     assert!(
-        !hash_mod_rs.contains("HashInputSource"),
-        "hash/mod.rs must not keep HashInputSource generic hashing"
+        !hash_mod_rs.contains(&hash_input_source),
+        "hash/mod.rs must not keep {hash_input_source} generic hashing"
     );
     assert!(
         hash_mod_rs.contains("mod writer"),
@@ -463,11 +507,11 @@ fn cobuild_core_hashing_uses_syscalls_not_owned_hash_parts() {
         );
     }
     for forbidden in [
-        "ClassifiedCursor",
-        "write_len_prefixed_classified_cursor",
+        format!("{}{}", "Classified", "Cursor"),
+        "write_len_prefixed_classified_cursor".to_string(),
     ] {
         assert!(
-            !hash_writer_rs.contains(forbidden),
+            !hash_writer_rs.contains(&forbidden),
             "hash/writer.rs must not keep deleted classified cursor helper {forbidden}"
         );
     }

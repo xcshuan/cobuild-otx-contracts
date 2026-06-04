@@ -80,13 +80,6 @@ fn syscall_cursor(target: SyscallReadTarget, error: CoreError) -> Result<Cursor,
     Ok(Cursor::new(total_size, Box::new(reader)))
 }
 
-pub(crate) fn transaction_cursor() -> Result<Cursor, CoreError> {
-    syscall_cursor(
-        SyscallReadTarget::Transaction,
-        CoreError::InvalidContextInput,
-    )
-}
-
 pub(crate) fn hash_transaction_cursor() -> Result<Cursor, CoreError> {
     syscall_cursor(SyscallReadTarget::Transaction, CoreError::MissingHashInput)
 }

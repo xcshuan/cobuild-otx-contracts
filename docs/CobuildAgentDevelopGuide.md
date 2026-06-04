@@ -34,18 +34,21 @@ The implementation plan is already marked complete. New work should be handled a
 - Host tests may use `entity` builders, but that dependency must not enter normal contract paths.
 - `cobuild-core` owns Cobuild protocol logic:
   - lazy-reader and cursor-backed protocol views;
-  - reader traits and read-error classification;
+  - syscall-backed transaction reading through its internal `syscalls` module;
   - witness parsing;
   - OTX layout scanning;
-  - signing hash construction over `HashInputSource`;
+  - signing hash construction from concrete syscall helpers;
   - tx-level and OTX-level signature request generation;
   - message action target validation.
 - `cobuild-otx-lock` stays thin:
   - load current script args and script hash;
-  - expose syscall-backed transaction data through `SyscallTxReader`;
-  - query `cobuild-core` signature requests;
+  - call `CobuildEngine::prepare_from_syscalls()`;
   - invoke verifier;
   - map errors to stable exit codes.
+- `cobuild-core` owns syscall-backed transaction reading through its internal `syscalls` module;
+- `cobuild-otx-lock` does not own transaction readers or source traits;
+- production Cobuild preparation uses `CobuildEngine::prepare_from_syscalls()`;
+- source-trait compatibility layers are intentionally removed.
 - The lock contract must not parse Cobuild protocol details, scan OTX layouts, construct Cobuild hash preimages, or depend on `cobuild_types::entity`.
 - Do not add a local `critical-section` shim.
 - Do not enable `portable-atomic` unsafe single-core assumptions.
@@ -60,18 +63,18 @@ The implementation plan is already marked complete. New work should be handled a
 
 The Cobuild OTX hash path needs both raw transaction fields and resolved input data:
 
-- `cobuild-core::source::{TransactionSource, HashInputSource}` define the data boundary;
-- syscall-backed cursors are wrapped in `ClassifiedCursor` so read failures keep their public error category;
+- `cobuild-core` reads transaction data through concrete helpers in its internal `syscalls` module;
+- syscall-backed cursors map read failures at the call site so public error categories stay stable;
 - protocol/view read failures map to malformed Cobuild data;
 - transaction/script syscall failures map to context input failure;
 - hash payload failures map to `MissingHashInput`;
 - raw transaction fields are streamed from the transaction cursor and parsed through lazy readers;
-- resolved input cell output and data come from syscalls such as `load_cell` and `load_cell_data` through `SyscallTxReader`;
+- resolved input cell output and data come from syscalls such as `load_cell` and `load_cell_data` through core helpers;
 - raw transaction data does not contain resolved input data.
 
 This mirrors the reference POC split: raw tx lazy reads are appropriate for transaction fields such as inputs, outputs, output data, cell deps, and header deps; syscall-resolved data is still required for previous input cells.
 
-The lock path must not load the whole transaction into a `Vec`. `contracts/cobuild-otx-lock/src/chain.rs` owns the chain-facing `SyscallTxReader`. Use `ckb_std::high_level` for owned or fixed-size reads such as current script args, script hash, transaction hash, and cell lock/type hashes. Keep low-level syscall-backed cursors where lazy readers need syscall-backed ranges: full transaction, current script, resolved input cell output, and resolved input data. This depends on the repository's Rust 1.92 toolchain plus `ckb-std` `dummy-atomic`; do not move the contract target back to a newer toolchain or switch the RISC-V target to `+a` without rebuilding the contract and confirming the integration tests still pass under the active `ckb-script` verifier. `crates/cobuild-core/src/prepare.rs` owns context preparation. The old core `loader.rs` and lock `loader.rs` module names should not be reintroduced.
+The lock path must not load the whole transaction into a `Vec`. Use `ckb_std::high_level` in the lock for owned or fixed-size reads such as current script args and script hash. Keep transaction-range, resolved-input, and hash preimage reads inside `cobuild-core` syscall helpers, then prepare validation state with `CobuildEngine::prepare_from_syscalls()`. This depends on the repository's Rust 1.92 toolchain plus `ckb-std` `dummy-atomic`; do not move the contract target back to a newer toolchain or switch the RISC-V target to `+a` without rebuilding the contract and confirming the integration tests still pass under the active `ckb-script` verifier. `crates/cobuild-core/src/prepare.rs` owns context preparation. The old core and lock loader module names should not be reintroduced.
 
 ## View Boundary
 
@@ -174,9 +177,8 @@ make generate CRATE=<contract-name>
 - `crates/cobuild-core/tests/hash.rs`: signing hash and OTX hash regression coverage.
 - `crates/cobuild-core/tests/layout.rs`: OTX sequence and layout behavior.
 - `crates/cobuild-core/tests/signature_requests.rs`: tx-level and OTX signature request behavior, including source relevance tests.
-- `crates/cobuild-core/tests/source.rs`: source cursor error classification.
 - `crates/cobuild-core/tests/view.rs`: cursor-backed protocol view behavior.
-- `crates/cobuild-core/tests/no_entity_dependency.rs`: chain dependency boundary.
+- `crates/cobuild-core/tests/no_entity_dependency.rs`: core dependency boundary.
 - `contracts/cobuild-otx-lock/tests`: args, error code, runner, and verifier unit tests.
 - `tests/tests/cobuild_otx_lock.rs`: end-to-end contract behavior.
 
@@ -185,10 +187,10 @@ make generate CRATE=<contract-name>
 The clean Cobuild OTX implementation plan and the streaming source/view refactor have been completed through final verification. Current architecture highlights:
 
 - core reader helpers live in `crates/cobuild-core/src/reader.rs`;
-- transaction reader traits and `ClassifiedCursor` live in `crates/cobuild-core/src/source.rs`;
+- concrete syscall transaction helpers live in `crates/cobuild-core/src/syscalls.rs`;
 - context preparation lives in `crates/cobuild-core/src/prepare.rs`;
-- lock chain loading lives in `contracts/cobuild-otx-lock/src/chain.rs`;
-- hash/query flow uses `HashInputSource`;
+- the lock delegates Cobuild preparation to `CobuildEngine::prepare_from_syscalls()`;
+- hash/query flow uses concrete syscall helpers;
 - view DTOs are cursor-backed.
 
 The latest known verification set included:
