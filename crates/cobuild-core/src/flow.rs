@@ -114,6 +114,36 @@ pub(crate) fn covered_type_hash_in_base_outputs(
     Ok(false)
 }
 
+pub(crate) fn type_hash_present(
+    input_types: &[Option<[u8; 32]>],
+    output_types: &[Option<[u8; 32]>],
+    type_hash: [u8; 32],
+) -> bool {
+    input_types
+        .iter()
+        .chain(output_types.iter())
+        .any(|hash| *hash == Some(type_hash))
+}
+
+pub(crate) fn type_hash_outside_otx_ranges(
+    input_types: &[Option<[u8; 32]>],
+    output_types: &[Option<[u8; 32]>],
+    type_hash: [u8; 32],
+    otxs: &[crate::layout::OtxLayout],
+) -> bool {
+    input_types.iter().enumerate().any(|(index, hash)| {
+        *hash == Some(type_hash)
+            && !otxs.iter().any(|otx| {
+                range_contains(otx.base_inputs, index) || range_contains(otx.append_inputs, index)
+            })
+    }) || output_types.iter().enumerate().any(|(index, hash)| {
+        *hash == Some(type_hash)
+            && !otxs.iter().any(|otx| {
+                range_contains(otx.base_outputs, index) || range_contains(otx.append_outputs, index)
+            })
+    })
+}
+
 pub(crate) fn range_contains(range: Range, index: usize) -> bool {
     index >= range.start && index < range.start.saturating_add(range.count)
 }

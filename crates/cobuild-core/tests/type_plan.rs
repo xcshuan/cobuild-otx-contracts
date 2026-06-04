@@ -67,6 +67,67 @@ fn type_plan_exposes_otx_message_with_relation_flags() {
 }
 
 #[test]
+fn type_plan_exposes_otx_and_tx_level_messages_for_mixed_type_coverage() {
+    let type_hash = [3u8; 32];
+    let target_lock = [1u8; 32];
+    let message = empty_message();
+    let source = InMemorySource {
+        input_locks: vec![target_lock, [2u8; 32]],
+        input_types: vec![Some(type_hash), Some(type_hash)],
+        output_types: Vec::new(),
+        raw_inputs: vec![Vec::new(); 2],
+        resolved_outputs: vec![Vec::new(); 2],
+        resolved_data: vec![Vec::new(); 2],
+        witnesses: vec![
+            sighash_all_witness(&[7u8; 65], &message),
+            otx_start_witness(),
+            otx_witness(&empty_message(), &[seal_pair(target_lock, 0, &[8u8; 65])]),
+        ],
+        ..InMemorySource::default()
+    };
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    let plan = prepared.plan_type_validation(type_hash, &source).unwrap();
+
+    assert_eq!(plan.related_messages.len(), 2);
+    assert!(plan
+        .related_messages
+        .iter()
+        .any(|message| matches!(message.origin, MessageOrigin::Otx { otx_index: 0, .. })));
+    assert!(plan.related_messages.iter().any(|message| matches!(
+        message.origin,
+        MessageOrigin::TxLevel {
+            carrier_witness_index: 0
+        }
+    )));
+}
+
+#[test]
+fn type_plan_ignores_duplicate_sighash_all_when_type_is_absent() {
+    let absent_type_hash = [3u8; 32];
+    let present_type_hash = [4u8; 32];
+    let message = empty_message();
+    let source = InMemorySource {
+        input_locks: vec![[1u8; 32]],
+        input_types: vec![Some(present_type_hash)],
+        output_types: Vec::new(),
+        raw_inputs: vec![Vec::new()],
+        witnesses: vec![
+            sighash_all_witness(&[7u8; 65], &message),
+            sighash_all_witness(&[8u8; 65], &message),
+        ],
+        ..InMemorySource::default()
+    };
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    let plan = prepared
+        .plan_type_validation(absent_type_hash, &source)
+        .unwrap();
+
+    assert!(plan.related_messages.is_empty());
+}
+
+#[test]
 fn type_plan_rejects_tx_level_related_message_with_absent_action_target() {
     let type_hash = [3u8; 32];
     let absent_type_hash = [9u8; 32];

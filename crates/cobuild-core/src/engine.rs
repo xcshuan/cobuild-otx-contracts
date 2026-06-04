@@ -162,7 +162,7 @@ impl PreparedCobuild {
     ) -> Result<TypeValidationPlan, CoreError> {
         let mut related_messages = Vec::new();
 
-        match &self.layout_scan {
+        let tx_level_type_relevant = match &self.layout_scan {
             OtxLayoutScan::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_data.iter().enumerate() {
                     let relation = crate::plan::OtxTypeRelation {
@@ -221,6 +221,12 @@ impl PreparedCobuild {
                         message: otx.witness.message.clone().into(),
                     });
                 }
+                crate::flow::type_hash_outside_otx_ranges(
+                    &self.script_hashes.input_types,
+                    &self.script_hashes.output_types,
+                    type_script_hash,
+                    &layout.otxs,
+                )
             }
             OtxLayoutScan::Invalid { anchor, error } => {
                 let relevance_known_irrelevant = anchor
@@ -243,29 +249,30 @@ impl PreparedCobuild {
                 if !relevance_known_irrelevant {
                     return Err(error.clone());
                 }
+                crate::flow::type_hash_present(
+                    &self.script_hashes.input_types,
+                    &self.script_hashes.output_types,
+                    type_script_hash,
+                )
             }
-            OtxLayoutScan::None => {}
-        }
+            OtxLayoutScan::None => crate::flow::type_hash_present(
+                &self.script_hashes.input_types,
+                &self.script_hashes.output_types,
+                type_script_hash,
+            ),
+        };
 
-        if related_messages.is_empty() {
+        if tx_level_type_relevant {
             if let Some((carrier_witness_index, message)) =
                 crate::flow::unique_sighash_all_message_with_index(&self.witnesses)?
             {
-                let type_is_present = self
-                    .script_hashes
-                    .input_types
-                    .iter()
-                    .chain(self.script_hashes.output_types.iter())
-                    .any(|hash| *hash == Some(type_script_hash));
-                if type_is_present {
-                    validate_message_targets(&message, &self.script_hashes)?;
-                    related_messages.push(crate::plan::RelatedMessage {
-                        origin: crate::plan::MessageOrigin::TxLevel {
-                            carrier_witness_index,
-                        },
-                        message: message.into(),
-                    });
-                }
+                validate_message_targets(&message, &self.script_hashes)?;
+                related_messages.push(crate::plan::RelatedMessage {
+                    origin: crate::plan::MessageOrigin::TxLevel {
+                        carrier_witness_index,
+                    },
+                    message: message.into(),
+                });
             }
         }
 
