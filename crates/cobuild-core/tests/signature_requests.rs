@@ -553,13 +553,7 @@ fn molecule_bytes(bytes: &[u8]) -> Vec<u8> {
 }
 
 fn empty_message() -> Vec<u8> {
-    let empty_action_vec = 4u32.to_le_bytes();
-    let table_size = 8 + empty_action_vec.len() as u32;
-    let mut message = Vec::with_capacity(table_size as usize);
-    message.extend_from_slice(&table_size.to_le_bytes());
-    message.extend_from_slice(&8u32.to_le_bytes());
-    message.extend_from_slice(&empty_action_vec);
-    message
+    table(&[dynvec(&[])])
 }
 
 fn message_with_action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {

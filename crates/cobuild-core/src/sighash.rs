@@ -68,21 +68,6 @@ impl LockScriptQuery<'_> {
     }
 
     pub(crate) fn unique_sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
-        let mut message = None;
-        for witness in &self.context.tx.witnesses {
-            if witness.is_empty() {
-                continue;
-            }
-            let Ok(view) = WitnessLayoutView::from_slice(witness) else {
-                continue;
-            };
-            if let Some(candidate) = view.sighash_all_message()? {
-                if message.is_some() {
-                    return Err(CoreError::DuplicateSighashAll);
-                }
-                message = Some(candidate);
-            }
-        }
-        Ok(message)
+        crate::flow::unique_sighash_all_message(&self.context.tx.witnesses)
     }
 }

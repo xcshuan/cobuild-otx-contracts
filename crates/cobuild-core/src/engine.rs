@@ -3,10 +3,13 @@ use alloc::vec::Vec;
 use crate::{
     context::ScriptHashIndex,
     error::CoreError,
+    hash::{tx_with_message_hash, tx_without_message_hash},
     layout::{scan_layout, LayoutTx, OtxLayoutScan},
-    plan::{LockValidationPlan, TypeValidationPlan},
-    reader::cursor_bytes_with_error,
+    message::validate_message_targets,
+    plan::{LockValidationPlan, SignatureOrigin, SigningRequirement, TypeValidationPlan},
+    reader::{cursor_bytes, cursor_bytes_with_error},
     source::{HashInputSource, TxCounts},
+    view::{SighashAllWitnessView, WitnessLayoutView},
 };
 
 pub struct CobuildEngine;
@@ -49,14 +52,13 @@ impl PreparedCobuild {
     pub fn plan_lock_validation<S: HashInputSource>(
         &self,
         lock_script_hash: [u8; 32],
-        _source: &S,
+        source: &S,
     ) -> Result<LockValidationPlan, CoreError> {
-        let _first_input =
-            crate::flow::first_input_with_lock(&self.script_hashes, lock_script_hash);
+        let required_signatures = self.tx_level_lock_requirements(lock_script_hash, source)?;
 
         Ok(LockValidationPlan {
             lock_script_hash,
-            required_signatures: Vec::new(),
+            required_signatures,
         })
     }
 
@@ -71,6 +73,57 @@ impl PreparedCobuild {
             type_script_hash,
             related_messages: Vec::new(),
         })
+    }
+
+    fn tx_level_lock_requirements<S: HashInputSource>(
+        &self,
+        lock_script_hash: [u8; 32],
+        source: &S,
+    ) -> Result<Vec<SigningRequirement>, CoreError> {
+        let Some(carrier_witness_index) =
+            crate::flow::first_input_with_lock(&self.script_hashes, lock_script_hash)
+        else {
+            return Ok(Vec::new());
+        };
+
+        let Some(witness) = self.witnesses.get(carrier_witness_index) else {
+            return Ok(Vec::new());
+        };
+        if witness.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let view = WitnessLayoutView::from_slice(witness)?;
+        let Some(sighash_all_witness_layout) = view.sighash_all_witness_layout()? else {
+            return Ok(Vec::new());
+        };
+
+        let tx_message = crate::flow::unique_sighash_all_message(&self.witnesses)?;
+        let (seal, signing_message_hash) = match sighash_all_witness_layout {
+            SighashAllWitnessView::WithMessage { seal, message } => {
+                let message = tx_message.as_ref().unwrap_or(&message);
+                validate_message_targets(message, &self.script_hashes)?;
+                let signing_message_hash = tx_with_message_hash(message, source)?;
+                (cursor_bytes(&seal)?, signing_message_hash)
+            }
+            SighashAllWitnessView::SealOnly { seal } => {
+                let signing_message_hash = match tx_message {
+                    Some(message) => {
+                        validate_message_targets(&message, &self.script_hashes)?;
+                        tx_with_message_hash(&message, source)?
+                    }
+                    None => tx_without_message_hash(source)?,
+                };
+                (cursor_bytes(&seal)?, signing_message_hash)
+            }
+        };
+
+        Ok(alloc::vec![SigningRequirement {
+            origin: SignatureOrigin::TxLevel,
+            carrier_witness_index,
+            seal,
+            signing_message_hash,
+        }])
     }
 }
 
