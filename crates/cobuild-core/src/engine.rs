@@ -6,12 +6,12 @@ use crate::{
     context::ScriptHashIndex,
     error::CoreError,
     hash::{otx_append_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash},
-    layout::{scan_layout_from_witnesses, OtxLayoutScan, WitnessCursorSource},
+    layout::{OtxLayoutCollector, OtxLayoutScan},
     message::validate_message_targets,
     plan::{LockValidationPlan, SignatureOrigin, SigningRequirement, TypeValidationPlan},
     protocol::SealScope,
-    reader::{cursor_bytes, cursor_bytes_with_error, cursor_from_slice},
-    source::{ClassifiedCursor, HashInputSource, TxCounts},
+    reader::{cursor_bytes, cursor_bytes_with_error},
+    source::{HashInputSource, TxCounts},
     view::{SighashAllWitnessView, WitnessLayoutView},
 };
 
@@ -36,13 +36,15 @@ impl CobuildEngine {
     pub fn prepare<S: HashInputSource>(source: &S) -> Result<PreparedCobuild, CoreError> {
         let counts = source.counts()?;
         let script_hashes = script_hashes_from_source(source, counts)?;
-        let (witness_summaries, witness_bytes) =
-            witness_summaries_and_bytes_from_source(source, counts.witnesses)?;
-        let witness_source = CachedWitnesses {
-            witnesses: witness_bytes,
-        };
-        let layout_scan = scan_layout_from_witnesses(
-            &witness_source,
+        let mut witness_summaries = Vec::with_capacity(counts.witnesses);
+        let mut layout_collector = OtxLayoutCollector::new();
+        for index in 0..counts.witnesses {
+            let witness = source.witness_cursor(index)?;
+            let witness = cursor_bytes_with_error(&witness.cursor, witness.read_error())?;
+            witness_summaries.push(witness_summary(&witness)?);
+            layout_collector.push_witness(&witness);
+        }
+        let layout_scan = layout_collector.finish(
             counts.inputs,
             counts.outputs,
             counts.cell_deps,
@@ -347,23 +349,6 @@ impl PreparedCobuild {
     }
 }
 
-struct CachedWitnesses {
-    witnesses: Vec<Vec<u8>>,
-}
-
-impl WitnessCursorSource for CachedWitnesses {
-    fn witness_count(&self) -> usize {
-        self.witnesses.len()
-    }
-
-    fn witness_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
-        self.witnesses
-            .get(index)
-            .map(|witness| ClassifiedCursor::hash_input(cursor_from_slice(witness)))
-            .ok_or(CoreError::MissingHashInput)
-    }
-}
-
 fn script_hashes_from_source<S: HashInputSource>(
     source: &S,
     counts: TxCounts,
@@ -385,21 +370,6 @@ fn script_hashes_from_source<S: HashInputSource>(
         input_types,
         output_types,
     })
-}
-
-fn witness_summaries_and_bytes_from_source<S: HashInputSource>(
-    source: &S,
-    witness_count: usize,
-) -> Result<(Vec<WitnessSummary>, Vec<Vec<u8>>), CoreError> {
-    let mut summaries = Vec::with_capacity(witness_count);
-    let mut witnesses = Vec::with_capacity(witness_count);
-    for index in 0..witness_count {
-        let witness = source.witness_cursor(index)?;
-        let witness = cursor_bytes_with_error(&witness.cursor, witness.read_error())?;
-        summaries.push(witness_summary(&witness)?);
-        witnesses.push(witness);
-    }
-    Ok((summaries, witnesses))
 }
 
 fn witness_summary(witness: &[u8]) -> Result<WitnessSummary, CoreError> {

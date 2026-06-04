@@ -70,3 +70,23 @@ fn core_source_contains_no_unsafe() {
         );
     }
 }
+
+#[test]
+fn engine_prepare_does_not_cache_all_witness_byte_vectors() {
+    let path = manifest_path("src/engine.rs");
+    let text = std::fs::read_to_string(&path)
+        .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+
+    assert!(
+        !text.contains("CachedWitnesses"),
+        "engine prepare must not use an all-witness byte cache"
+    );
+    assert!(
+        !text.contains("witness_summaries_and_bytes_from_source"),
+        "engine prepare must not return compact summaries paired with cached witness bytes"
+    );
+    assert!(
+        !text.contains("Vec<Vec<u8>>"),
+        "engine prepare must not store all witness bytes as Vec<Vec<u8>>"
+    );
+}
