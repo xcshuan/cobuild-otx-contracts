@@ -1,12 +1,23 @@
+use alloc::vec::Vec;
+use ckb_std::{
+    ckb_types::prelude::Unpack,
+    high_level::{load_script, load_script_hash},
+};
+
 use crate::{
-    args::parse_auth_args,
-    chain::{load_current_script_args, load_prepared_context, load_script_hash},
+    args::AuthContext,
+    chain::load_prepared_context,
     error::Error,
     verify::{LockVerifier, local::LocalVerifier},
 };
 
 pub fn main() -> Result<(), Error> {
-    let auth = parse_auth_args(&load_current_script_args()?)?;
+    let auth = {
+        let script = load_script()?;
+        let args: Vec<u8> = script.args().unpack();
+        AuthContext::try_from(args.as_slice())?
+    };
+
     let current_script_hash = load_script_hash()?;
     let loaded = load_prepared_context()?;
     let plan = loaded

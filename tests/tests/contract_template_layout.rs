@@ -67,9 +67,10 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         "entry.rs must consume unified signature requests instead of separate source branches"
     );
     for expected in [
-        "parse_auth_args",
-        "load_current_script_args",
-        "load_script_hash",
+        "high_level::{load_script, load_script_hash}",
+        "load_script()?",
+        "AuthContext::try_from",
+        "load_script_hash()?",
         "load_prepared_context",
         "plan_lock_validation",
         "required_signatures",
@@ -79,6 +80,16 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         assert!(
             entry_rs.contains(expected),
             "entry.rs should expose the high-level contract flow via {expected}"
+        );
+    }
+    for forbidden in [
+        "from_lock_args",
+        "load_current_script_args",
+        "chain::load_script_hash",
+    ] {
+        assert!(
+            !entry_rs.contains(forbidden),
+            "entry.rs should not use redundant chain wrapper {forbidden}"
         );
     }
 }
@@ -136,8 +147,6 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
         "chain.rs should not own source-backed reader internals"
     );
     for expected in [
-        "high_level::load_script()",
-        "high_level::load_script_hash()",
         "high_level::load_tx_hash()",
         "high_level::load_cell_lock_hash(",
         "high_level::load_cell_type_hash(",
@@ -145,6 +154,12 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
         assert!(
             chain_rs.contains(expected),
             "chain.rs should use high-level fixed/owned load helper {expected}"
+        );
+    }
+    for forbidden in ["fn load_current_script_args(", "fn load_script_hash("] {
+        assert!(
+            !chain_rs.contains(forbidden),
+            "chain.rs should not keep redundant entry-level wrapper {forbidden}"
         );
     }
     assert!(

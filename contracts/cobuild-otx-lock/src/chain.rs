@@ -1,8 +1,6 @@
 mod reader;
 
-use alloc::vec::Vec;
-
-use ckb_std::{ckb_constants::Source, ckb_types::prelude::Unpack, error::SysError, high_level};
+use ckb_std::{ckb_constants::Source, error::SysError, high_level};
 use cobuild_core::{
     engine::{CobuildEngine, PreparedCobuild},
     error::CoreError,
@@ -17,10 +15,6 @@ use self::reader::{
     resolved_input_cell_cursor, resolved_input_data_cursor, script_cursor, transaction_cursor,
 };
 use crate::error::Error;
-
-pub(crate) fn load_current_script_args() -> Result<Vec<u8>, Error> {
-    Ok(high_level::load_script()?.args().unpack())
-}
 
 pub(crate) struct LoadedContext {
     pub source: ChainSource,
@@ -72,10 +66,6 @@ fn hash_cursor(cursor: Result<Cursor, SysError>) -> Result<ClassifiedCursor, Cor
     cursor
         .map(ClassifiedCursor::hash_input)
         .map_err(|_| CoreError::MissingHashInput)
-}
-
-pub(crate) fn load_script_hash() -> Result<[u8; 32], Error> {
-    Ok(high_level::load_script_hash()?)
 }
 
 fn signing_transaction_view() -> Result<Transaction, CoreError> {
