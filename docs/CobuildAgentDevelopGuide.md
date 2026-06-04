@@ -7,7 +7,7 @@ This guide captures the working context and guardrails for agents continuing wor
 Work only inside this repository:
 
 ```text
-/home/xcshuan/contracts/ckb/cobuild-otx-contracts/cobuild-otx-contracts
+/home/xcshuan/contracts/ckb/cobuild-otx-contracts
 ```
 
 The parent repository and `../ref` are reference-only unless a human explicitly says otherwise. Do not make edits outside this sub-repository.
@@ -20,6 +20,8 @@ Read these before making behavior changes:
 - `docs/superpowers/plans/2026-05-29-clean-cobuild-otx-contracts-implementation-plan.md`
 - `docs/superpowers/specs/2026-05-28-cobuild-core-community-redraft-design.md`
 - `docs/superpowers/specs/2026-05-29-cobuild-otx-lock-design.md`
+- `docs/superpowers/specs/2026-06-03-cobuild-core-streaming-reader-and-hash-input-design.md`
+- `docs/superpowers/plans/2026-06-03-cobuild-core-streaming-reader-and-view-plan.md`
 
 The implementation plan is already marked complete. New work should be handled as a new focused task, not by silently rewriting the completed plan history.
 
@@ -31,16 +33,17 @@ The implementation plan is already marked complete. New work should be handled a
 - Chain-facing `cobuild-core` code must use `cobuild_types::lazy_reader`, not `cobuild_types::entity`.
 - Host tests may use `entity` builders, but that dependency must not enter normal contract paths.
 - `cobuild-core` owns Cobuild protocol logic:
-  - lazy-reader boundary views;
+  - lazy-reader and cursor-backed protocol views;
+  - source traits and read-error classification;
   - witness parsing;
   - OTX layout scanning;
-  - signing hash construction;
-  - tx-level and OTX-level task generation;
+  - signing hash construction over `SigningDataSource`;
+  - tx-level and OTX-level signature request generation;
   - message action target validation.
 - `cobuild-otx-lock` stays thin:
   - load current script args and script hash;
-  - load transaction context;
-  - query `cobuild-core` tasks;
+  - expose syscall-backed chain data through `ChainSource`;
+  - query `cobuild-core` signature requests;
   - invoke verifier;
   - map errors to stable exit codes.
 - The lock contract must not parse Cobuild protocol details, scan OTX layouts, construct Cobuild hash preimages, or depend on `cobuild_types::entity`.
@@ -48,15 +51,32 @@ The implementation plan is already marked complete. New work should be handled a
 - Do not enable `portable-atomic` unsafe single-core assumptions.
 - Contract fixtures use `ScriptHashType::Data2` for `cobuild-otx-lock`.
 
-## Raw Transaction And Syscall Boundary
+## Streaming Source And Syscall Boundary
 
 The Cobuild OTX hash path needs both raw transaction fields and resolved input data:
 
-- raw transaction fields come from `load_transaction` and are parsed through lazy readers;
-- resolved input cell output and data come from syscalls such as `load_cell` and `load_cell_data`;
+- `cobuild-core::source::{TransactionSource, SigningDataSource}` define the data boundary;
+- source-backed cursors are wrapped in `ClassifiedCursor` so read failures keep their public error category;
+- protocol/view read failures map to malformed Cobuild data;
+- transaction/script source failures map to source/context input failure;
+- hash payload failures map to `MissingHashInput`;
+- raw transaction fields are streamed from the transaction cursor and parsed through lazy readers;
+- resolved input cell output and data come from syscalls such as `load_cell` and `load_cell_data` through `ChainSource`;
 - raw transaction data does not contain resolved input data.
 
 This mirrors the reference POC split: raw tx lazy reads are appropriate for transaction fields such as inputs, outputs, output data, cell deps, and header deps; syscall-resolved data is still required for previous input cells.
+
+The lock path must not load the whole transaction into a `Vec`. `contracts/cobuild-otx-lock/src/chain.rs` owns the syscall-backed `ChainSource`. `crates/cobuild-core/src/prepare.rs` owns context preparation. The old core `loader.rs` and lock `loader.rs` module names should not be reintroduced.
+
+## View Boundary
+
+`crates/cobuild-core/src/view.rs` should stay a Molecule layout to core view boundary:
+
+- use cursor-backed view types such as `SighashAllWitnessView`, `OtxStartView`, `OtxView`, `SealPairView`, `MessageActionView`, and `MaskView`;
+- do not reintroduce owned DTOs such as `OtxData`, `OtxStartData`, `SealPairData`, `ActionData`, or `SighashAllWitnessLayout`;
+- do not eagerly copy message bytes, mask bytes, or seal bytes in view DTOs;
+- copy seal bytes only at the final `SignatureRequest` boundary;
+- stream OTX message and masks into hash preimages from cursors.
 
 ## OTX Rules To Preserve
 
@@ -103,11 +123,13 @@ MODE=debug cargo test -p tests --offline --test cobuild_otx_lock -- --nocapture
 Boundary checks:
 
 ```bash
-rg -n "cobuild_types::entity|::entity::" crates/cobuild-core contracts/cobuild-otx-lock
+rg -n "cobuild_types::entity|::entity::" crates/cobuild-core/src contracts/cobuild-otx-lock/src
+rg -n "unsafe" crates/cobuild-core/src contracts/cobuild-otx-lock/src
+rg -n "ckb_std" crates/cobuild-core/src
 rg -n "critical-section|portable-atomic.*unsafe-assume-single-core|\[patch.crates-io\]" Cargo.toml crates contracts
 ```
 
-Both boundary commands should print no matches.
+These boundary commands should print no matches.
 
 ## Build Notes
 
@@ -125,7 +147,7 @@ make generate CRATE=<contract-name>
 
 - `scripts/find_clang` is used by Makefile builds. In this environment it resolves to versioned LLVM tools such as `/usr/bin/clang-17`.
 - Integration tests default to `build/debug` when `MODE` is unset. This avoids accidentally testing stale `build/release` binaries during `cargo test --workspace --offline`.
-- Generated lazy-reader code currently emits warnings. Treat those warnings as non-blocking unless a task explicitly asks to clean generated output.
+- Generated lazy-reader code should remain codegen-owned. Treat generated warnings as non-blocking unless a task explicitly asks to clean generated output.
 
 ## Development Workflow
 
@@ -145,17 +167,29 @@ make generate CRATE=<contract-name>
 - `crates/cobuild-types/tests`: generated module exposure and entity/lazy-reader sanity.
 - `crates/cobuild-core/tests/hash.rs`: signing hash and OTX hash regression coverage.
 - `crates/cobuild-core/tests/layout.rs`: OTX sequence and layout behavior.
-- `crates/cobuild-core/tests/tasks.rs`: tx-level and OTX task generation behavior.
+- `crates/cobuild-core/tests/signature_requests.rs`: tx-level and OTX signature request behavior, including source relevance tests.
+- `crates/cobuild-core/tests/source.rs`: source cursor error classification.
+- `crates/cobuild-core/tests/view.rs`: cursor-backed protocol view behavior.
 - `crates/cobuild-core/tests/no_entity_dependency.rs`: chain dependency boundary.
 - `contracts/cobuild-otx-lock/tests`: args, error code, runner, and verifier unit tests.
 - `tests/tests/cobuild_otx_lock.rs`: end-to-end contract behavior.
 
 ## Current Completion State
 
-The clean Cobuild OTX implementation plan has been completed through final verification. The latest known verification set included:
+The clean Cobuild OTX implementation plan and the streaming source/view refactor have been completed through final verification. Current architecture highlights:
+
+- core reader helpers live in `crates/cobuild-core/src/reader.rs`;
+- source traits and `ClassifiedCursor` live in `crates/cobuild-core/src/source.rs`;
+- context preparation lives in `crates/cobuild-core/src/prepare.rs`;
+- lock chain loading lives in `contracts/cobuild-otx-lock/src/chain.rs`;
+- hash/query flow uses `SigningDataSource`;
+- view DTOs are cursor-backed.
+
+The latest known verification set included:
 
 ```bash
 cargo run -p xtask --offline -- codegen cobuild-types --check
+cargo clippy --workspace --all-targets --offline
 cargo test --workspace --offline
 make build CONTRACT=cobuild-otx-lock MODE=debug CARGO_ARGS=--offline
 MODE=debug cargo test -p tests --offline --test cobuild_otx_lock -- --nocapture
