@@ -152,12 +152,33 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
         "chain.rs should not reintroduce generic owned syscall loading"
     );
 
+    for expected in [
+        "engine::{CobuildEngine, PreparedCobuild}",
+        "pub prepared: PreparedCobuild",
+        "CobuildEngine::prepare(&source)",
+    ] {
+        assert!(
+            chain_rs.contains(expected),
+            "chain.rs should prepare the lock flow through the core engine via {expected}"
+        );
+    }
+    for forbidden in ["prepare_context_from_source", "SourcePreparedContext"] {
+        assert!(
+            !chain_rs.contains(forbidden),
+            "chain.rs must not use removed context preparation API {forbidden}"
+        );
+    }
+
     let core_prepare_rs =
         fs::read_to_string(workspace_root.join("crates/cobuild-core/src/prepare.rs"))
             .expect("prepare.rs");
     assert!(
-        core_prepare_rs.contains("pub struct SourcePreparedContext"),
-        "source-backed prepare should return an explicit context-only type"
+        !core_prepare_rs.contains("prepare_context_from_source"),
+        "prepare.rs must not expose old source-backed context preparation"
+    );
+    assert!(
+        !core_prepare_rs.contains("SourcePreparedContext"),
+        "prepare.rs must not expose old source prepared context type"
     );
     assert!(
         !core_prepare_rs.contains("InMemorySource::default()"),
@@ -187,30 +208,41 @@ fn cobuild_core_uses_explicit_signature_request_names() {
         );
     }
 
-    let signature_rs =
-        fs::read_to_string(core_src.join("signature.rs")).expect("core signature.rs");
+    let plan_rs = fs::read_to_string(core_src.join("plan.rs")).expect("core plan.rs");
     for expected in [
-        "SignatureRequest",
+        "SigningRequirement",
         "SignatureOrigin",
-        "SighashAll",
+        "TxLevel",
         "OtxBase",
         "OtxAppend",
     ] {
         assert!(
-            signature_rs.contains(expected),
-            "core signature layer should expose unified signature request name {expected}"
+            plan_rs.contains(expected),
+            "core plan layer should expose lock signature planning name {expected}"
         );
     }
 
-    assert!(
-        !core_src.join("tasks.rs").exists(),
-        "core should use signature.rs instead of tasks.rs"
-    );
     let lib_rs = fs::read_to_string(core_src.join("lib.rs")).expect("core lib.rs");
-    assert!(
-        !lib_rs.contains("pub mod tasks"),
-        "core should not export the old tasks module"
-    );
+    for module in ["tasks", "signature"] {
+        assert!(
+            !core_src.join(format!("{module}.rs")).exists(),
+            "core should not keep removed {module}.rs"
+        );
+        assert!(
+            !lib_rs.contains(&format!("pub mod {module}")),
+            "core should not export removed module {module}"
+        );
+    }
+    for module in ["query", "sighash", "otx_request"] {
+        assert!(
+            !core_src.join(format!("{module}.rs")).exists(),
+            "core should not keep removed old query module {module}.rs"
+        );
+        assert!(
+            !lib_rs.contains(&format!("mod {module}")),
+            "core should not compile removed old query module {module}"
+        );
+    }
 
     let protocol_rs = fs::read_to_string(core_src.join("protocol.rs")).expect("core protocol.rs");
     for expected in ["ScriptRole", "SealScope", "AppendPermissions"] {
@@ -223,7 +255,7 @@ fn cobuild_core_uses_explicit_signature_request_names() {
         lib_rs.contains("pub mod protocol"),
         "core should export the protocol value module"
     );
-    for module in ["message", "otx_request", "query", "seal", "sighash"] {
+    for module in ["message", "seal"] {
         assert!(
             lib_rs.contains(&format!("mod {module}")),
             "core should keep {module}.rs as a focused internal module"
@@ -438,7 +470,10 @@ fn cobuild_core_prepares_context_in_prepare_module() {
 fn cobuild_core_hashing_uses_source_not_owned_hash_parts() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let core_src = workspace_root.join("crates/cobuild-core/src");
-    let hash_rs = fs::read_to_string(core_src.join("hash.rs")).expect("hash.rs");
+    let hash_mod_rs = fs::read_to_string(core_src.join("hash/mod.rs")).expect("hash/mod.rs");
+    let hash_writer_rs =
+        fs::read_to_string(core_src.join("hash/writer.rs")).expect("hash/writer.rs");
+    let hash_text = format!("{hash_mod_rs}\n{hash_writer_rs}");
 
     for forbidden in [
         "struct RawTxParts",
@@ -447,12 +482,39 @@ fn cobuild_core_hashing_uses_source_not_owned_hash_parts() {
         "trailing_witnesses",
     ] {
         assert!(
-            !hash_rs.contains(forbidden),
-            "hash.rs must not define {forbidden}"
+            !hash_text.contains(forbidden),
+            "hash module must not define {forbidden}"
         );
     }
     assert!(
-        hash_rs.contains("HashInputSource"),
-        "hash.rs should hash through HashInputSource"
+        hash_mod_rs.contains("HashInputSource"),
+        "hash/mod.rs should hash through HashInputSource"
+    );
+    assert!(
+        hash_mod_rs.contains("mod writer"),
+        "hash/mod.rs should keep preimage writer helpers in hash/writer.rs"
+    );
+    for expected in [
+        "writer::write_cursor",
+        "writer::write_len_prefixed_classified_cursor",
+    ] {
+        assert!(
+            hash_mod_rs.contains(expected),
+            "hash/mod.rs should write preimages through helper {expected}"
+        );
+    }
+    for expected in [
+        "ClassifiedCursor",
+        "write_len_prefixed_classified_cursor",
+        "write_len_prefixed_cursor_with_error",
+    ] {
+        assert!(
+            hash_writer_rs.contains(expected),
+            "hash/writer.rs should expose source-cursor writer helper {expected}"
+        );
+    }
+    assert!(
+        !core_src.join("hash.rs").exists(),
+        "core should keep hashing in hash/mod.rs instead of flat hash.rs"
     );
 }
