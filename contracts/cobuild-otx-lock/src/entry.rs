@@ -6,7 +6,7 @@ use ckb_std::{
 
 use crate::{
     args::AuthContext,
-    chain::load_prepared_context,
+    chain::prepare_cobuild_from_syscalls,
     error::Error,
     verify::{LockVerifier, local::LocalVerifier},
 };
@@ -19,10 +19,10 @@ pub fn main() -> Result<(), Error> {
     };
 
     let current_script_hash = load_script_hash()?;
-    let loaded = load_prepared_context()?;
-    let plan = loaded
+    let context = prepare_cobuild_from_syscalls()?;
+    let plan = context
         .prepared
-        .plan_lock_validation(current_script_hash, &loaded.source)?;
+        .plan_lock_validation(current_script_hash, &context.tx_reader)?;
 
     if plan.required_signatures.is_empty() {
         return Err(Error::LockSemanticFailure);

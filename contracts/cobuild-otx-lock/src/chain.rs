@@ -16,47 +16,41 @@ use self::reader::{
 };
 use crate::error::Error;
 
-pub(crate) struct LoadedContext {
-    pub source: ChainSource,
+pub(crate) struct PreparedCobuildContext {
+    pub tx_reader: SyscallTxReader,
     pub prepared: PreparedCobuild,
 }
 
-pub(crate) fn load_prepared_context() -> Result<LoadedContext, Error> {
-    let source = ChainSource::default();
-    let prepared = CobuildEngine::prepare(&source)?;
-    Ok(LoadedContext { source, prepared })
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct CachedTxCounts {
-    inputs: usize,
-    outputs: usize,
-    cell_deps: usize,
-    header_deps: usize,
-    witnesses: usize,
+pub(crate) fn prepare_cobuild_from_syscalls() -> Result<PreparedCobuildContext, Error> {
+    let tx_reader = SyscallTxReader::default();
+    let prepared = CobuildEngine::prepare(&tx_reader)?;
+    Ok(PreparedCobuildContext {
+        tx_reader,
+        prepared,
+    })
 }
 
 #[derive(Default)]
-struct ChainCache {
-    counts: core::cell::Cell<Option<CachedTxCounts>>,
+struct TxCountsCache {
+    counts: core::cell::Cell<Option<TxCounts>>,
 }
 
-impl ChainCache {
-    fn counts(&self) -> Option<CachedTxCounts> {
+impl TxCountsCache {
+    fn counts(&self) -> Option<TxCounts> {
         self.counts.get()
     }
 
-    fn set_counts(&self, counts: CachedTxCounts) {
+    fn set_counts(&self, counts: TxCounts) {
         self.counts.set(Some(counts));
     }
 }
 
 #[derive(Default)]
-pub(crate) struct ChainSource {
-    cache: ChainCache,
+pub(crate) struct SyscallTxReader {
+    cache: TxCountsCache,
 }
 
-fn source_cursor(cursor: Result<Cursor, SysError>) -> Result<ClassifiedCursor, CoreError> {
+fn context_cursor(cursor: Result<Cursor, SysError>) -> Result<ClassifiedCursor, CoreError> {
     cursor
         .map(ClassifiedCursor::source_input)
         .map_err(|_| CoreError::InvalidContextInput)
@@ -80,13 +74,13 @@ fn signing_raw_transaction() -> Result<RawTransaction, CoreError> {
         .map_err(|_| CoreError::MissingHashInput)
 }
 
-impl TransactionSource for ChainSource {
+impl TransactionSource for SyscallTxReader {
     fn transaction_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
-        source_cursor(transaction_cursor())
+        context_cursor(transaction_cursor())
     }
 
     fn script_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
-        source_cursor(script_cursor())
+        context_cursor(script_cursor())
     }
 
     fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
@@ -109,16 +103,10 @@ impl TransactionSource for ChainSource {
     }
 }
 
-impl HashInputSource for ChainSource {
+impl HashInputSource for SyscallTxReader {
     fn counts(&self) -> Result<TxCounts, CoreError> {
         if let Some(counts) = self.cache.counts() {
-            return Ok(TxCounts {
-                inputs: counts.inputs,
-                outputs: counts.outputs,
-                cell_deps: counts.cell_deps,
-                header_deps: counts.header_deps,
-                witnesses: counts.witnesses,
-            });
+            return Ok(counts);
         }
 
         let tx = signing_transaction_view()?;
@@ -143,7 +131,7 @@ impl HashInputSource for ChainSource {
             .witnesses()
             .and_then(|witnesses| witnesses.len())
             .map_err(|_| CoreError::MissingHashInput)?;
-        let counts = CachedTxCounts {
+        let counts = TxCounts {
             inputs,
             outputs,
             cell_deps,
@@ -151,13 +139,7 @@ impl HashInputSource for ChainSource {
             witnesses,
         };
         self.cache.set_counts(counts);
-        Ok(TxCounts {
-            inputs,
-            outputs,
-            cell_deps,
-            header_deps,
-            witnesses,
-        })
+        Ok(counts)
     }
 
     fn witness_cursor(&self, absolute_index: usize) -> Result<ClassifiedCursor, CoreError> {
@@ -220,14 +202,14 @@ impl HashInputSource for ChainSource {
 mod tests {
     #[test]
     fn cached_counts_are_returned_without_recomputing() {
-        let counts = super::CachedTxCounts {
+        let counts = cobuild_core::source::TxCounts {
             inputs: 1,
             outputs: 2,
             cell_deps: 3,
             header_deps: 4,
             witnesses: 5,
         };
-        let cache = super::ChainCache::default();
+        let cache = super::TxCountsCache::default();
 
         cache.set_counts(counts);
 

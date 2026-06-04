@@ -71,10 +71,10 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         "load_script()?",
         "AuthContext::try_from",
         "load_script_hash()?",
-        "load_prepared_context",
+        "prepare_cobuild_from_syscalls",
         "plan_lock_validation",
         "required_signatures",
-        "loaded.source",
+        "context.tx_reader",
         "LocalVerifier",
     ] {
         assert!(
@@ -85,7 +85,9 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
     for forbidden in [
         "from_lock_args",
         "load_current_script_args",
+        "load_prepared_context",
         "chain::load_script_hash",
+        "loaded.source",
     ] {
         assert!(
             !entry_rs.contains(forbidden),
@@ -110,12 +112,27 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
     let chain_reader_rs =
         fs::read_to_string(lock_src.join("chain/reader.rs")).expect("chain/reader.rs");
     assert!(
-        chain_rs.contains("struct ChainSource"),
-        "chain.rs should define ChainSource"
+        chain_rs.contains("struct SyscallTxReader"),
+        "chain.rs should define SyscallTxReader"
     );
     assert!(
+        chain_rs.contains("struct TxCountsCache"),
+        "chain.rs should name the tx count cache explicitly"
+    );
+    for forbidden in [
+        "struct ChainSource",
+        "struct ChainCache",
+        "struct LoadedContext",
+        "CachedTxCounts",
+    ] {
+        assert!(
+            !chain_rs.contains(forbidden),
+            "chain.rs should not keep unclear old name {forbidden}"
+        );
+    }
+    assert!(
         chain_rs.contains("mod reader"),
-        "chain.rs should keep source-backed reader details in chain/reader.rs"
+        "chain.rs should keep syscall-backed reader details in chain/reader.rs"
     );
     assert!(
         !chain_rs.contains("fn load_transaction() -> Result<Vec<u8>"),
@@ -126,8 +143,8 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
         "lock path must parse transaction from source cursor"
     );
     for expected in [
-        "struct SourceBackedReader",
-        "fn chain_cursor(",
+        "struct SyscallBackedReader",
+        "fn syscall_cursor(",
         "fn transaction_cursor(",
         "fn script_cursor(",
         "fn resolved_input_cell_cursor(",
@@ -135,16 +152,16 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
     ] {
         assert!(
             chain_reader_rs.contains(expected),
-            "chain/reader.rs should expose source-backed lazy helper {expected}"
+            "chain/reader.rs should expose syscall-backed lazy helper {expected}"
         );
     }
     assert!(
-        chain_reader_rs.contains("fn map_source_read_error("),
-        "chain/reader.rs should make source-backed read error mapping explicit"
+        chain_reader_rs.contains("fn map_syscall_read_error("),
+        "chain/reader.rs should make syscall read error mapping explicit"
     );
     assert!(
-        !chain_rs.contains("struct SourceBackedReader"),
-        "chain.rs should not own source-backed reader internals"
+        !chain_rs.contains("struct SyscallBackedReader"),
+        "chain.rs should not own syscall-backed reader internals"
     );
     for expected in [
         "high_level::load_tx_hash()",
@@ -170,7 +187,8 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
     for expected in [
         "engine::{CobuildEngine, PreparedCobuild}",
         "pub prepared: PreparedCobuild",
-        "CobuildEngine::prepare(&source)",
+        "pub tx_reader: SyscallTxReader",
+        "CobuildEngine::prepare(&tx_reader)",
     ] {
         assert!(
             chain_rs.contains(expected),
