@@ -383,7 +383,7 @@ fn witness_summary(witness: &[u8]) -> Result<WitnessSummary, CoreError> {
     if let Some(message) = view.sighash_all_message()? {
         return Ok(WitnessSummary::SighashAll { message });
     }
-    if view.sighash_all_witness_layout()?.is_some() {
+    if view.is_sighash_all_only() {
         return Ok(WitnessSummary::SighashAllOnly);
     }
     Ok(WitnessSummary::Other)

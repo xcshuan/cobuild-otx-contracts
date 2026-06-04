@@ -163,6 +163,10 @@ impl WitnessLayoutView {
         }
     }
 
+    pub(crate) fn is_sighash_all_only(&self) -> bool {
+        matches!(&self.inner, WitnessLayout::SighashAllOnly(_))
+    }
+
     pub fn sighash_all_witness_layout(&self) -> Result<Option<SighashAllWitnessView>, CoreError> {
         match &self.inner {
             WitnessLayout::SighashAll(witness) => {
