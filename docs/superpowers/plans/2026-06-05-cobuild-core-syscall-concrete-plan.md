@@ -6,16 +6,17 @@
 
 **Architecture:** `cobuild-core` owns CKB syscall transaction reading and exposes `CobuildEngine::prepare_from_syscalls()`. `PreparedCobuild` plans lock/type validation without receiving a reader/source parameter. The lock contract no longer has a `chain` module and only parses args, calls core, and verifies signatures.
 
-**Tech Stack:** Rust `no_std`, `ckb-std` 1.1 with `allocator`, `ckb-types`, and `dummy-atomic`, Molecule lazy readers from `cobuild-types`, `cargo test`, `cargo clippy`, root `make build`.
+**Tech Stack:** Rust `no_std`, `ckb-std` 1.1 with `ckb-types` and `dummy-atomic` in core, lock-crate allocator setup, Molecule lazy readers from `cobuild-types`, `cargo test`, `cargo clippy`, root `make build`.
 
 ---
 
 ## File Structure
 
 - Modify `crates/cobuild-core/Cargo.toml`
-  - Add `ckb-std` dependency with the same contract-safe features currently used by `cobuild-otx-lock`.
+  - Add `ckb-std` dependency with core syscall features `ckb-types` and `dummy-atomic`.
 - Modify `crates/cobuild-core/src/lib.rs`
   - Add internal `syscalls` module.
+  - Make `hash` internal.
   - Remove public `source` module export.
 - Create `crates/cobuild-core/src/syscalls.rs`
   - Own syscall-backed cursor construction, tx counts cache, raw tx lazy access, witness access, resolved input access, and script hash helpers.
@@ -23,6 +24,7 @@
   - Replace `ClassifiedCursor` writer helpers with `Cursor + CoreError` helpers.
 - Modify `crates/cobuild-core/src/hash/mod.rs`
   - Remove `HashInputSource` generics and call `syscalls` helpers directly.
+  - Keep signing hash functions `pub(crate)` so internal syscall cache types do not leak into public API.
 - Modify `crates/cobuild-core/src/engine.rs`
   - Replace `prepare(source)` with `prepare_from_syscalls()`.
   - Remove reader/source parameters from plan methods and internal helpers.
@@ -37,6 +39,10 @@
   - Remove `mod chain`.
 - Modify `contracts/cobuild-otx-lock/src/entry.rs`
   - Call `CobuildEngine::prepare_from_syscalls()` and `plan_lock_validation(current_script_hash)`.
+- Modify `tests/Cargo.toml`
+  - Add test-only `blake2b-ref` if fixture signing hash helpers need it.
+- Modify `tests/src/lib.rs`
+  - Replace `cobuild-core::hash` and `InMemorySource` usage with test-only signing hash helpers.
 - Modify tests under `crates/cobuild-core/tests/`
   - Delete source-driven tests that depend on `InMemorySource`, `TransactionSource`, or `HashInputSource`.
 - Modify `tests/tests/contract_template_layout.rs`
@@ -195,7 +201,6 @@ fn cobuild_core_owns_syscall_streaming_without_full_transaction_load() {
         "struct SyscallBackedReader",
         "fn syscall_cursor(",
         "fn transaction_cursor(",
-        "fn script_cursor(",
         "fn resolved_input_cell_cursor(",
         "fn resolved_input_data_cursor(",
         "fn map_syscall_read_error(",
@@ -283,17 +288,18 @@ In `crates/cobuild-core/Cargo.toml`, add:
 ckb-std = { version = "1.1", default-features = false, features = ["ckb-types", "dummy-atomic"] }
 ```
 
-Keep existing dependencies unchanged.
+Keep existing dependencies unchanged. Do not add `allocator` to `cobuild-core`; the allocator remains configured by `cobuild-otx-lock`.
 
 - [ ] **Step 2: Add internal syscalls module**
 
-In `crates/cobuild-core/src/lib.rs`, add:
+In `crates/cobuild-core/src/lib.rs`, add `syscalls` and make `hash` internal:
 
 ```rust
+mod hash;
 mod syscalls;
 ```
 
-Do not make it public.
+Replace the existing `pub mod hash;` with `mod hash;`. Do not make `syscalls` public.
 
 - [ ] **Step 3: Create syscall reader module**
 
@@ -318,7 +324,6 @@ use crate::error::CoreError;
 #[derive(Clone, Copy)]
 enum SyscallReadTarget {
     Transaction,
-    Script,
     ResolvedInputCell { index: usize },
     ResolvedInputData { index: usize },
 }
@@ -327,7 +332,6 @@ impl SyscallReadTarget {
     fn load(&self, buf: &mut [u8], offset: usize) -> Result<usize, SysError> {
         match *self {
             Self::Transaction => syscalls::load_transaction(buf, offset),
-            Self::Script => syscalls::load_script(buf, offset),
             Self::ResolvedInputCell { index } => {
                 syscalls::load_cell(buf, offset, index, Source::Input)
             }
@@ -396,10 +400,6 @@ pub(crate) fn hash_transaction_cursor() -> Result<Cursor, CoreError> {
     syscall_cursor(SyscallReadTarget::Transaction, CoreError::MissingHashInput)
 }
 
-pub(crate) fn script_cursor() -> Result<Cursor, CoreError> {
-    syscall_cursor(SyscallReadTarget::Script, CoreError::InvalidContextInput)
-}
-
 pub(crate) fn resolved_input_output_cursor(index: usize) -> Result<Cursor, CoreError> {
     syscall_cursor(
         SyscallReadTarget::ResolvedInputCell { index },
@@ -436,10 +436,6 @@ impl TxCountsCache {
     pub(crate) fn set_counts(&self, counts: TxCounts) {
         self.counts.set(Some(counts));
     }
-}
-
-fn transaction_view_for_context() -> Result<Transaction, CoreError> {
-    transaction_cursor().map(Transaction::from)
 }
 
 fn transaction_view_for_hash() -> Result<Transaction, CoreError> {
@@ -645,9 +641,9 @@ use crate::syscalls;
 Change signatures:
 
 ```rust
-pub fn tx_without_message_hash(counts_cache: &syscalls::TxCountsCache) -> Result<[u8; 32], CoreError>
+pub(crate) fn tx_without_message_hash(counts_cache: &syscalls::TxCountsCache) -> Result<[u8; 32], CoreError>
 
-pub fn tx_with_message_hash(
+pub(crate) fn tx_with_message_hash(
     message: &Cursor,
     counts_cache: &syscalls::TxCountsCache,
 ) -> Result<[u8; 32], CoreError>
@@ -658,13 +654,13 @@ fn tx_signing_hash(
     counts_cache: &syscalls::TxCountsCache,
 ) -> Result<[u8; 32], CoreError>
 
-pub fn otx_base_hash(
+pub(crate) fn otx_base_hash(
     otx: &OtxView,
     layout: &OtxLayout,
     counts_cache: &syscalls::TxCountsCache,
 ) -> Result<[u8; 32], CoreError>
 
-pub fn otx_append_hash(
+pub(crate) fn otx_append_hash(
     otx: &OtxView,
     layout: &OtxLayout,
     counts_cache: &syscalls::TxCountsCache,
@@ -747,7 +743,7 @@ syscalls::raw_header_dep_hash(tx_index)?
 
 When a cursor is from Cobuild protocol data, keep `CoreError::MalformedCobuild`. When a cursor is from transaction hash payload data, use `CoreError::MissingHashInput`.
 
-- [ ] **Step 5: Run core check to expose engine call-site failures**
+- [ ] **Step 5: Run core check to expose engine call-site failures without committing**
 
 Run:
 
@@ -757,12 +753,7 @@ cargo check -p cobuild-core --offline
 
 Expected: FAIL in `engine.rs` because old calls still pass `source` parameters and old source module still exists.
 
-- [ ] **Step 6: Commit hash conversion**
-
-```bash
-git add crates/cobuild-core/src/hash/mod.rs crates/cobuild-core/src/hash/writer.rs
-git commit -m "refactor: hash through core syscall helpers"
-```
+Do not commit this non-compiling intermediate state. Continue directly to Task 4 and commit hash plus engine together after `cargo check -p cobuild-core --offline` passes.
 
 ---
 
@@ -858,7 +849,19 @@ fn tx_level_lock_requirements(
 ) -> Result<Vec<SigningRequirement>, CoreError>
 ```
 
-- [ ] **Step 5: Update engine hash calls**
+- [ ] **Step 5: Remove public counts accessor**
+
+Delete the existing public method:
+
+```rust
+pub fn counts(&self) -> TxCounts {
+    self.counts
+}
+```
+
+`TxCounts` is now an internal syscall preparation detail and must not become a public API replacement for the removed source module.
+
+- [ ] **Step 6: Update engine hash calls**
 
 Use the stored cache:
 
@@ -892,7 +895,7 @@ let signing_message_hash = match message {
 };
 ```
 
-- [ ] **Step 6: Replace script hash index collection**
+- [ ] **Step 7: Replace script hash index collection**
 
 Replace `script_hashes_from_source` with:
 
@@ -918,7 +921,7 @@ fn script_hashes_from_syscalls(counts: TxCounts) -> Result<ScriptHashIndex, Core
 }
 ```
 
-- [ ] **Step 7: Run core check and production source search**
+- [ ] **Step 8: Run core check and production source search**
 
 Run:
 
@@ -929,10 +932,10 @@ rg -n "HashInputSource|source: &S|<S: HashInputSource" crates/cobuild-core/src/e
 
 Expected: `cargo check` exits 0. `rg` exits 1 with no matches, proving production engine/hash no longer use `HashInputSource`.
 
-- [ ] **Step 8: Commit engine conversion**
+- [ ] **Step 9: Commit hash and engine conversion together**
 
 ```bash
-git add crates/cobuild-core/src/engine.rs
+git add crates/cobuild-core/src/engine.rs crates/cobuild-core/src/hash/mod.rs crates/cobuild-core/src/hash/writer.rs
 git commit -m "refactor: prepare cobuild from syscalls"
 ```
 
@@ -1002,8 +1005,8 @@ mod chain;
 Run:
 
 ```bash
-rm contracts/cobuild-otx-lock/src/chain.rs
-rm contracts/cobuild-otx-lock/src/chain/reader.rs
+git rm contracts/cobuild-otx-lock/src/chain.rs
+git rm contracts/cobuild-otx-lock/src/chain/reader.rs
 rmdir contracts/cobuild-otx-lock/src/chain
 ```
 
@@ -1221,7 +1224,263 @@ git commit -m "refactor: delete cobuild source abstraction"
 
 ---
 
-### Task 7: Update Contract Integration And Architecture Tests
+### Task 7: Replace Integration Test Hash Support
+
+**Files:**
+- Modify: `tests/Cargo.toml`
+- Modify: `tests/src/lib.rs`
+- Test: `MODE=debug cargo test -p tests --offline --test cobuild_otx_lock -- --nocapture`
+
+- [ ] **Step 1: Add test-only hash dependency**
+
+In `tests/Cargo.toml`, add:
+
+```toml
+blake2b-ref = "0.3.1"
+```
+
+- [ ] **Step 2: Remove production core hash/source imports**
+
+In `tests/src/lib.rs`, replace:
+
+```rust
+use cobuild_core::{
+    hash::{
+        otx_append_hash as core_otx_append_hash, otx_base_hash as core_otx_base_hash,
+        tx_without_message_hash,
+    },
+    layout::{OtxLayout, Range},
+    reader::cursor_from_slice,
+    source::InMemorySource,
+    view::{MaskView, OtxView},
+};
+```
+
+with:
+
+```rust
+use blake2b_ref::Blake2bBuilder;
+use cobuild_core::{
+    layout::{OtxLayout, Range},
+    reader::{cursor_bytes_with_error, cursor_from_slice, update_cursor_with_error},
+    view::{MaskView, OtxView},
+};
+```
+
+- [ ] **Step 3: Replace tx signing source helper**
+
+Delete `tx_signing_source`. Add this test-only helper:
+
+```rust
+fn tx_without_message_hash(
+    tx_hash: [u8; 32],
+    input_count: usize,
+    resolved_output: &[u8],
+    witnesses: &[Vec<u8>],
+) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    let mut hasher = Blake2bBuilder::new(32)
+        .personal(b"ckbcb_tnm_core1\0")
+        .build();
+    hasher.update(&tx_hash);
+    for _ in 0..input_count {
+        hasher.update(resolved_output);
+        hasher.update(&checked_len_prefix(0));
+    }
+    for witness in witnesses.iter().skip(input_count) {
+        hasher.update(&checked_len_prefix(witness.len()));
+        hasher.update(witness);
+    }
+    hasher.finalize(&mut out);
+    out
+}
+
+fn checked_len_prefix(len: usize) -> [u8; 4] {
+    u32::try_from(len)
+        .expect("fixture length fits u32")
+        .to_le_bytes()
+}
+```
+
+Update tx-level call sites:
+
+```rust
+let signing_message_hash = tx_without_message_hash(
+    packed_hash_to_array(unsigned_tx.hash()),
+    1,
+    input_output.as_slice(),
+    &[Vec::new()],
+);
+```
+
+For the mixed OTX case, pass a witness vector whose length matches the unsigned transaction witness count before adding Cobuild witnesses:
+
+```rust
+let signing_message_hash = tx_without_message_hash(
+    packed_hash_to_array(unsigned_tx.hash()),
+    input_count,
+    input_output.as_slice(),
+    &vec![Vec::new(); input_count],
+);
+```
+
+- [ ] **Step 4: Replace `otx_hash_inputs` source return**
+
+Change:
+
+```rust
+fn otx_hash_inputs(parts: &OtxFixtureParts) -> (OtxView, OtxLayout, InMemorySource)
+```
+
+to:
+
+```rust
+fn otx_hash_inputs(parts: &OtxFixtureParts) -> (OtxView, OtxLayout, OtxHashFixture)
+```
+
+Add:
+
+```rust
+struct OtxHashFixture {
+    raw_inputs: Vec<Vec<u8>>,
+    resolved_outputs: Vec<Vec<u8>>,
+    resolved_data: Vec<Vec<u8>>,
+}
+```
+
+Replace the old `InMemorySource` construction with:
+
+```rust
+let fixture = OtxHashFixture {
+    raw_inputs,
+    resolved_outputs,
+    resolved_data,
+};
+(otx, layout, fixture)
+```
+
+- [ ] **Step 5: Add test-only OTX hash helpers**
+
+Replace `otx_base_hash` and `otx_append_hash` with test-local implementations that mirror production preimage construction for the fixture fields used by these integration tests:
+
+```rust
+fn otx_base_hash(parts: &OtxFixtureParts) -> [u8; 32] {
+    let (otx, layout, fixture) = otx_hash_inputs(parts);
+    let mut out = [0u8; 32];
+    let mut hasher = Blake2bBuilder::new(32)
+        .personal(b"ckbcb_otb_core1\0")
+        .build();
+
+    update_cursor_with_error(&mut hasher, &otx.message, cobuild_core::error::CoreError::MalformedCobuild)
+        .expect("message cursor");
+    hasher.update(&[otx.append_permissions]);
+    write_count(&mut hasher, otx.base_input_cells);
+    write_len_prefixed_cursor(&mut hasher, otx.base_input_masks.cursor());
+    for local_index in 0..otx.base_input_cells {
+        let tx_index = layout.base_inputs.start + local_index;
+        let input = cursor_from_slice(&fixture.raw_inputs[tx_index]);
+        let input_view = cobuild_types::lazy_reader::blockchain::CellInput::from(input.clone());
+
+        write_count(&mut hasher, local_index);
+        if otx.base_input_masks.bit(local_index * 2).expect("input mask") {
+            hasher.update(&input_view.since().expect("since").to_le_bytes());
+        }
+        if otx
+            .base_input_masks
+            .bit(local_index * 2 + 1)
+            .expect("input mask")
+        {
+            update_cursor_with_error(
+                &mut hasher,
+                &input_view
+                    .previous_output()
+                    .expect("previous output")
+                    .cursor,
+                cobuild_core::error::CoreError::MissingHashInput,
+            )
+            .expect("previous output cursor");
+        }
+        hasher.update(&fixture.resolved_outputs[tx_index]);
+        hasher.update(&checked_len_prefix(fixture.resolved_data[tx_index].len()));
+        hasher.update(&fixture.resolved_data[tx_index]);
+    }
+
+    write_count(&mut hasher, 0);
+    write_len_prefixed_cursor(&mut hasher, otx.base_output_masks.cursor());
+    write_count(&mut hasher, 0);
+    write_len_prefixed_cursor(&mut hasher, otx.base_cell_dep_masks.cursor());
+    write_count(&mut hasher, 0);
+    write_len_prefixed_cursor(&mut hasher, otx.base_header_dep_masks.cursor());
+
+    hasher.finalize(&mut out);
+    out
+}
+
+fn otx_append_hash(parts: &OtxFixtureParts, base_hash: [u8; 32]) -> [u8; 32] {
+    let (otx, layout, fixture) = otx_hash_inputs(parts);
+    let mut out = [0u8; 32];
+    let mut hasher = Blake2bBuilder::new(32)
+        .personal(b"ckbcb_ota_core1\0")
+        .build();
+
+    update_cursor_with_error(&mut hasher, &otx.message, cobuild_core::error::CoreError::MalformedCobuild)
+        .expect("message cursor");
+    hasher.update(&base_hash);
+    write_count(&mut hasher, otx.append_input_cells);
+    for local_index in 0..otx.append_input_cells {
+        let tx_index = layout.append_inputs.start + local_index;
+        write_count(&mut hasher, local_index);
+        hasher.update(&fixture.raw_inputs[tx_index]);
+        hasher.update(&fixture.resolved_outputs[tx_index]);
+        hasher.update(&checked_len_prefix(fixture.resolved_data[tx_index].len()));
+        hasher.update(&fixture.resolved_data[tx_index]);
+    }
+
+    write_count(&mut hasher, 0);
+    write_count(&mut hasher, 0);
+    write_count(&mut hasher, 0);
+
+    hasher.finalize(&mut out);
+    out
+}
+
+fn write_count(hasher: &mut blake2b_ref::Blake2b, count: usize) {
+    hasher.update(&checked_len_prefix(count));
+}
+
+fn write_len_prefixed_cursor(hasher: &mut blake2b_ref::Blake2b, cursor: &cobuild_types::lazy_reader::support::Cursor) {
+    let bytes = cursor_bytes_with_error(
+        cursor,
+        cobuild_core::error::CoreError::MalformedCobuild,
+    )
+    .expect("fixture cursor bytes");
+    hasher.update(&checked_len_prefix(bytes.len()));
+    hasher.update(&bytes);
+}
+```
+
+These helpers are test support only. Do not move them into `cobuild-core`.
+
+- [ ] **Step 6: Run integration test**
+
+Run:
+
+```bash
+MODE=debug cargo test -p tests --offline --test cobuild_otx_lock -- --nocapture
+```
+
+Expected: PASS, 8 tests.
+
+- [ ] **Step 7: Commit integration test support**
+
+```bash
+git add tests/Cargo.toml tests/src/lib.rs
+git commit -m "test: use fixture signing hashes"
+```
+
+---
+
+### Task 8: Update Contract Integration And Architecture Tests
 
 **Files:**
 - Modify: `tests/tests/contract_template_layout.rs`
@@ -1294,7 +1553,7 @@ git commit -m "test: guard syscall concrete cobuild core"
 
 ---
 
-### Task 8: Final Cleanup And Verification
+### Task 9: Final Cleanup And Verification
 
 **Files:**
 - Inspect all production and test files
@@ -1305,10 +1564,10 @@ git commit -m "test: guard syscall concrete cobuild core"
 Run:
 
 ```bash
-rg -n "TransactionSource|HashInputSource|InMemorySource|ClassifiedCursor|CursorReadContext|PreparedCobuildContext|SyscallTxReader|WitnessCursorSource|source.rs|mod source|mod chain|prepare_cobuild_from_syscalls|context\\.tx_reader" crates contracts tests docs
+rg -n "TransactionSource|HashInputSource|InMemorySource|ClassifiedCursor|CursorReadContext|PreparedCobuildContext|SyscallTxReader|WitnessCursorSource|source.rs|mod source|mod chain|prepare_cobuild_from_syscalls|context\\.tx_reader" crates contracts tests docs/CobuildAgentDevelopGuide.md
 ```
 
-Expected: No matches except historical docs under `docs/superpowers/specs` or `docs/superpowers/plans`. If matches remain in production, tests, or `docs/CobuildAgentDevelopGuide.md`, delete or rewrite them.
+Expected: no matches. If matches remain in production, tests, or `docs/CobuildAgentDevelopGuide.md`, delete or rewrite them.
 
 - [ ] **Step 2: Run format**
 

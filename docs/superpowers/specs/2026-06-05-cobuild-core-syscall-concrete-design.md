@@ -38,7 +38,7 @@ The lock contract no longer constructs or stores a transaction reader. `Prepared
 
 Add a focused internal module for CKB transaction access:
 
-- syscall-backed `Cursor` construction for transaction, script, resolved input cell output, and resolved input data;
+- syscall-backed `Cursor` construction for transaction, resolved input cell output, and resolved input data;
 - transaction count loading with a small counts cache where needed;
 - raw input/output/output-data/cell-dep/header-dep access through lazy readers;
 - witness cursor access;
@@ -46,6 +46,8 @@ Add a focused internal module for CKB transaction access:
 - explicit error mapping to `CoreError`.
 
 This module replaces the current lock crate `chain.rs` and `chain/reader.rs` production logic.
+
+`script_cursor` is not carried forward. The lock crate loads current script args itself, and core preparation does not need a current-script cursor.
 
 ### `cobuild-core::engine`
 
@@ -61,6 +63,8 @@ Preparation still collects transaction counts, script hash index, witness summar
 
 Replace `HashInputSource` parameters with calls into core syscall helpers. Hash construction remains streaming/lazy and must not load the whole transaction into an owned transaction blob.
 
+The `hash` module becomes an internal core module. It must not expose public functions that take internal syscall types such as a counts cache.
+
 ### `cobuild-otx-lock`
 
 Remove the `chain` module. The entry flow becomes:
@@ -75,11 +79,15 @@ Remove the `chain` module. The entry flow becomes:
 
 Delete these production APIs and all architecture guards that require them:
 
+- `crates/cobuild-core/src/source.rs`
+- `pub mod source`
 - `TransactionSource`
 - `HashInputSource`
 - `InMemorySource`
 - `ClassifiedCursor`
 - `CursorReadContext`
+- `WitnessCursorSource`
+- generic `build_layout_from_witnesses` / `scan_layout_from_witnesses` APIs backed by witness source traits
 - `PreparedCobuildContext`
 - `SyscallTxReader` as a lock crate type
 - lock crate `chain.rs`
@@ -98,12 +106,29 @@ The refactor keeps the existing public error categories:
 
 The new syscall helpers should map syscall and lazy-reader failures directly at the read site. Do not preserve `ClassifiedCursor` just to carry read context.
 
+Expected helper-level mapping:
+
+- protocol/view reads from Cobuild messages, masks, seals, and witness layout bodies map to `CoreError::MalformedCobuild`;
+- transaction hash and script hash index helpers map syscall failures to `CoreError::InvalidContextInput`;
+- signing preimage payload helpers for witnesses, raw transaction fields, resolved input outputs/data, cell deps, and header deps map failures to `CoreError::MissingHashInput`.
+
+## Cargo Features
+
+`cobuild-core` should add:
+
+```toml
+ckb-std = { version = "1.1", default-features = false, features = ["ckb-types", "dummy-atomic"] }
+```
+
+`allocator` stays on `cobuild-otx-lock`, where the contract allocator is configured. If host/native-simulator builds require `ckb-std/native-simulator` after moving syscalls into core, add a `native-simulator` feature to `cobuild-core` and have `cobuild-otx-lock/native-simulator` enable it. The final workspace and native simulator verification commands must prove the chosen feature wiring.
+
 ## Testing
 
 Update tests to match the concrete syscall design:
 
 - Architecture guard tests must reject the deleted source abstractions and lock `chain` module.
-- Core unit tests should keep protocol/layout/hash coverage using local byte fixtures or test-only helpers.
+- Core unit tests should keep protocol/layout coverage using local byte fixtures or test-only helpers.
+- Contract integration support must replace direct `cobuild-core::hash` / `InMemorySource` usage with test-only signing hash helpers. These helpers must not be exported from production `cobuild-core`.
 - Integration tests should continue to cover end-to-end contract behavior through native simulator/debug contract builds.
 - The final verification set must include:
   - `cargo clippy --workspace --all-targets --offline`
