@@ -128,6 +128,85 @@ fn type_plan_ignores_duplicate_sighash_all_when_type_is_absent() {
 }
 
 #[test]
+fn type_plan_ignores_duplicate_sighash_all_when_type_is_only_in_otx_output_range() {
+    let type_hash = [3u8; 32];
+    let target_lock = [1u8; 32];
+    let message = empty_message();
+    let source = InMemorySource {
+        input_locks: vec![target_lock],
+        input_types: vec![None],
+        output_types: vec![Some(type_hash)],
+        raw_inputs: vec![Vec::new()],
+        raw_outputs: vec![Vec::new()],
+        raw_outputs_data: vec![Vec::new()],
+        resolved_outputs: vec![Vec::new()],
+        resolved_data: vec![Vec::new()],
+        witnesses: vec![
+            sighash_all_witness(&[7u8; 65], &message),
+            sighash_all_witness(&[8u8; 65], &message),
+            otx_start_witness(),
+            otx_witness_with_base_outputs(
+                &empty_message(),
+                &[seal_pair(target_lock, 0, &[9u8; 65])],
+                1,
+            ),
+        ],
+        ..InMemorySource::default()
+    };
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    let plan = prepared.plan_type_validation(type_hash, &source).unwrap();
+
+    assert_eq!(plan.related_messages.len(), 1);
+    assert!(matches!(
+        plan.related_messages[0].origin,
+        MessageOrigin::Otx { .. }
+    ));
+}
+
+#[test]
+fn type_plan_exposes_otx_and_tx_level_messages_for_mixed_output_coverage() {
+    let type_hash = [3u8; 32];
+    let target_lock = [1u8; 32];
+    let message = empty_message();
+    let source = InMemorySource {
+        input_locks: vec![target_lock],
+        input_types: vec![None],
+        output_types: vec![Some(type_hash), Some(type_hash)],
+        raw_inputs: vec![Vec::new()],
+        raw_outputs: vec![Vec::new(); 2],
+        raw_outputs_data: vec![Vec::new(); 2],
+        resolved_outputs: vec![Vec::new()],
+        resolved_data: vec![Vec::new()],
+        witnesses: vec![
+            sighash_all_witness(&[7u8; 65], &message),
+            otx_start_witness(),
+            otx_witness_with_base_outputs(
+                &empty_message(),
+                &[seal_pair(target_lock, 0, &[8u8; 65])],
+                1,
+            ),
+        ],
+        ..InMemorySource::default()
+    };
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    let plan = prepared.plan_type_validation(type_hash, &source).unwrap();
+
+    assert_eq!(plan.related_messages.len(), 2);
+    assert!(plan
+        .related_messages
+        .iter()
+        .any(|message| matches!(message.origin, MessageOrigin::Otx { otx_index: 0, .. })));
+    assert!(plan.related_messages.iter().any(|message| matches!(
+        message.origin,
+        MessageOrigin::TxLevel {
+            carrier_witness_index: 0
+        }
+    )));
+}
+
+#[test]
 fn type_plan_rejects_tx_level_related_message_with_absent_action_target() {
     let type_hash = [3u8; 32];
     let absent_type_hash = [9u8; 32];
@@ -224,7 +303,15 @@ fn otx_start_witness() -> Vec<u8> {
 }
 
 fn otx_witness(message: &[u8], seals: &[Vec<u8>]) -> Vec<u8> {
-    otx_witness_custom(message, 0, 1, 0, seals)
+    otx_witness_custom(message, 0, 1, 0, 0, 0, seals)
+}
+
+fn otx_witness_with_base_outputs(
+    message: &[u8],
+    seals: &[Vec<u8>],
+    base_output_cells: u32,
+) -> Vec<u8> {
+    otx_witness_custom(message, 0, 1, 0, base_output_cells, 0, seals)
 }
 
 fn otx_witness_custom(
@@ -232,6 +319,8 @@ fn otx_witness_custom(
     append_permissions: u8,
     base_input_cells: u32,
     append_input_cells: u32,
+    base_output_cells: u32,
+    append_output_cells: u32,
     seals: &[Vec<u8>],
 ) -> Vec<u8> {
     witness_union(
@@ -241,19 +330,23 @@ fn otx_witness_custom(
             vec![append_permissions],
             base_input_cells.to_le_bytes().to_vec(),
             molecule_bytes(&[0]),
-            0u32.to_le_bytes().to_vec(),
-            molecule_bytes(&[]),
+            base_output_cells.to_le_bytes().to_vec(),
+            mask_for_bits(base_output_cells * 4),
             0u32.to_le_bytes().to_vec(),
             molecule_bytes(&[]),
             0u32.to_le_bytes().to_vec(),
             molecule_bytes(&[]),
             append_input_cells.to_le_bytes().to_vec(),
-            0u32.to_le_bytes().to_vec(),
+            append_output_cells.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),
             dynvec(seals),
         ]),
     )
+}
+
+fn mask_for_bits(bit_count: u32) -> Vec<u8> {
+    molecule_bytes(&vec![0; (bit_count as usize).div_ceil(8)])
 }
 
 fn seal_pair(script_hash: [u8; 32], scope: u8, seal: &[u8]) -> Vec<u8> {
