@@ -246,6 +246,7 @@ pub struct OtxTypeRelation {
     pub input_type_in_base: bool,
     pub input_type_in_append: bool,
     pub output_type_in_base: bool,
+    pub output_type_in_base_covered: bool,
     pub output_type_in_append: bool,
 }
 ```
@@ -259,7 +260,12 @@ and how to interpret `Action.data`.
 
 `MessageOrigin::Otx` must include OTX information. Type scripts need the
 witness index, OTX index, relevant layout ranges, and relation flags to make
-scope-aware policy decisions.
+scope-aware policy decisions. `output_type_in_base` means the current type hash
+appears in a base output range. `output_type_in_base_covered` separately tells
+whether at least one matching base output type field is covered by the base
+output type mask and therefore by the OTX base signing hash. Append outputs are
+fully covered in Core v1, so `output_type_in_append` does not need a separate
+coverage flag.
 
 ### `layout.rs`
 
@@ -294,6 +300,7 @@ should make the Core local flow selection rules explicit:
 - unique `SighashAll` detection;
 - OTX relevance for lock input scopes;
 - OTX relevance for type input/output scopes;
+- OTX relevance classification as irrelevant, relevant, or unknown;
 - related versus unrelated malformed witness handling;
 - lock group OTX coverage checks.
 
@@ -395,9 +402,11 @@ For each OTX:
 `OtxAppend` binds to the current OTX's base hash. The engine computes the base
 hash once and passes the digest to append hash construction.
 
-When OTX scan is invalid, the engine fails only if the invalid OTX sequence is
-relevant to the current lock. Unrelated malformed OTX data must not force this
-lock into Cobuild flow.
+When OTX scan is invalid, the engine must classify the invalid sequence against
+the current lock as irrelevant, relevant, or unknown. Irrelevant malformed OTX
+data must not force this lock into Cobuild flow. Relevant or unknown malformed
+OTX data must fail closed. Unknown means the scanner could not retain enough
+anchor or range information to safely prove irrelevance.
 
 ### Lock Group Coverage
 
@@ -438,13 +447,30 @@ For OTX messages, `MessageOrigin::Otx` includes:
 - compact layout ranges;
 - relation flags indicating whether the current type appeared in base inputs,
   append inputs, base outputs, or append outputs.
+- for base output type relations, an explicit coverage flag indicating whether
+  the matching output type field was covered by the base output mask.
 
 Core validates message/action shape and target roles while preserving the Core
 rule that missing message or missing action is not a universal failure. A type
 script may impose stricter policy after receiving the plan.
 
+Type validation must also fail closed for related malformed data:
+
+- duplicate `SighashAll` fails when a tx-level message would otherwise be
+  relevant to the type hash;
+- malformed OTX scan fails when OTX relevance to the type hash is relevant or
+  unknown;
+- invalid action roles or malformed actions fail when they appear in a related
+  message.
+
 The type plan must not interpret `Action.data`. It may expose cursor-backed
 action views and filtering helpers.
+
+This design adds the reusable core API for type scripts. It does not add a new
+type contract in this repository. A future type-script integration is
+responsible for loading the current type script hash, choosing whether an empty
+`TypeValidationPlan` is acceptable for that script's policy, and consuming the
+cursor-backed `MessageView`s returned by core.
 
 ## Chain Source And Cache
 
@@ -483,7 +509,8 @@ New engine tests should cover:
 - lock plan with combined tx-level and OTX requirements;
 - OTX-only plan failing when the lock group is not fully OTX-covered;
 - duplicate `SighashAll` failing only when tx-level flow is relevant;
-- invalid OTX failing only when relevant to the current lock;
+- invalid OTX ignored only when proven irrelevant, and failing when relevant or
+  unknown to the current lock;
 - message action target validation for tx-level and OTX messages;
 - type plan exposing a tx-level related message;
 - type plan exposing an OTX related message with OTX origin layout and relation

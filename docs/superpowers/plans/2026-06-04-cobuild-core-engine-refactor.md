@@ -93,6 +93,7 @@ fn type_validation_plan_origin_carries_otx_layout_and_relation() {
             input_type_in_base: true,
             input_type_in_append: false,
             output_type_in_base: true,
+            output_type_in_base_covered: true,
             output_type_in_append: false,
         },
     };
@@ -113,6 +114,7 @@ fn type_validation_plan_origin_carries_otx_layout_and_relation() {
             assert_eq!(otx_index, 2);
             assert!(relation.input_type_in_base);
             assert!(relation.output_type_in_base);
+            assert!(relation.output_type_in_base_covered);
         }
         MessageOrigin::TxLevel { .. } => panic!("expected otx origin"),
     }
@@ -201,6 +203,7 @@ pub struct OtxTypeRelation {
     pub input_type_in_base: bool,
     pub input_type_in_append: bool,
     pub output_type_in_base: bool,
+    pub output_type_in_base_covered: bool,
     pub output_type_in_append: bool,
 }
 ```
@@ -325,13 +328,11 @@ pub trait HashInputSource: TransactionSource {
 }
 ```
 
-Move these methods out of `SigningDataSource` into `HashInputSource`, then make
-`SigningDataSource` a compatibility alias while migration is in progress:
+Replace `SigningDataSource` with `HashInputSource`. This is a breaking API
+change. Do not keep a compatibility alias for old callers.
 
 ```rust
-pub trait SigningDataSource: HashInputSource {}
-
-impl<T: HashInputSource + ?Sized> SigningDataSource for T {}
+// Delete the old SigningDataSource trait.
 ```
 
 Implement `HashInputSource for InMemorySource`:
@@ -386,6 +387,21 @@ use crate::source::HashInputSource;
 ```
 
 Change generic bounds from `S: SigningDataSource` to `S: HashInputSource`.
+
+Replace remaining core imports and generic bounds from `SigningDataSource` to
+`HashInputSource` in:
+
+```text
+crates/cobuild-core/src/hash.rs
+crates/cobuild-core/src/query.rs
+crates/cobuild-core/src/sighash.rs
+crates/cobuild-core/src/otx_request.rs
+crates/cobuild-core/tests/source.rs
+```
+
+Delete `impl SigningDataSource for InMemorySource`. Existing redundant query
+tests are not preserved for compatibility; they will be replaced by engine
+tests and removed later in this plan.
 
 Inside `tx_signing_hash`, replace count calls:
 
@@ -742,7 +758,7 @@ fn sighash_all_only_table(seal: &[u8]) -> Vec<u8> {
 }
 
 fn empty_message() -> Vec<u8> {
-    dynvec(&[])
+    table(&[dynvec(&[])])
 }
 
 fn molecule_bytes(raw: &[u8]) -> Vec<u8> {
@@ -764,6 +780,22 @@ fn dynvec(items: &[Vec<u8>]) -> Vec<u8> {
     }
     for item in items {
         bytes.extend_from_slice(item);
+    }
+    bytes
+}
+
+fn table(fields: &[Vec<u8>]) -> Vec<u8> {
+    let header_size = 4 + fields.len() * 4;
+    let total_size = header_size + fields.iter().map(Vec::len).sum::<usize>();
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
+    let mut offset = header_size;
+    for field in fields {
+        bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+        offset += field.len();
+    }
+    for field in fields {
+        bytes.extend_from_slice(field);
     }
     bytes
 }
@@ -1133,17 +1165,18 @@ returning `LockValidationPlan`, add:
 match &self.layout_scan {
     OtxLayoutScan::None => {}
     OtxLayoutScan::Invalid { anchor, error } => {
-        let relevant = anchor
+        let relevance_known_irrelevant = anchor
             .as_ref()
             .map(|anchor| {
-                self.script_hashes
+                !self
+                    .script_hashes
                     .input_locks
                     .iter()
                     .skip(anchor.start_input_cell)
                     .any(|hash| *hash == lock_script_hash)
             })
             .unwrap_or(false);
-        if relevant {
+        if !relevance_known_irrelevant {
             return Err(error.clone());
         }
     }
@@ -1403,6 +1436,27 @@ pub(crate) fn type_hash_in_output_range(
         .take(range.count)
         .any(|hash| *hash == Some(type_hash))
 }
+
+pub(crate) fn covered_type_hash_in_base_outputs(
+    output_types: &[Option<[u8; 32]>],
+    range: Range,
+    type_hash: [u8; 32],
+    masks: &crate::view::MaskView,
+) -> Result<bool, crate::error::CoreError> {
+    for local_index in 0..range.count {
+        let tx_index = range
+            .start
+            .checked_add(local_index)
+            .ok_or(crate::error::CoreError::InvalidOtxLayout)?;
+        if output_types.get(tx_index).copied().flatten() != Some(type_hash) {
+            continue;
+        }
+        if masks.bit(local_index * 4 + 2)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
 ```
 
 - [ ] **Step 5: Implement `plan_type_validation`**
@@ -1436,6 +1490,12 @@ pub fn plan_type_validation<S: HashInputSource>(
                         otx.layout.base_outputs,
                         type_script_hash,
                     ),
+                    output_type_in_base_covered: crate::flow::covered_type_hash_in_base_outputs(
+                        &self.script_hashes.output_types,
+                        otx.layout.base_outputs,
+                        type_script_hash,
+                        &otx.witness.base_output_masks,
+                    )?,
                     output_type_in_append: crate::flow::type_hash_in_output_range(
                         &self.script_hashes.output_types,
                         otx.layout.append_outputs,
@@ -1469,7 +1529,28 @@ pub fn plan_type_validation<S: HashInputSource>(
                 });
             }
         }
-        OtxLayoutScan::Invalid { error, .. } => return Err(error.clone()),
+        OtxLayoutScan::Invalid { anchor, error } => {
+            let relevance_known_irrelevant = anchor
+                .as_ref()
+                .map(|anchor| {
+                    !self
+                        .script_hashes
+                        .input_types
+                        .iter()
+                        .skip(anchor.start_input_cell)
+                        .any(|hash| *hash == Some(type_script_hash))
+                        && !self
+                            .script_hashes
+                            .output_types
+                            .iter()
+                            .skip(anchor.start_output_cell)
+                            .any(|hash| *hash == Some(type_script_hash))
+                })
+                .unwrap_or(false);
+            if !relevance_known_irrelevant {
+                return Err(error.clone());
+            }
+        }
         OtxLayoutScan::None => {}
     }
 
@@ -1639,7 +1720,7 @@ pub fn build_layout_from_witnesses<S: WitnessCursorSource>(
 }
 ```
 
-Add `scan_layout_from_witnesses` by copying `scan_layout` and replacing
+Add `pub(crate) fn scan_layout_from_witnesses` by copying `scan_layout` and replacing
 `tx.witnesses[index]` reads with:
 
 ```rust
@@ -1983,16 +2064,13 @@ git commit -m "refactor: compact prepared witness metadata"
 - Test: `tests/tests/cobuild_otx_lock.rs`
 - Test: `contracts/cobuild-otx-lock/tests/verifier.rs`
 
-- [ ] **Step 1: Add a lock entry compile expectation**
+- [ ] **Step 1: Confirm the lock crate is ready for API migration**
 
-Run:
-
-```bash
-cargo test -p cobuild-otx-lock --offline --features library
-```
-
-Expected before changes: PASS. This establishes the current contract library
-tests compile before API migration.
+Do not run a pre-migration lock compile expectation here. Earlier tasks are
+allowed to break old lock APIs because this refactor does not preserve history
+compatibility. This task is responsible for moving `cobuild-otx-lock` onto
+`HashInputSource` and `LockValidationPlan` before lock tests are expected to
+pass again.
 
 - [ ] **Step 2: Implement `HashInputSource` for `ChainSource`**
 
@@ -2173,7 +2251,7 @@ fn cached_counts_are_returned_without_recomputing() {
 Run:
 
 ```bash
-cargo test -p cobuild-otx-lock --offline --features library chain_cache
+cargo test -p cobuild-otx-lock --offline --features library cached_counts_are_returned_without_recomputing
 ```
 
 Expected: FAIL with unresolved `ChainCache` or `CachedTxCounts`.
@@ -2521,6 +2599,16 @@ Keep `script_args_from_slice` if tests or lock args still use it.
 In `crates/cobuild-core/src/context.rs`, keep only `ScriptHashIndex` if engine
 still uses it. Remove `CobuildContext`, `LockScriptQuery`, and
 `PreparedContext` after all references are gone.
+
+Remove old `impl LockScriptQuery` blocks from:
+
+```text
+crates/cobuild-core/src/message.rs
+crates/cobuild-core/src/seal.rs
+```
+
+Keep only the free helper functions used by `engine.rs`, such as
+`validate_message_targets` and `unique_otx_seal_by_scope`.
 
 - [ ] **Step 6: Delete old files**
 
