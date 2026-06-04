@@ -36,27 +36,6 @@ pub(crate) fn unique_sighash_all_message(
     Ok(message)
 }
 
-pub(crate) fn unique_sighash_all_message_with_index(
-    witnesses: &[Vec<u8>],
-) -> Result<Option<(usize, Cursor)>, CoreError> {
-    let mut message = None;
-    for (index, witness) in witnesses.iter().enumerate() {
-        if witness.is_empty() {
-            continue;
-        }
-        let Ok(view) = WitnessLayoutView::from_slice(witness) else {
-            continue;
-        };
-        if let Some(candidate) = view.sighash_all_message()? {
-            if message.is_some() {
-                return Err(CoreError::DuplicateSighashAll);
-            }
-            message = Some((index, candidate));
-        }
-    }
-    Ok(message)
-}
-
 pub(crate) fn script_in_input_range(
     input_locks: &[[u8; 32]],
     range: Range,
