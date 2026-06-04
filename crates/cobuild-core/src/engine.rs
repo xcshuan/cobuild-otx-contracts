@@ -4,12 +4,12 @@ use crate::{
     context::ScriptHashIndex,
     error::CoreError,
     hash::{otx_append_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash},
-    layout::{scan_layout, LayoutTx, OtxLayoutScan},
+    layout::{scan_layout_from_witnesses, OtxLayoutScan, WitnessCursorSource},
     message::validate_message_targets,
     plan::{LockValidationPlan, SignatureOrigin, SigningRequirement, TypeValidationPlan},
     protocol::SealScope,
     reader::{cursor_bytes, cursor_bytes_with_error},
-    source::{HashInputSource, TxCounts},
+    source::{ClassifiedCursor, HashInputSource, TxCounts},
     view::{SighashAllWitnessView, WitnessLayoutView},
 };
 
@@ -26,15 +26,15 @@ impl CobuildEngine {
     pub fn prepare<S: HashInputSource>(source: &S) -> Result<PreparedCobuild, CoreError> {
         let counts = source.counts()?;
         let script_hashes = script_hashes_from_source(source, counts)?;
-        let tx = LayoutTx {
-            witnesses: witnesses_from_source(source, counts.witnesses)?,
-            input_count: counts.inputs,
-            output_count: counts.outputs,
-            cell_dep_count: counts.cell_deps,
-            header_dep_count: counts.header_deps,
-        };
-        let layout_scan = scan_layout(&tx);
-        let LayoutTx { witnesses, .. } = tx;
+        let witness_source = SourceWitnesses { source, counts };
+        let layout_scan = scan_layout_from_witnesses(
+            &witness_source,
+            counts.inputs,
+            counts.outputs,
+            counts.cell_deps,
+            counts.header_deps,
+        );
+        let witnesses = witnesses_from_source(source, counts.witnesses)?;
 
         Ok(PreparedCobuild {
             counts,
@@ -331,6 +331,21 @@ impl PreparedCobuild {
             seal,
             signing_message_hash,
         }])
+    }
+}
+
+struct SourceWitnesses<'a, S> {
+    source: &'a S,
+    counts: TxCounts,
+}
+
+impl<S: HashInputSource> WitnessCursorSource for SourceWitnesses<'_, S> {
+    fn witness_count(&self) -> usize {
+        self.counts.witnesses
+    }
+
+    fn witness_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        self.source.witness_cursor(index)
     }
 }
 
