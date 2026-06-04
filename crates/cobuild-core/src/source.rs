@@ -46,6 +46,15 @@ impl ClassifiedCursor {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct TxCounts {
+    pub inputs: usize,
+    pub outputs: usize,
+    pub cell_deps: usize,
+    pub header_deps: usize,
+    pub witnesses: usize,
+}
+
 pub trait TransactionSource {
     fn transaction_cursor(&self) -> Result<ClassifiedCursor, CoreError>;
     fn script_cursor(&self) -> Result<ClassifiedCursor, CoreError>;
@@ -53,19 +62,18 @@ pub trait TransactionSource {
     fn input_lock_hash(&self, index: usize) -> Result<[u8; 32], CoreError>;
     fn input_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError>;
     fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError>;
-    fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
-    fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
 }
 
-pub trait SigningDataSource: TransactionSource {
-    fn input_count(&self) -> Result<usize, CoreError>;
-    fn witness_count(&self) -> Result<usize, CoreError>;
+pub trait HashInputSource: TransactionSource {
+    fn counts(&self) -> Result<TxCounts, CoreError>;
     fn witness_cursor(&self, absolute_index: usize) -> Result<ClassifiedCursor, CoreError>;
     fn raw_input_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
     fn raw_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
     fn raw_output_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
     fn raw_cell_dep_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
     fn raw_header_dep_hash(&self, index: usize) -> Result<[u8; 32], CoreError>;
+    fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
+    fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
 }
 
 #[derive(Clone, Debug, Default)]
@@ -128,23 +136,17 @@ impl TransactionSource for InMemorySource {
             .copied()
             .ok_or(CoreError::InvalidContextInput)
     }
-
-    fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
-        hash_input_cursor(&self.resolved_outputs, index)
-    }
-
-    fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
-        hash_input_cursor(&self.resolved_data, index)
-    }
 }
 
-impl SigningDataSource for InMemorySource {
-    fn input_count(&self) -> Result<usize, CoreError> {
-        Ok(self.raw_inputs.len())
-    }
-
-    fn witness_count(&self) -> Result<usize, CoreError> {
-        Ok(self.witnesses.len())
+impl HashInputSource for InMemorySource {
+    fn counts(&self) -> Result<TxCounts, CoreError> {
+        Ok(TxCounts {
+            inputs: self.raw_inputs.len(),
+            outputs: self.raw_outputs.len(),
+            cell_deps: self.raw_cell_deps.len(),
+            header_deps: self.raw_header_deps.len(),
+            witnesses: self.witnesses.len(),
+        })
     }
 
     fn witness_cursor(&self, absolute_index: usize) -> Result<ClassifiedCursor, CoreError> {
@@ -172,5 +174,13 @@ impl SigningDataSource for InMemorySource {
             .get(index)
             .copied()
             .ok_or(CoreError::MissingHashInput)
+    }
+
+    fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        hash_input_cursor(&self.resolved_outputs, index)
+    }
+
+    fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        hash_input_cursor(&self.resolved_data, index)
     }
 }

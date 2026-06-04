@@ -8,22 +8,22 @@ use crate::{
     error::CoreError,
     layout::{OtxLayout, Range},
     reader::{update_cursor_with_error, update_len_prefixed_cursor},
-    source::SigningDataSource,
+    source::HashInputSource,
     view::{MaskView, OtxView},
 };
 
-pub fn tx_without_message_hash<S: SigningDataSource>(source: &S) -> Result<[u8; 32], CoreError> {
+pub fn tx_without_message_hash<S: HashInputSource>(source: &S) -> Result<[u8; 32], CoreError> {
     tx_signing_hash(b"ckbcb_tnm_core1\0", None, source)
 }
 
-pub fn tx_with_message_hash<S: SigningDataSource>(
+pub fn tx_with_message_hash<S: HashInputSource>(
     message: &Cursor,
     source: &S,
 ) -> Result<[u8; 32], CoreError> {
     tx_signing_hash(b"ckbcb_twm_core1\0", Some(message), source)
 }
 
-fn tx_signing_hash<S: SigningDataSource>(
+fn tx_signing_hash<S: HashInputSource>(
     personalization: &[u8; 16],
     message: Option<&Cursor>,
     source: &S,
@@ -35,14 +35,14 @@ fn tx_signing_hash<S: SigningDataSource>(
         update_cursor_with_error(&mut hasher, message, CoreError::MalformedCobuild)?;
     }
     hasher.update(&source.tx_hash()?);
-    let input_count = source.input_count()?;
-    for index in 0..input_count {
+    let counts = source.counts()?;
+    for index in 0..counts.inputs {
         let output = source.resolved_input_output_cursor(index)?;
         update_cursor_with_error(&mut hasher, &output.cursor, output.read_error())?;
         let data = source.resolved_input_data_cursor(index)?;
         update_len_prefixed_cursor(&mut hasher, &data.cursor, data.read_error())?;
     }
-    for index in input_count..source.witness_count()? {
+    for index in counts.inputs..counts.witnesses {
         let witness = source.witness_cursor(index)?;
         update_len_prefixed_cursor(&mut hasher, &witness.cursor, witness.read_error())?;
     }
@@ -56,7 +56,7 @@ pub fn checked_len_prefix(len: usize) -> Result<[u8; 4], CoreError> {
     Ok(len.to_le_bytes())
 }
 
-pub fn otx_base_hash<S: SigningDataSource>(
+pub fn otx_base_hash<S: HashInputSource>(
     otx: &OtxView,
     layout: &OtxLayout,
     source: &S,
@@ -178,7 +178,7 @@ pub fn otx_base_hash<S: SigningDataSource>(
     Ok(out)
 }
 
-pub fn otx_append_hash<S: SigningDataSource>(
+pub fn otx_append_hash<S: HashInputSource>(
     otx: &OtxView,
     layout: &OtxLayout,
     source: &S,

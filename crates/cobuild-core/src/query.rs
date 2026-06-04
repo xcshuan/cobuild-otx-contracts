@@ -2,11 +2,11 @@ use alloc::vec::Vec;
 
 use crate::{
     context::LockScriptQuery, error::CoreError, signature::SignatureRequest,
-    source::SigningDataSource,
+    source::HashInputSource,
 };
 
 impl LockScriptQuery<'_> {
-    pub fn required_signatures<S: SigningDataSource>(
+    pub fn required_signatures<S: HashInputSource>(
         &self,
         source: &S,
     ) -> Result<Vec<SignatureRequest>, CoreError> {

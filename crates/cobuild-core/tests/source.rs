@@ -2,7 +2,8 @@ use cobuild_core::{
     error::CoreError,
     reader::cursor_from_slice,
     source::{
-        ClassifiedCursor, CursorReadContext, InMemorySource, SigningDataSource, TransactionSource,
+        ClassifiedCursor, CursorReadContext, HashInputSource, InMemorySource, TransactionSource,
+        TxCounts,
     },
 };
 
@@ -58,5 +59,28 @@ fn in_memory_source_classifies_source_and_hash_cursors() {
     assert_eq!(
         source.witness_cursor(0).unwrap().read_context,
         CursorReadContext::HashInput
+    );
+}
+
+#[test]
+fn in_memory_source_exposes_counts_as_one_value() {
+    let source = InMemorySource {
+        raw_inputs: vec![Vec::new(); 2],
+        raw_outputs: vec![Vec::new(); 1],
+        raw_cell_deps: vec![Vec::new(); 3],
+        raw_header_deps: vec![[0u8; 32]; 1],
+        witnesses: vec![Vec::new(); 4],
+        ..InMemorySource::default()
+    };
+
+    assert_eq!(
+        source.counts().unwrap(),
+        TxCounts {
+            inputs: 2,
+            outputs: 1,
+            cell_deps: 3,
+            header_deps: 1,
+            witnesses: 4,
+        }
     );
 }

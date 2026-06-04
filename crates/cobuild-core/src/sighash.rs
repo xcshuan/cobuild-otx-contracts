@@ -8,12 +8,12 @@ use crate::{
     hash::{tx_with_message_hash, tx_without_message_hash},
     reader::cursor_bytes,
     signature::{SignatureOrigin, SignatureRequest},
-    source::SigningDataSource,
+    source::HashInputSource,
     view::{SighashAllWitnessView, WitnessLayoutView},
 };
 
 impl LockScriptQuery<'_> {
-    pub(crate) fn collect_sighash_all_signatures<S: SigningDataSource>(
+    pub(crate) fn collect_sighash_all_signatures<S: HashInputSource>(
         &self,
         source: &S,
     ) -> Result<Vec<SignatureRequest>, CoreError> {

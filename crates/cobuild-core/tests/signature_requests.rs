@@ -5,7 +5,7 @@ use cobuild_core::{
     layout::LayoutTx,
     reader::cursor_from_slice,
     signature::SignatureOrigin,
-    source::{ClassifiedCursor, InMemorySource, SigningDataSource, TransactionSource},
+    source::{ClassifiedCursor, HashInputSource, InMemorySource, TransactionSource, TxCounts},
 };
 
 #[test]
@@ -664,6 +664,12 @@ impl TransactionSource for CountingSource {
     fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
         self.inner.output_type_hash(index)
     }
+}
+
+impl HashInputSource for CountingSource {
+    fn counts(&self) -> Result<TxCounts, CoreError> {
+        self.inner.counts()
+    }
 
     fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
         increment(&self.counters.resolved_outputs);
@@ -673,16 +679,6 @@ impl TransactionSource for CountingSource {
     fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
         increment(&self.counters.resolved_data);
         self.inner.resolved_input_data_cursor(index)
-    }
-}
-
-impl SigningDataSource for CountingSource {
-    fn input_count(&self) -> Result<usize, CoreError> {
-        self.inner.input_count()
-    }
-
-    fn witness_count(&self) -> Result<usize, CoreError> {
-        self.inner.witness_count()
     }
 
     fn witness_cursor(&self, absolute_index: usize) -> Result<ClassifiedCursor, CoreError> {

@@ -6,7 +6,7 @@ use ckb_std::{ckb_constants::Source, ckb_types::prelude::Unpack, error::SysError
 use cobuild_core::{
     error::CoreError,
     prepare::{SourcePreparedContext, prepare_context_from_source},
-    source::{ClassifiedCursor, SigningDataSource, TransactionSource},
+    source::{ClassifiedCursor, HashInputSource, TransactionSource, TxCounts},
 };
 use cobuild_types::lazy_reader::{
     blockchain::{RawTransaction, Transaction},
@@ -90,29 +90,34 @@ impl TransactionSource for ChainSource {
         high_level::load_cell_type_hash(index, Source::Output)
             .map_err(|_| CoreError::InvalidContextInput)
     }
-
-    fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
-        hash_cursor(resolved_input_cell_cursor(index))
-    }
-
-    fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
-        hash_cursor(resolved_input_data_cursor(index))
-    }
 }
 
-impl SigningDataSource for ChainSource {
-    fn input_count(&self) -> Result<usize, CoreError> {
-        signing_raw_transaction()?
-            .inputs()
-            .and_then(|inputs| inputs.len())
-            .map_err(|_| CoreError::MissingHashInput)
-    }
-
-    fn witness_count(&self) -> Result<usize, CoreError> {
-        signing_transaction_view()?
-            .witnesses()
-            .and_then(|witnesses| witnesses.len())
-            .map_err(|_| CoreError::MissingHashInput)
+impl HashInputSource for ChainSource {
+    fn counts(&self) -> Result<TxCounts, CoreError> {
+        let raw = signing_raw_transaction()?;
+        let tx = signing_transaction_view()?;
+        Ok(TxCounts {
+            inputs: raw
+                .inputs()
+                .and_then(|inputs| inputs.len())
+                .map_err(|_| CoreError::MissingHashInput)?,
+            outputs: raw
+                .outputs()
+                .and_then(|outputs| outputs.len())
+                .map_err(|_| CoreError::MissingHashInput)?,
+            cell_deps: raw
+                .cell_deps()
+                .and_then(|cell_deps| cell_deps.len())
+                .map_err(|_| CoreError::MissingHashInput)?,
+            header_deps: raw
+                .header_deps()
+                .and_then(|header_deps| header_deps.len())
+                .map_err(|_| CoreError::MissingHashInput)?,
+            witnesses: tx
+                .witnesses()
+                .and_then(|witnesses| witnesses.len())
+                .map_err(|_| CoreError::MissingHashInput)?,
+        })
     }
 
     fn witness_cursor(&self, absolute_index: usize) -> Result<ClassifiedCursor, CoreError> {
@@ -160,5 +165,13 @@ impl SigningDataSource for ChainSource {
             .header_deps()
             .and_then(|header_deps| header_deps.get(index))
             .map_err(|_| CoreError::MissingHashInput)
+    }
+
+    fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        hash_cursor(resolved_input_cell_cursor(index))
+    }
+
+    fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        hash_cursor(resolved_input_data_cursor(index))
     }
 }

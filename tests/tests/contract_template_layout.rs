@@ -352,7 +352,8 @@ fn cobuild_core_exposes_source_boundary_without_ckb_std() {
         "ClassifiedCursor",
         "CursorReadContext",
         "TransactionSource",
-        "SigningDataSource",
+        "TxCounts",
+        "HashInputSource",
         "InMemorySource",
     ] {
         assert!(
@@ -377,10 +378,9 @@ fn cobuild_core_exposes_source_boundary_without_ckb_std() {
         "fn input_lock_hash(&self, index: usize) -> Result<[u8; 32], CoreError>",
         "fn input_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError>",
         "fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError>",
+        "fn counts(&self) -> Result<TxCounts, CoreError>",
         "fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>",
         "fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>",
-        "fn input_count(&self) -> Result<usize, CoreError>",
-        "fn witness_count(&self) -> Result<usize, CoreError>",
         "fn witness_cursor(&self, absolute_index: usize) -> Result<ClassifiedCursor, CoreError>",
         "fn raw_input_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>",
         "fn raw_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>",
@@ -452,7 +452,7 @@ fn cobuild_core_hashing_uses_source_not_owned_hash_parts() {
         );
     }
     assert!(
-        hash_rs.contains("SigningDataSource"),
-        "hash.rs should hash through SigningDataSource"
+        hash_rs.contains("HashInputSource"),
+        "hash.rs should hash through HashInputSource"
     );
 }

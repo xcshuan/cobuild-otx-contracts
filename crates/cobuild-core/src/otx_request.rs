@@ -6,11 +6,11 @@ use crate::{
     hash::{otx_append_hash, otx_base_hash},
     layout::{OtxLayoutScan, Range},
     signature::{SignatureOrigin, SignatureRequest},
-    source::SigningDataSource,
+    source::HashInputSource,
 };
 
 impl LockScriptQuery<'_> {
-    pub(crate) fn collect_otx_signatures<S: SigningDataSource>(
+    pub(crate) fn collect_otx_signatures<S: HashInputSource>(
         &self,
         source: &S,
     ) -> Result<Vec<SignatureRequest>, CoreError> {
