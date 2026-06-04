@@ -10,7 +10,6 @@ extern crate alloc;
 extern crate self as cobuild_otx_lock;
 
 pub mod args;
-mod chain;
 pub mod entry;
 pub mod error;
 pub mod verify;

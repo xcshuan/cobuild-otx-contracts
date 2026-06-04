@@ -3,10 +3,10 @@ use ckb_std::{
     ckb_types::prelude::Unpack,
     high_level::{load_script, load_script_hash},
 };
+use cobuild_core::engine::CobuildEngine;
 
 use crate::{
     args::AuthContext,
-    chain::prepare_cobuild_from_syscalls,
     error::Error,
     verify::{LockVerifier, local::LocalVerifier},
 };
@@ -19,10 +19,7 @@ pub fn main() -> Result<(), Error> {
     };
 
     let current_script_hash = load_script_hash()?;
-    let context = prepare_cobuild_from_syscalls()?;
-    let plan = context
-        .prepared
-        .plan_lock_validation(current_script_hash, &context.tx_reader)?;
+    let plan = CobuildEngine::prepare_from_syscalls()?.plan_lock_validation(current_script_hash)?;
 
     if plan.required_signatures.is_empty() {
         return Err(Error::LockSemanticFailure);
