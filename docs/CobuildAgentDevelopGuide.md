@@ -49,6 +49,11 @@ The implementation plan is already marked complete. New work should be handled a
 - The lock contract must not parse Cobuild protocol details, scan OTX layouts, construct Cobuild hash preimages, or depend on `cobuild_types::entity`.
 - Do not add a local `critical-section` shim.
 - Do not enable `portable-atomic` unsafe single-core assumptions.
+- Keep the `cobuild-otx-lock` RISC-V build on `-a` while this repository uses
+  `ckb-script` 1.1 for verification. CKB-VM has an `ISA_A` implementation, but
+  `ckb-script` 1.1 does not include `ISA_A` in `ScriptVersion::V2::vm_isa()`.
+  Binaries containing atomic instructions such as `amoadd.d`, `lr.d`, or `sc.d`
+  fail the existing `ckb-testtool` integration tests with `InvalidInstruction`.
 - Contract fixtures use `ScriptHashType::Data2` for `cobuild-otx-lock`.
 
 ## Streaming Source And Syscall Boundary
@@ -66,7 +71,7 @@ The Cobuild OTX hash path needs both raw transaction fields and resolved input d
 
 This mirrors the reference POC split: raw tx lazy reads are appropriate for transaction fields such as inputs, outputs, output data, cell deps, and header deps; syscall-resolved data is still required for previous input cells.
 
-The lock path must not load the whole transaction into a `Vec`. `contracts/cobuild-otx-lock/src/chain.rs` owns the syscall-backed `ChainSource`. `crates/cobuild-core/src/prepare.rs` owns context preparation. The old core `loader.rs` and lock `loader.rs` module names should not be reintroduced.
+The lock path must not load the whole transaction into a `Vec`. `contracts/cobuild-otx-lock/src/chain.rs` owns the chain-facing `ChainSource`. Use `ckb_std::high_level` for owned or fixed-size reads such as current script args, script hash, transaction hash, and cell lock/type hashes. Keep low-level syscall-backed cursors where lazy readers need source-backed ranges: full transaction, current script, resolved input cell output, and resolved input data. This depends on the repository's Rust 1.92 toolchain plus `ckb-std` `dummy-atomic`; do not move the contract target back to a newer toolchain or switch the RISC-V target to `+a` without rebuilding the contract and confirming the integration tests still pass under the active `ckb-script` verifier. `crates/cobuild-core/src/prepare.rs` owns context preparation. The old core `loader.rs` and lock `loader.rs` module names should not be reintroduced.
 
 ## View Boundary
 
@@ -146,6 +151,7 @@ make generate CRATE=<contract-name>
 ```
 
 - `scripts/find_clang` is used by Makefile builds. In this environment it resolves to versioned LLVM tools such as `/usr/bin/clang-17`.
+- `contracts/cobuild-otx-lock/Makefile` keeps `-a` in `FULL_RUSTFLAGS`. Do not switch it to `+a` unless the integration verifier is also confirmed to allow `ISA_A` for the deployed script version.
 - Integration tests default to `build/debug` when `MODE` is unset. This avoids accidentally testing stale `build/release` binaries during `cargo test --workspace --offline`.
 - Generated lazy-reader code should remain codegen-owned. Treat generated warnings as non-blocking unless a task explicitly asks to clean generated output.
 

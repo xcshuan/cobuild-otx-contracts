@@ -96,9 +96,15 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
         "loader.rs should be renamed to chain.rs"
     );
     let chain_rs = fs::read_to_string(lock_src.join("chain.rs")).expect("chain.rs");
+    let chain_reader_rs =
+        fs::read_to_string(lock_src.join("chain/reader.rs")).expect("chain/reader.rs");
     assert!(
         chain_rs.contains("struct ChainSource"),
         "chain.rs should define ChainSource"
+    );
+    assert!(
+        chain_rs.contains("mod reader"),
+        "chain.rs should keep source-backed reader details in chain/reader.rs"
     );
     assert!(
         !chain_rs.contains("fn load_transaction() -> Result<Vec<u8>"),
@@ -107,6 +113,43 @@ fn cobuild_otx_lock_streams_chain_data_without_full_transaction_load() {
     assert!(
         !chain_rs.contains("parse_transaction_info(&load_transaction()?"),
         "lock path must parse transaction from source cursor"
+    );
+    for expected in [
+        "struct SourceBackedReader",
+        "fn chain_cursor(",
+        "fn transaction_cursor(",
+        "fn script_cursor(",
+        "fn resolved_input_cell_cursor(",
+        "fn resolved_input_data_cursor(",
+    ] {
+        assert!(
+            chain_reader_rs.contains(expected),
+            "chain/reader.rs should expose source-backed lazy helper {expected}"
+        );
+    }
+    assert!(
+        chain_reader_rs.contains("fn map_source_read_error("),
+        "chain/reader.rs should make source-backed read error mapping explicit"
+    );
+    assert!(
+        !chain_rs.contains("struct SourceBackedReader"),
+        "chain.rs should not own source-backed reader internals"
+    );
+    for expected in [
+        "high_level::load_script()",
+        "high_level::load_script_hash()",
+        "high_level::load_tx_hash()",
+        "high_level::load_cell_lock_hash(",
+        "high_level::load_cell_type_hash(",
+    ] {
+        assert!(
+            chain_rs.contains(expected),
+            "chain.rs should use high-level fixed/owned load helper {expected}"
+        );
+    }
+    assert!(
+        !chain_rs.contains("fn load_owned("),
+        "chain.rs should not reintroduce generic owned syscall loading"
     );
 
     let core_prepare_rs =
