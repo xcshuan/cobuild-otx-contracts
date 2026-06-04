@@ -7,6 +7,7 @@ edition = "2024"
 native-simulator = [ "ckb-testtool/native-simulator" ]
 
 [dependencies]
+blake2b-ref = "0.3.1"
 cobuild-core = { path = "../crates/cobuild-core" }
 cobuild-types = { path = "../crates/cobuild-types" }
 ckb-hash = "1.1"
