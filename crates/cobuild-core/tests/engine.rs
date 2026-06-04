@@ -1,7 +1,9 @@
 use cobuild_core::{
     engine::CobuildEngine,
-    source::{InMemorySource, TxCounts},
+    error::CoreError,
+    source::{ClassifiedCursor, HashInputSource, InMemorySource, TransactionSource, TxCounts},
 };
+use cobuild_types::lazy_reader::support::{Cursor, Error as MoleculeError, Read};
 
 #[test]
 fn engine_returns_empty_lock_plan_when_lock_is_absent() {
@@ -45,4 +47,91 @@ fn engine_preparation_uses_source_counts() {
             witnesses: 4,
         }
     );
+}
+
+#[test]
+fn engine_preparation_classifies_witness_read_errors_as_missing_hash_input() {
+    let result = CobuildEngine::prepare(&FailingWitnessSource);
+
+    assert!(matches!(result, Err(CoreError::MissingHashInput)));
+}
+
+struct FailingWitnessSource;
+
+impl TransactionSource for FailingWitnessSource {
+    fn transaction_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
+        Err(CoreError::InvalidContextInput)
+    }
+
+    fn script_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
+        Err(CoreError::InvalidContextInput)
+    }
+
+    fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
+        Err(CoreError::InvalidContextInput)
+    }
+
+    fn input_lock_hash(&self, _index: usize) -> Result<[u8; 32], CoreError> {
+        Err(CoreError::InvalidContextInput)
+    }
+
+    fn input_type_hash(&self, _index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        Err(CoreError::InvalidContextInput)
+    }
+
+    fn output_type_hash(&self, _index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        Err(CoreError::InvalidContextInput)
+    }
+}
+
+impl HashInputSource for FailingWitnessSource {
+    fn counts(&self) -> Result<TxCounts, CoreError> {
+        Ok(TxCounts {
+            witnesses: 1,
+            ..TxCounts::default()
+        })
+    }
+
+    fn witness_cursor(&self, _absolute_index: usize) -> Result<ClassifiedCursor, CoreError> {
+        Ok(ClassifiedCursor::hash_input(Cursor::new(
+            1,
+            Box::new(FailingReader),
+        )))
+    }
+
+    fn raw_input_cursor(&self, _index: usize) -> Result<ClassifiedCursor, CoreError> {
+        Err(CoreError::MissingHashInput)
+    }
+
+    fn raw_output_cursor(&self, _index: usize) -> Result<ClassifiedCursor, CoreError> {
+        Err(CoreError::MissingHashInput)
+    }
+
+    fn raw_output_data_cursor(&self, _index: usize) -> Result<ClassifiedCursor, CoreError> {
+        Err(CoreError::MissingHashInput)
+    }
+
+    fn raw_cell_dep_cursor(&self, _index: usize) -> Result<ClassifiedCursor, CoreError> {
+        Err(CoreError::MissingHashInput)
+    }
+
+    fn raw_header_dep_hash(&self, _index: usize) -> Result<[u8; 32], CoreError> {
+        Err(CoreError::MissingHashInput)
+    }
+
+    fn resolved_input_output_cursor(&self, _index: usize) -> Result<ClassifiedCursor, CoreError> {
+        Err(CoreError::MissingHashInput)
+    }
+
+    fn resolved_input_data_cursor(&self, _index: usize) -> Result<ClassifiedCursor, CoreError> {
+        Err(CoreError::MissingHashInput)
+    }
+}
+
+struct FailingReader;
+
+impl Read for FailingReader {
+    fn read(&self, _buf: &mut [u8], _offset: usize) -> Result<usize, MoleculeError> {
+        Err(MoleculeError::OutOfBound(0, 1))
+    }
 }

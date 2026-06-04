@@ -12,24 +12,25 @@ use crate::{
 pub struct CobuildEngine;
 
 pub struct PreparedCobuild {
-    pub counts: TxCounts,
-    pub script_hashes: ScriptHashIndex,
-    pub witnesses: Vec<Vec<u8>>,
-    pub layout_scan: OtxLayoutScan,
+    pub(crate) counts: TxCounts,
+    pub(crate) script_hashes: ScriptHashIndex,
+    pub(crate) witnesses: Vec<Vec<u8>>,
+    pub(crate) layout_scan: OtxLayoutScan,
 }
 
 impl CobuildEngine {
     pub fn prepare<S: HashInputSource>(source: &S) -> Result<PreparedCobuild, CoreError> {
         let counts = source.counts()?;
         let script_hashes = script_hashes_from_source(source, counts)?;
-        let witnesses = witnesses_from_source(source, counts.witnesses)?;
-        let layout_scan = scan_layout(&LayoutTx {
-            witnesses: witnesses.clone(),
+        let tx = LayoutTx {
+            witnesses: witnesses_from_source(source, counts.witnesses)?,
             input_count: counts.inputs,
             output_count: counts.outputs,
             cell_dep_count: counts.cell_deps,
             header_dep_count: counts.header_deps,
-        });
+        };
+        let layout_scan = scan_layout(&tx);
+        let LayoutTx { witnesses, .. } = tx;
 
         Ok(PreparedCobuild {
             counts,
@@ -64,6 +65,8 @@ impl PreparedCobuild {
         type_script_hash: [u8; 32],
         _source: &S,
     ) -> Result<TypeValidationPlan, CoreError> {
+        let _prepared_layout = (&self.witnesses, &self.layout_scan);
+
         Ok(TypeValidationPlan {
             type_script_hash,
             related_messages: Vec::new(),
