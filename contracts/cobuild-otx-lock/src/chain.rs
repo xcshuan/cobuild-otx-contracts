@@ -33,8 +33,34 @@ pub(crate) fn load_prepared_context() -> Result<LoadedContext, Error> {
     Ok(LoadedContext { source, prepared })
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CachedTxCounts {
+    inputs: usize,
+    outputs: usize,
+    cell_deps: usize,
+    header_deps: usize,
+    witnesses: usize,
+}
+
 #[derive(Default)]
-pub(crate) struct ChainSource;
+struct ChainCache {
+    counts: core::cell::Cell<Option<CachedTxCounts>>,
+}
+
+impl ChainCache {
+    fn counts(&self) -> Option<CachedTxCounts> {
+        self.counts.get()
+    }
+
+    fn set_counts(&self, counts: CachedTxCounts) {
+        self.counts.set(Some(counts));
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct ChainSource {
+    cache: ChainCache,
+}
 
 fn source_cursor(cursor: Result<Cursor, SysError>) -> Result<ClassifiedCursor, CoreError> {
     cursor
@@ -95,29 +121,52 @@ impl TransactionSource for ChainSource {
 
 impl HashInputSource for ChainSource {
     fn counts(&self) -> Result<TxCounts, CoreError> {
-        let raw = signing_raw_transaction()?;
+        if let Some(counts) = self.cache.counts() {
+            return Ok(TxCounts {
+                inputs: counts.inputs,
+                outputs: counts.outputs,
+                cell_deps: counts.cell_deps,
+                header_deps: counts.header_deps,
+                witnesses: counts.witnesses,
+            });
+        }
+
         let tx = signing_transaction_view()?;
+        let raw = tx.raw().map_err(|_| CoreError::MissingHashInput)?;
+        let inputs = raw
+            .inputs()
+            .and_then(|inputs| inputs.len())
+            .map_err(|_| CoreError::MissingHashInput)?;
+        let outputs = raw
+            .outputs()
+            .and_then(|outputs| outputs.len())
+            .map_err(|_| CoreError::MissingHashInput)?;
+        let cell_deps = raw
+            .cell_deps()
+            .and_then(|cell_deps| cell_deps.len())
+            .map_err(|_| CoreError::MissingHashInput)?;
+        let header_deps = raw
+            .header_deps()
+            .and_then(|header_deps| header_deps.len())
+            .map_err(|_| CoreError::MissingHashInput)?;
+        let witnesses = tx
+            .witnesses()
+            .and_then(|witnesses| witnesses.len())
+            .map_err(|_| CoreError::MissingHashInput)?;
+        let counts = CachedTxCounts {
+            inputs,
+            outputs,
+            cell_deps,
+            header_deps,
+            witnesses,
+        };
+        self.cache.set_counts(counts);
         Ok(TxCounts {
-            inputs: raw
-                .inputs()
-                .and_then(|inputs| inputs.len())
-                .map_err(|_| CoreError::MissingHashInput)?,
-            outputs: raw
-                .outputs()
-                .and_then(|outputs| outputs.len())
-                .map_err(|_| CoreError::MissingHashInput)?,
-            cell_deps: raw
-                .cell_deps()
-                .and_then(|cell_deps| cell_deps.len())
-                .map_err(|_| CoreError::MissingHashInput)?,
-            header_deps: raw
-                .header_deps()
-                .and_then(|header_deps| header_deps.len())
-                .map_err(|_| CoreError::MissingHashInput)?,
-            witnesses: tx
-                .witnesses()
-                .and_then(|witnesses| witnesses.len())
-                .map_err(|_| CoreError::MissingHashInput)?,
+            inputs,
+            outputs,
+            cell_deps,
+            header_deps,
+            witnesses,
         })
     }
 
@@ -174,5 +223,24 @@ impl HashInputSource for ChainSource {
 
     fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
         hash_cursor(resolved_input_data_cursor(index))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn cached_counts_are_returned_without_recomputing() {
+        let counts = super::CachedTxCounts {
+            inputs: 1,
+            outputs: 2,
+            cell_deps: 3,
+            header_deps: 4,
+            witnesses: 5,
+        };
+        let cache = super::ChainCache::default();
+
+        cache.set_counts(counts);
+
+        assert_eq!(cache.counts(), Some(counts));
     }
 }
