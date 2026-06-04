@@ -1,4 +1,6 @@
-use cobuild_core::{engine::CobuildEngine, plan::MessageOrigin, source::InMemorySource};
+use cobuild_core::{
+    engine::CobuildEngine, error::CoreError, plan::MessageOrigin, source::InMemorySource,
+};
 
 #[test]
 fn type_plan_exposes_tx_level_message_for_related_input_type() {
@@ -64,6 +66,55 @@ fn type_plan_exposes_otx_message_with_relation_flags() {
     }
 }
 
+#[test]
+fn type_plan_rejects_tx_level_related_message_with_absent_action_target() {
+    let type_hash = [3u8; 32];
+    let absent_type_hash = [9u8; 32];
+    let message = message_with_action(2, absent_type_hash);
+    let source = InMemorySource {
+        input_locks: vec![[1u8; 32]],
+        input_types: vec![Some(type_hash)],
+        output_types: Vec::new(),
+        raw_inputs: vec![Vec::new()],
+        witnesses: vec![sighash_all_witness(&[7u8; 65], &message)],
+        ..InMemorySource::default()
+    };
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    assert!(matches!(
+        prepared.plan_type_validation(type_hash, &source),
+        Err(CoreError::InvalidMessageTarget)
+    ));
+}
+
+#[test]
+fn type_plan_rejects_otx_related_message_with_invalid_action_role() {
+    let type_hash = [3u8; 32];
+    let target_lock = [1u8; 32];
+    let source = InMemorySource {
+        input_locks: vec![target_lock],
+        input_types: vec![Some(type_hash)],
+        output_types: Vec::new(),
+        raw_inputs: vec![Vec::new()],
+        resolved_outputs: vec![Vec::new()],
+        resolved_data: vec![Vec::new()],
+        witnesses: vec![
+            otx_start_witness(),
+            otx_witness(
+                &message_with_action(9, target_lock),
+                &[seal_pair(target_lock, 0, &[7u8; 65])],
+            ),
+        ],
+        ..InMemorySource::default()
+    };
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    assert!(matches!(
+        prepared.plan_type_validation(type_hash, &source),
+        Err(CoreError::InvalidMessageTarget)
+    ));
+}
+
 fn sighash_all_witness(seal: &[u8], message: &[u8]) -> Vec<u8> {
     const SIGHASH_ALL_ID: u32 = 0xff00_0001;
 
@@ -84,6 +135,19 @@ fn sighash_all_witness(seal: &[u8], message: &[u8]) -> Vec<u8> {
 
 fn empty_message() -> Vec<u8> {
     table(&[dynvec(&[])])
+}
+
+fn message_with_action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {
+    table(&[dynvec(&[action(script_role, script_hash)])])
+}
+
+fn action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {
+    table(&[
+        [0u8; 32].to_vec(),
+        vec![script_role],
+        script_hash.to_vec(),
+        molecule_bytes(&[]),
+    ])
 }
 
 fn otx_start_witness() -> Vec<u8> {

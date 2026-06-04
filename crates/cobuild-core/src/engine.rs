@@ -201,6 +201,7 @@ impl PreparedCobuild {
                     if !is_related {
                         continue;
                     }
+                    validate_message_targets(&otx.witness.message, &self.script_hashes)?;
                     related_messages.push(crate::plan::RelatedMessage {
                         origin: crate::plan::MessageOrigin::Otx {
                             witness_index: otx.layout.witness_index,
@@ -257,6 +258,7 @@ impl PreparedCobuild {
                     .chain(self.script_hashes.output_types.iter())
                     .any(|hash| *hash == Some(type_script_hash));
                 if type_is_present {
+                    validate_message_targets(&message, &self.script_hashes)?;
                     related_messages.push(crate::plan::RelatedMessage {
                         origin: crate::plan::MessageOrigin::TxLevel {
                             carrier_witness_index,
