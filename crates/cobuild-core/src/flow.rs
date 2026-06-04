@@ -1,4 +1,4 @@
-use crate::context::ScriptHashIndex;
+use crate::{context::ScriptHashIndex, layout::Range};
 use alloc::vec::Vec;
 
 use cobuild_types::lazy_reader::support::Cursor;
@@ -34,4 +34,35 @@ pub(crate) fn unique_sighash_all_message(
         }
     }
     Ok(message)
+}
+
+pub(crate) fn script_in_input_range(
+    input_locks: &[[u8; 32]],
+    range: Range,
+    script_hash: [u8; 32],
+) -> bool {
+    input_locks
+        .iter()
+        .skip(range.start)
+        .take(range.count)
+        .any(|hash| *hash == script_hash)
+}
+
+pub(crate) fn range_contains(range: Range, index: usize) -> bool {
+    index >= range.start && index < range.start.saturating_add(range.count)
+}
+
+pub(crate) fn lock_group_fully_covered_by_otx(
+    input_locks: &[[u8; 32]],
+    lock_script_hash: [u8; 32],
+    otxs: &[crate::layout::OtxLayout],
+) -> bool {
+    input_locks.iter().enumerate().all(|(index, hash)| {
+        if *hash != lock_script_hash {
+            return true;
+        }
+        otxs.iter().any(|otx| {
+            range_contains(otx.base_inputs, index) || range_contains(otx.append_inputs, index)
+        })
+    })
 }

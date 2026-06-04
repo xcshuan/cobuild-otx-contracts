@@ -111,6 +111,81 @@ fn engine_lock_plan_rejects_duplicate_sighash_all_when_tx_level_relevant() {
     );
 }
 
+#[test]
+fn engine_lock_plan_marks_otx_base_requirement() {
+    let target_lock = [1u8; 32];
+    let source = otx_source(
+        vec![target_lock],
+        vec![
+            otx_start_witness(),
+            otx_witness(&empty_message(), &[seal_pair(target_lock, 0, &[7u8; 65])]),
+        ],
+    );
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    let plan = prepared.plan_lock_validation(target_lock, &source).unwrap();
+
+    assert_eq!(plan.required_signatures.len(), 1);
+    assert_eq!(plan.required_signatures[0].origin, SignatureOrigin::OtxBase);
+    assert_eq!(plan.required_signatures[0].carrier_witness_index, 1);
+}
+
+#[test]
+fn engine_lock_plan_marks_otx_append_requirement() {
+    let target_lock = [1u8; 32];
+    let base_lock = [2u8; 32];
+    let source = otx_source(
+        vec![base_lock, target_lock],
+        vec![
+            otx_start_witness(),
+            otx_append_witness(&[seal_pair(target_lock, 1, &[7u8; 65])]),
+        ],
+    );
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    let plan = prepared.plan_lock_validation(target_lock, &source).unwrap();
+
+    assert_eq!(plan.required_signatures.len(), 1);
+    assert_eq!(
+        plan.required_signatures[0].origin,
+        SignatureOrigin::OtxAppend
+    );
+    assert_eq!(plan.required_signatures[0].carrier_witness_index, 1);
+}
+
+#[test]
+fn engine_lock_plan_rejects_missing_otx_seal_for_relevant_scope() {
+    let target_lock = [1u8; 32];
+    let source = otx_source(
+        vec![target_lock],
+        vec![otx_start_witness(), otx_witness(&empty_message(), &[])],
+    );
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    assert_eq!(
+        prepared.plan_lock_validation(target_lock, &source),
+        Err(CoreError::MissingSealPair)
+    );
+}
+
+#[test]
+fn engine_lock_plan_rejects_uncovered_same_lock_remainder_input() {
+    let target_lock = [1u8; 32];
+    let source = otx_source(
+        vec![target_lock, target_lock],
+        vec![
+            otx_start_witness(),
+            otx_witness(&empty_message(), &[seal_pair(target_lock, 0, &[7u8; 65])]),
+        ],
+    );
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    assert_eq!(
+        prepared.plan_lock_validation(target_lock, &source),
+        Err(CoreError::MissingLockGroupCoverage)
+    );
+}
+
 struct FailingWitnessSource;
 
 impl TransactionSource for FailingWitnessSource {
@@ -225,6 +300,80 @@ fn sighash_all_only_table(seal: &[u8]) -> Vec<u8> {
 
 fn empty_message() -> Vec<u8> {
     table(&[dynvec(&[])])
+}
+
+fn otx_source(input_locks: Vec<[u8; 32]>, witnesses: Vec<Vec<u8>>) -> InMemorySource {
+    let input_count = input_locks.len();
+    InMemorySource {
+        input_locks,
+        input_types: vec![None; input_count],
+        output_types: Vec::new(),
+        raw_inputs: vec![Vec::new(); input_count],
+        resolved_outputs: vec![Vec::new(); input_count],
+        resolved_data: vec![Vec::new(); input_count],
+        witnesses,
+        ..InMemorySource::default()
+    }
+}
+
+fn otx_start_witness() -> Vec<u8> {
+    witness_union(
+        0xff00_0004,
+        &table(&[
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+        ]),
+    )
+}
+
+fn otx_witness(message: &[u8], seals: &[Vec<u8>]) -> Vec<u8> {
+    otx_witness_custom(message, 0, 1, 0, seals)
+}
+
+fn otx_append_witness(seals: &[Vec<u8>]) -> Vec<u8> {
+    otx_witness_custom(&empty_message(), 0x01, 1, 1, seals)
+}
+
+fn otx_witness_custom(
+    message: &[u8],
+    append_permissions: u8,
+    base_input_cells: u32,
+    append_input_cells: u32,
+    seals: &[Vec<u8>],
+) -> Vec<u8> {
+    witness_union(
+        0xff00_0003,
+        &table(&[
+            message.to_vec(),
+            vec![append_permissions],
+            base_input_cells.to_le_bytes().to_vec(),
+            molecule_bytes(&[0]),
+            0u32.to_le_bytes().to_vec(),
+            molecule_bytes(&[]),
+            0u32.to_le_bytes().to_vec(),
+            molecule_bytes(&[]),
+            0u32.to_le_bytes().to_vec(),
+            molecule_bytes(&[]),
+            append_input_cells.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            0u32.to_le_bytes().to_vec(),
+            dynvec(seals),
+        ]),
+    )
+}
+
+fn seal_pair(script_hash: [u8; 32], scope: u8, seal: &[u8]) -> Vec<u8> {
+    table(&[script_hash.to_vec(), vec![scope], molecule_bytes(seal)])
+}
+
+fn witness_union(item_id: u32, item: &[u8]) -> Vec<u8> {
+    let mut witness = Vec::with_capacity(4 + item.len());
+    witness.extend_from_slice(&item_id.to_le_bytes());
+    witness.extend_from_slice(item);
+    witness
 }
 
 fn molecule_bytes(bytes: &[u8]) -> Vec<u8> {

@@ -3,10 +3,11 @@ use alloc::vec::Vec;
 use crate::{
     context::ScriptHashIndex,
     error::CoreError,
-    hash::{tx_with_message_hash, tx_without_message_hash},
+    hash::{otx_append_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash},
     layout::{scan_layout, LayoutTx, OtxLayoutScan},
     message::validate_message_targets,
     plan::{LockValidationPlan, SignatureOrigin, SigningRequirement, TypeValidationPlan},
+    protocol::SealScope,
     reader::{cursor_bytes, cursor_bytes_with_error},
     source::{HashInputSource, TxCounts},
     view::{SighashAllWitnessView, WitnessLayoutView},
@@ -54,7 +55,99 @@ impl PreparedCobuild {
         lock_script_hash: [u8; 32],
         source: &S,
     ) -> Result<LockValidationPlan, CoreError> {
-        let required_signatures = self.tx_level_lock_requirements(lock_script_hash, source)?;
+        let mut required_signatures = self.tx_level_lock_requirements(lock_script_hash, source)?;
+
+        match &self.layout_scan {
+            OtxLayoutScan::None => {}
+            OtxLayoutScan::Invalid { anchor, error } => {
+                let relevance_known_irrelevant = anchor
+                    .as_ref()
+                    .map(|anchor| {
+                        !self
+                            .script_hashes
+                            .input_locks
+                            .iter()
+                            .skip(anchor.start_input_cell)
+                            .any(|hash| *hash == lock_script_hash)
+                    })
+                    .unwrap_or(false);
+                if !relevance_known_irrelevant {
+                    return Err(error.clone());
+                }
+            }
+            OtxLayoutScan::Complete(layout) => {
+                for otx in &layout.otx_data {
+                    let base_relevant = crate::flow::script_in_input_range(
+                        &self.script_hashes.input_locks,
+                        otx.layout.base_inputs,
+                        lock_script_hash,
+                    );
+                    let append_relevant = crate::flow::script_in_input_range(
+                        &self.script_hashes.input_locks,
+                        otx.layout.append_inputs,
+                        lock_script_hash,
+                    );
+                    if !base_relevant && !append_relevant {
+                        continue;
+                    }
+
+                    validate_message_targets(&otx.witness.message, &self.script_hashes)?;
+                    let base_hash = otx_base_hash(&otx.witness, &otx.layout, source)?;
+                    if base_relevant {
+                        let seal = crate::seal::unique_otx_seal_by_scope(
+                            lock_script_hash,
+                            &otx.witness.seals,
+                            SealScope::Base,
+                        )?;
+                        required_signatures.push(SigningRequirement {
+                            origin: SignatureOrigin::OtxBase,
+                            carrier_witness_index: otx.layout.witness_index,
+                            seal,
+                            signing_message_hash: base_hash,
+                        });
+                    }
+                    if append_relevant {
+                        let seal = crate::seal::unique_otx_seal_by_scope(
+                            lock_script_hash,
+                            &otx.witness.seals,
+                            SealScope::Append,
+                        )?;
+                        required_signatures.push(SigningRequirement {
+                            origin: SignatureOrigin::OtxAppend,
+                            carrier_witness_index: otx.layout.witness_index,
+                            seal,
+                            signing_message_hash: otx_append_hash(
+                                &otx.witness,
+                                &otx.layout,
+                                source,
+                                base_hash,
+                            )?,
+                        });
+                    }
+                }
+            }
+        }
+
+        let has_tx_level = required_signatures
+            .iter()
+            .any(|requirement| requirement.origin == SignatureOrigin::TxLevel);
+        let has_otx = required_signatures.iter().any(|requirement| {
+            matches!(
+                requirement.origin,
+                SignatureOrigin::OtxBase | SignatureOrigin::OtxAppend
+            )
+        });
+        if has_otx && !has_tx_level {
+            if let OtxLayoutScan::Complete(layout) = &self.layout_scan {
+                if !crate::flow::lock_group_fully_covered_by_otx(
+                    &self.script_hashes.input_locks,
+                    lock_script_hash,
+                    &layout.otxs,
+                ) {
+                    return Err(CoreError::MissingLockGroupCoverage);
+                }
+            }
+        }
 
         Ok(LockValidationPlan {
             lock_script_hash,
