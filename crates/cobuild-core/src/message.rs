@@ -1,10 +1,7 @@
 use cobuild_types::lazy_reader::support::Cursor;
 
 use crate::{
-    context::{LockScriptQuery, ScriptHashIndex},
-    error::CoreError,
-    protocol::ScriptRole,
-    view::message_actions,
+    context::ScriptHashIndex, error::CoreError, protocol::ScriptRole, view::message_actions,
 };
 
 pub(crate) fn validate_message_targets(
@@ -31,10 +28,4 @@ pub(crate) fn validate_message_targets(
         }
     }
     Ok(())
-}
-
-impl LockScriptQuery<'_> {
-    pub(crate) fn validate_message_targets(&self, message: &Cursor) -> Result<(), CoreError> {
-        validate_message_targets(message, &self.context.script_hashes)
-    }
 }

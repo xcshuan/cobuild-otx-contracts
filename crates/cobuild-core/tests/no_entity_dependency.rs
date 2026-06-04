@@ -4,47 +4,50 @@ fn manifest_path(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
 
-const CORE_SOURCE_PATHS: &[&str] = &[
-    "src/context.rs",
-    "src/hash/mod.rs",
-    "src/hash/writer.rs",
-    "src/layout.rs",
-    "src/lib.rs",
-    "src/message.rs",
-    "src/otx_request.rs",
-    "src/prepare.rs",
-    "src/protocol.rs",
-    "src/query.rs",
-    "src/reader.rs",
-    "src/seal.rs",
-    "src/signature.rs",
-    "src/sighash.rs",
-    "src/source.rs",
-    "src/view.rs",
-    "src/witness.rs",
-];
+fn core_source_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    collect_rs_paths(&manifest_path("src"), &mut paths);
+    paths.sort();
+    paths
+}
+
+fn collect_rs_paths(dir: &Path, paths: &mut Vec<PathBuf>) {
+    for entry in
+        std::fs::read_dir(dir).unwrap_or_else(|err| panic!("read {}: {err}", dir.display()))
+    {
+        let path = entry.expect("read directory entry").path();
+        if path.is_dir() {
+            collect_rs_paths(&path, paths);
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            paths.push(path);
+        }
+    }
+}
 
 #[test]
 fn core_source_does_not_import_entity_module() {
-    for path in CORE_SOURCE_PATHS {
-        let full_path = manifest_path(path);
-        let text = std::fs::read_to_string(&full_path)
-            .unwrap_or_else(|err| panic!("read {}: {err}", full_path.display()));
+    for path in core_source_paths() {
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
         let forbidden = ["cobuild_types", "entity"].join("::");
         assert!(
             !text.contains(&forbidden),
-            "{path} must not import {forbidden}"
+            "{} must not import {forbidden}",
+            path.display()
         );
     }
 }
 
 #[test]
 fn core_source_does_not_import_ckb_std() {
-    for path in CORE_SOURCE_PATHS {
-        let full_path = manifest_path(path);
-        let text = std::fs::read_to_string(&full_path)
-            .unwrap_or_else(|err| panic!("read {}: {err}", full_path.display()));
-        assert!(!text.contains("ckb_std"), "{path} must not import ckb_std");
+    for path in core_source_paths() {
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
+        assert!(
+            !text.contains("ckb_std"),
+            "{} must not import ckb_std",
+            path.display()
+        );
     }
 }
 
@@ -61,13 +64,13 @@ fn view_does_not_publicly_expose_generated_inner_reader() {
 
 #[test]
 fn core_source_contains_no_unsafe() {
-    for path in CORE_SOURCE_PATHS {
-        let full_path = manifest_path(path);
-        let text = std::fs::read_to_string(&full_path)
-            .unwrap_or_else(|err| panic!("read {}: {err}", full_path.display()));
+    for path in core_source_paths() {
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
         assert!(
             !text.contains("unsafe"),
-            "{path} must not contain unsafe code"
+            "{} must not contain unsafe code",
+            path.display()
         );
     }
 }

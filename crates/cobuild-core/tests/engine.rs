@@ -203,7 +203,72 @@ fn engine_lock_plan_rejects_missing_otx_seal_for_relevant_scope() {
 }
 
 #[test]
-fn engine_lock_plan_rejects_uncovered_same_lock_remainder_input() {
+fn engine_lock_plan_rejects_message_action_target_absent_from_transaction() {
+    let target_lock = [1u8; 32];
+    let absent_output_type = [9u8; 32];
+    let source = otx_source(
+        vec![target_lock],
+        vec![
+            otx_start_witness(),
+            otx_witness(
+                &message_with_action(2, absent_output_type),
+                &[seal_pair(target_lock, 0, &[7u8; 65])],
+            ),
+        ],
+    );
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    assert_eq!(
+        prepared.plan_lock_validation(target_lock, &source),
+        Err(CoreError::InvalidMessageTarget)
+    );
+}
+
+#[test]
+fn engine_lock_plan_rejects_duplicate_required_otx_seal_pair() {
+    let target_lock = [1u8; 32];
+    let source = otx_source(
+        vec![target_lock],
+        vec![
+            otx_start_witness(),
+            otx_witness(
+                &empty_message(),
+                &[
+                    seal_pair(target_lock, 0, &[7u8; 65]),
+                    seal_pair(target_lock, 0, &[7u8; 65]),
+                    seal_pair(target_lock, 0, &[8u8; 65]),
+                ],
+            ),
+        ],
+    );
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    assert_eq!(
+        prepared.plan_lock_validation(target_lock, &source),
+        Err(CoreError::DuplicateSealPair)
+    );
+}
+
+#[test]
+fn engine_lock_plan_rejects_invalid_otx_seal_scope() {
+    let target_lock = [1u8; 32];
+    let source = otx_source(
+        vec![target_lock],
+        vec![
+            otx_start_witness(),
+            otx_witness(&empty_message(), &[seal_pair(target_lock, 2, &[7u8; 65])]),
+        ],
+    );
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    assert_eq!(
+        prepared.plan_lock_validation(target_lock, &source),
+        Err(CoreError::InvalidSealScope)
+    );
+}
+
+#[test]
+fn engine_lock_plan_rejects_uncovered_lock_group_without_tx_level_requirement() {
     let target_lock = [1u8; 32];
     let source = otx_source(
         vec![target_lock, target_lock],
@@ -218,6 +283,79 @@ fn engine_lock_plan_rejects_uncovered_same_lock_remainder_input() {
         prepared.plan_lock_validation(target_lock, &source),
         Err(CoreError::MissingLockGroupCoverage)
     );
+}
+
+#[test]
+fn engine_lock_plan_allows_combined_tx_level_and_otx_requirements() {
+    let target_lock = [1u8; 32];
+    let source = otx_source(
+        vec![target_lock, target_lock],
+        vec![
+            sighash_all_only_witness(&[6u8; 65]),
+            otx_start_witness_at(1),
+            otx_witness(&empty_message(), &[seal_pair(target_lock, 0, &[7u8; 65])]),
+        ],
+    );
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    let plan = prepared.plan_lock_validation(target_lock, &source).unwrap();
+
+    assert_eq!(plan.required_signatures.len(), 2);
+    assert_eq!(plan.required_signatures[0].origin, SignatureOrigin::TxLevel);
+    assert_eq!(plan.required_signatures[0].carrier_witness_index, 0);
+    assert_eq!(plan.required_signatures[0].seal, vec![6u8; 65]);
+    assert_eq!(plan.required_signatures[1].origin, SignatureOrigin::OtxBase);
+    assert_eq!(plan.required_signatures[1].carrier_witness_index, 2);
+    assert_eq!(plan.required_signatures[1].seal, vec![7u8; 65]);
+}
+
+#[test]
+fn engine_lock_plan_for_unrelated_otx_lock_does_not_read_hash_payloads() {
+    let target_lock = [1u8; 32];
+    let unrelated_lock = [9u8; 32];
+    let source = CountingSource::new(otx_source(
+        vec![target_lock],
+        vec![otx_start_witness(), otx_witness(&empty_message(), &[])],
+    ));
+
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+    let plan = prepared
+        .plan_lock_validation(unrelated_lock, &source)
+        .unwrap();
+
+    assert!(plan.required_signatures.is_empty());
+    assert_eq!(source.counters.resolved_outputs.get(), 0);
+    assert_eq!(source.counters.resolved_data.get(), 0);
+    assert_eq!(source.counters.raw_inputs.get(), 0);
+    assert_eq!(source.counters.raw_outputs.get(), 0);
+    assert_eq!(source.counters.raw_outputs_data.get(), 0);
+    assert_eq!(source.counters.raw_cell_deps.get(), 0);
+    assert_eq!(source.counters.raw_header_deps.get(), 0);
+}
+
+#[test]
+fn engine_lock_plan_for_relevant_otx_lock_reads_hash_payloads() {
+    let target_lock = [1u8; 32];
+    let source = CountingSource::new(otx_source(
+        vec![target_lock],
+        vec![
+            otx_start_witness(),
+            otx_witness(&empty_message(), &[seal_pair(target_lock, 0, &[7u8; 65])]),
+        ],
+    ));
+
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+    let plan = prepared.plan_lock_validation(target_lock, &source).unwrap();
+
+    assert_eq!(plan.required_signatures.len(), 1);
+    assert_eq!(plan.required_signatures[0].origin, SignatureOrigin::OtxBase);
+    assert_eq!(source.counters.raw_inputs.get(), 1);
+    assert_eq!(source.counters.resolved_outputs.get(), 1);
+    assert_eq!(source.counters.resolved_data.get(), 1);
+    assert_eq!(source.counters.raw_outputs.get(), 0);
+    assert_eq!(source.counters.raw_outputs_data.get(), 0);
+    assert_eq!(source.counters.raw_cell_deps.get(), 0);
+    assert_eq!(source.counters.raw_header_deps.get(), 0);
 }
 
 struct FailingWitnessSource;
@@ -300,6 +438,106 @@ impl Read for FailingReader {
     }
 }
 
+#[derive(Default)]
+struct ReadCounters {
+    resolved_outputs: core::cell::Cell<usize>,
+    resolved_data: core::cell::Cell<usize>,
+    raw_inputs: core::cell::Cell<usize>,
+    raw_outputs: core::cell::Cell<usize>,
+    raw_outputs_data: core::cell::Cell<usize>,
+    raw_cell_deps: core::cell::Cell<usize>,
+    raw_header_deps: core::cell::Cell<usize>,
+}
+
+struct CountingSource {
+    inner: InMemorySource,
+    counters: ReadCounters,
+}
+
+impl CountingSource {
+    fn new(inner: InMemorySource) -> Self {
+        Self {
+            inner,
+            counters: ReadCounters::default(),
+        }
+    }
+}
+
+fn increment(counter: &core::cell::Cell<usize>) {
+    counter.set(counter.get() + 1);
+}
+
+impl TransactionSource for CountingSource {
+    fn transaction_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
+        self.inner.transaction_cursor()
+    }
+
+    fn script_cursor(&self) -> Result<ClassifiedCursor, CoreError> {
+        self.inner.script_cursor()
+    }
+
+    fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
+        self.inner.tx_hash()
+    }
+
+    fn input_lock_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
+        self.inner.input_lock_hash(index)
+    }
+
+    fn input_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        self.inner.input_type_hash(index)
+    }
+
+    fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        self.inner.output_type_hash(index)
+    }
+}
+
+impl HashInputSource for CountingSource {
+    fn counts(&self) -> Result<TxCounts, CoreError> {
+        self.inner.counts()
+    }
+
+    fn witness_cursor(&self, absolute_index: usize) -> Result<ClassifiedCursor, CoreError> {
+        self.inner.witness_cursor(absolute_index)
+    }
+
+    fn raw_input_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.raw_inputs);
+        self.inner.raw_input_cursor(index)
+    }
+
+    fn raw_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.raw_outputs);
+        self.inner.raw_output_cursor(index)
+    }
+
+    fn raw_output_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.raw_outputs_data);
+        self.inner.raw_output_data_cursor(index)
+    }
+
+    fn raw_cell_dep_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.raw_cell_deps);
+        self.inner.raw_cell_dep_cursor(index)
+    }
+
+    fn raw_header_dep_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
+        increment(&self.counters.raw_header_deps);
+        self.inner.raw_header_dep_hash(index)
+    }
+
+    fn resolved_input_output_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.resolved_outputs);
+        self.inner.resolved_input_output_cursor(index)
+    }
+
+    fn resolved_input_data_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
+        increment(&self.counters.resolved_data);
+        self.inner.resolved_input_data_cursor(index)
+    }
+}
+
 fn sighash_all_only_witness(seal: &[u8]) -> Vec<u8> {
     const SIGHASH_ALL_ONLY_ID: u32 = 0xff00_0002;
 
@@ -340,6 +578,19 @@ fn empty_message() -> Vec<u8> {
     table(&[dynvec(&[])])
 }
 
+fn message_with_action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {
+    table(&[dynvec(&[action(script_role, script_hash)])])
+}
+
+fn action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {
+    table(&[
+        [0u8; 32].to_vec(),
+        vec![script_role],
+        script_hash.to_vec(),
+        molecule_bytes(&[]),
+    ])
+}
+
 fn otx_source(input_locks: Vec<[u8; 32]>, witnesses: Vec<Vec<u8>>) -> InMemorySource {
     let input_count = input_locks.len();
     InMemorySource {
@@ -355,10 +606,14 @@ fn otx_source(input_locks: Vec<[u8; 32]>, witnesses: Vec<Vec<u8>>) -> InMemorySo
 }
 
 fn otx_start_witness() -> Vec<u8> {
+    otx_start_witness_at(0)
+}
+
+fn otx_start_witness_at(start_input: u32) -> Vec<u8> {
     witness_union(
         0xff00_0004,
         &table(&[
-            0u32.to_le_bytes().to_vec(),
+            start_input.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),
             0u32.to_le_bytes().to_vec(),
