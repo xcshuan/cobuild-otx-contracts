@@ -28,6 +28,7 @@ pub struct PreparedCobuild {
 enum WitnessSummary {
     Empty,
     Other,
+    Malformed(CoreError),
     SighashAll { message: Cursor },
     SighashAllOnly,
 }
@@ -310,6 +311,7 @@ impl PreparedCobuild {
 
         match self.witness_summaries.get(carrier_witness_index) {
             Some(WitnessSummary::SighashAll { .. }) | Some(WitnessSummary::SighashAllOnly) => {}
+            Some(WitnessSummary::Malformed(error)) => return Err(error.clone()),
             Some(WitnessSummary::Empty | WitnessSummary::Other) | None => return Ok(Vec::new()),
         }
 
@@ -377,8 +379,15 @@ fn witness_summary(witness: &[u8]) -> Result<WitnessSummary, CoreError> {
         return Ok(WitnessSummary::Empty);
     }
 
-    let Ok(view) = WitnessLayoutView::from_slice(witness) else {
-        return Ok(WitnessSummary::Other);
+    let view = match WitnessLayoutView::from_slice(witness) {
+        Ok(view) => view,
+        Err(error) => {
+            return if has_tx_level_witness_id(witness) {
+                Ok(WitnessSummary::Malformed(error))
+            } else {
+                Ok(WitnessSummary::Other)
+            };
+        }
     };
     if let Some(message) = view.sighash_all_message()? {
         return Ok(WitnessSummary::SighashAll { message });
@@ -389,16 +398,28 @@ fn witness_summary(witness: &[u8]) -> Result<WitnessSummary, CoreError> {
     Ok(WitnessSummary::Other)
 }
 
+fn has_tx_level_witness_id(witness: &[u8]) -> bool {
+    if witness.len() < 4 {
+        return false;
+    }
+    let item_id = u32::from_le_bytes([witness[0], witness[1], witness[2], witness[3]]);
+    matches!(item_id, 0xff00_0001 | 0xff00_0002)
+}
+
 fn unique_sighash_all_message_from_summaries(
     summaries: &[WitnessSummary],
 ) -> Result<Option<Cursor>, CoreError> {
     let mut message = None;
     for summary in summaries {
-        if let WitnessSummary::SighashAll { message: candidate } = summary {
-            if message.is_some() {
-                return Err(CoreError::DuplicateSighashAll);
+        match summary {
+            WitnessSummary::SighashAll { message: candidate } => {
+                if message.is_some() {
+                    return Err(CoreError::DuplicateSighashAll);
+                }
+                message = Some(candidate.clone());
             }
-            message = Some(candidate.clone());
+            WitnessSummary::Malformed(error) => return Err(error.clone()),
+            _ => {}
         }
     }
     Ok(message)
@@ -409,11 +430,15 @@ fn unique_sighash_all_message_with_index_from_summaries(
 ) -> Result<Option<(usize, Cursor)>, CoreError> {
     let mut message = None;
     for (index, summary) in summaries.iter().enumerate() {
-        if let WitnessSummary::SighashAll { message: candidate } = summary {
-            if message.is_some() {
-                return Err(CoreError::DuplicateSighashAll);
+        match summary {
+            WitnessSummary::SighashAll { message: candidate } => {
+                if message.is_some() {
+                    return Err(CoreError::DuplicateSighashAll);
+                }
+                message = Some((index, candidate.clone()));
             }
-            message = Some((index, candidate.clone()));
+            WitnessSummary::Malformed(error) => return Err(error.clone()),
+            _ => {}
         }
     }
     Ok(message)

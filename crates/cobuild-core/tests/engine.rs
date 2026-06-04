@@ -122,6 +122,40 @@ fn engine_lock_plan_rejects_malformed_sighash_all_only_carrier_when_relevant() {
 }
 
 #[test]
+fn engine_prepare_defers_malformed_sighash_all_body_for_absent_lock() {
+    let source = InMemorySource {
+        input_locks: vec![[1u8; 32]],
+        input_types: vec![None],
+        raw_inputs: vec![Vec::new()],
+        witnesses: vec![malformed_sighash_all_witness()],
+        ..InMemorySource::default()
+    };
+
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+    let plan = prepared.plan_lock_validation([2u8; 32], &source).unwrap();
+
+    assert!(plan.required_signatures.is_empty());
+}
+
+#[test]
+fn engine_lock_plan_rejects_malformed_sighash_all_carrier_when_relevant() {
+    let source = InMemorySource {
+        input_locks: vec![[1u8; 32]],
+        input_types: vec![None],
+        raw_inputs: vec![Vec::new()],
+        witnesses: vec![malformed_sighash_all_witness()],
+        ..InMemorySource::default()
+    };
+
+    let prepared = CobuildEngine::prepare(&source).unwrap();
+
+    assert!(matches!(
+        prepared.plan_lock_validation([1u8; 32], &source),
+        Err(CoreError::MalformedCobuild | CoreError::InvalidOtxLayout)
+    ));
+}
+
+#[test]
 fn engine_lock_plan_rejects_duplicate_sighash_all_when_tx_level_relevant() {
     let message = empty_message();
     let source = InMemorySource {
@@ -550,6 +584,10 @@ fn sighash_all_only_witness(seal: &[u8]) -> Vec<u8> {
 
 fn malformed_sighash_all_only_witness() -> Vec<u8> {
     witness_union(0xff00_0002, &table(&[Vec::new()]))
+}
+
+fn malformed_sighash_all_witness() -> Vec<u8> {
+    witness_union(0xff00_0001, &table(&[Vec::new()]))
 }
 
 fn sighash_all_witness(seal: &[u8], message: &[u8]) -> Vec<u8> {
