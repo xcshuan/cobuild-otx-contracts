@@ -1,26 +1,7 @@
 use cobuild_core::{
     error::CoreError,
-    layout::{build_layout, build_layout_from_witnesses, LayoutTx, WitnessCursorSource},
-    reader::cursor_from_slice,
-    source::ClassifiedCursor,
+    layout::{build_layout, build_layout_from_witnesses, LayoutTx},
 };
-
-struct TestWitnessSource {
-    witnesses: Vec<Vec<u8>>,
-}
-
-impl WitnessCursorSource for TestWitnessSource {
-    fn witness_count(&self) -> usize {
-        self.witnesses.len()
-    }
-
-    fn witness_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
-        self.witnesses
-            .get(index)
-            .map(|witness| ClassifiedCursor::hash_input(cursor_from_slice(witness)))
-            .ok_or(CoreError::MissingHashInput)
-    }
-}
 
 #[test]
 fn empty_tx_has_no_otx_layouts() {
@@ -311,13 +292,14 @@ fn non_zero_base_header_dep_mask_padding_bits_are_invalid() {
 }
 
 #[test]
-fn source_driven_layout_matches_owned_layout() {
+fn direct_witness_layout_matches_owned_layout() {
     let witnesses = vec![otx_start_witness(), otx_witness()];
-    let source = TestWitnessSource {
+    let tx = LayoutTx {
         witnesses: witnesses.clone(),
+        ..LayoutTx::default()
     };
 
-    let source_layout = build_layout_from_witnesses(&source, 1, 0, 0, 0).unwrap();
+    let direct_layout = build_layout_from_witnesses(&tx, 1, 0, 0, 0).unwrap();
     let owned_layout = build_layout(&LayoutTx {
         witnesses,
         input_count: 1,
@@ -327,7 +309,7 @@ fn source_driven_layout_matches_owned_layout() {
     })
     .unwrap();
 
-    assert_eq!(source_layout.otxs, owned_layout.otxs);
+    assert_eq!(direct_layout.otxs, owned_layout.otxs);
 }
 
 fn otx_start_witness() -> Vec<u8> {

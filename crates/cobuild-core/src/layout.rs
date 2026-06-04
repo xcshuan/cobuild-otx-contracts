@@ -3,12 +3,10 @@ use alloc::vec::Vec;
 use crate::{
     error::CoreError,
     protocol::AppendPermissions,
-    reader::{cursor_bytes_with_error, cursor_from_slice},
-    source::ClassifiedCursor,
     view::{MaskView, OtxStartView, OtxView, WitnessLayoutView},
 };
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct LayoutTx {
     pub witnesses: Vec<Vec<u8>>,
     pub input_count: usize,
@@ -72,24 +70,6 @@ enum LayoutSegmentStop {
     Invalid(CoreError),
 }
 
-pub trait WitnessCursorSource {
-    fn witness_count(&self) -> usize;
-    fn witness_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError>;
-}
-
-impl WitnessCursorSource for LayoutTx {
-    fn witness_count(&self) -> usize {
-        self.witnesses.len()
-    }
-
-    fn witness_cursor(&self, index: usize) -> Result<ClassifiedCursor, CoreError> {
-        self.witnesses
-            .get(index)
-            .map(|witness| ClassifiedCursor::hash_input(cursor_from_slice(witness)))
-            .ok_or(CoreError::MissingHashInput)
-    }
-}
-
 pub fn build_layout(tx: &LayoutTx) -> Result<BuiltLayout, CoreError> {
     match scan_layout(tx) {
         OtxLayoutScan::None => Ok(empty_layout()),
@@ -98,15 +78,15 @@ pub fn build_layout(tx: &LayoutTx) -> Result<BuiltLayout, CoreError> {
     }
 }
 
-pub fn build_layout_from_witnesses<S: WitnessCursorSource>(
-    source: &S,
+pub fn build_layout_from_witnesses(
+    tx: &LayoutTx,
     input_count: usize,
     output_count: usize,
     cell_dep_count: usize,
     header_dep_count: usize,
 ) -> Result<BuiltLayout, CoreError> {
     match scan_layout_from_witnesses(
-        source,
+        tx,
         input_count,
         output_count,
         cell_dep_count,
@@ -128,23 +108,23 @@ pub fn scan_layout(tx: &LayoutTx) -> OtxLayoutScan {
     )
 }
 
-pub(crate) fn scan_layout_from_witnesses<S: WitnessCursorSource>(
-    source: &S,
+pub(crate) fn scan_layout_from_witnesses(
+    tx: &LayoutTx,
     input_count: usize,
     output_count: usize,
     cell_dep_count: usize,
     header_dep_count: usize,
 ) -> OtxLayoutScan {
-    let witness_count = source.witness_count();
-    if witness_count == 0 {
-        return OtxLayoutScan::None;
-    }
-
     let mut collector = OtxLayoutCollector::new();
-    for index in 0..witness_count {
-        let witness = match witness_bytes(source, index) {
+    for index in 0..tx.witnesses.len() {
+        let witness = match witness_bytes_from_layout_tx(tx, index) {
             Ok(witness) => witness,
-            Err(error) => return invalid_layout(None, error),
+            Err(error) => {
+                return OtxLayoutScan::Invalid {
+                    anchor: None,
+                    error,
+                };
+            }
         };
         collector.push_witness(&witness);
         if collector.has_invalid() {
@@ -359,9 +339,11 @@ impl OtxLayoutCollector {
     }
 }
 
-fn witness_bytes<S: WitnessCursorSource>(source: &S, index: usize) -> Result<Vec<u8>, CoreError> {
-    let classified = source.witness_cursor(index)?;
-    cursor_bytes_with_error(&classified.cursor, classified.read_error())
+fn witness_bytes_from_layout_tx(tx: &LayoutTx, index: usize) -> Result<Vec<u8>, CoreError> {
+    tx.witnesses
+        .get(index)
+        .cloned()
+        .ok_or(CoreError::MissingHashInput)
 }
 
 fn invalid_layout(anchor: Option<&OtxStartView>, error: CoreError) -> OtxLayoutScan {

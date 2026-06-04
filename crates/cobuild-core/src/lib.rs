@@ -13,7 +13,6 @@ pub mod prepare;
 pub mod protocol;
 pub mod reader;
 mod seal;
-pub mod source;
 mod syscalls;
 pub mod view;
 pub mod witness;

@@ -39,15 +39,23 @@ fn core_source_does_not_import_entity_module() {
 }
 
 #[test]
-fn core_source_does_not_import_ckb_std() {
+fn only_syscalls_module_imports_ckb_std() {
     for path in core_source_paths() {
         let text = std::fs::read_to_string(&path)
             .unwrap_or_else(|err| panic!("read {}: {err}", path.display()));
-        assert!(
-            !text.contains("ckb_std"),
-            "{} must not import ckb_std",
-            path.display()
-        );
+        let is_syscalls = path.file_name().is_some_and(|name| name == "syscalls.rs");
+        if is_syscalls {
+            assert!(
+                text.contains("ckb_std"),
+                "syscalls.rs must own ckb_std access"
+            );
+        } else {
+            assert!(
+                !text.contains("ckb_std"),
+                "{} must not import ckb_std directly",
+                path.display()
+            );
+        }
     }
 }
 
