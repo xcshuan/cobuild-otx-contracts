@@ -36,6 +36,27 @@ pub(crate) fn unique_sighash_all_message(
     Ok(message)
 }
 
+pub(crate) fn unique_sighash_all_message_with_index(
+    witnesses: &[Vec<u8>],
+) -> Result<Option<(usize, Cursor)>, CoreError> {
+    let mut message = None;
+    for (index, witness) in witnesses.iter().enumerate() {
+        if witness.is_empty() {
+            continue;
+        }
+        let Ok(view) = WitnessLayoutView::from_slice(witness) else {
+            continue;
+        };
+        if let Some(candidate) = view.sighash_all_message()? {
+            if message.is_some() {
+                return Err(CoreError::DuplicateSighashAll);
+            }
+            message = Some((index, candidate));
+        }
+    }
+    Ok(message)
+}
+
 pub(crate) fn script_in_input_range(
     input_locks: &[[u8; 32]],
     range: Range,
@@ -46,6 +67,51 @@ pub(crate) fn script_in_input_range(
         .skip(range.start)
         .take(range.count)
         .any(|hash| *hash == script_hash)
+}
+
+pub(crate) fn type_hash_in_input_range(
+    input_types: &[Option<[u8; 32]>],
+    range: Range,
+    type_hash: [u8; 32],
+) -> bool {
+    input_types
+        .iter()
+        .skip(range.start)
+        .take(range.count)
+        .any(|hash| *hash == Some(type_hash))
+}
+
+pub(crate) fn type_hash_in_output_range(
+    output_types: &[Option<[u8; 32]>],
+    range: Range,
+    type_hash: [u8; 32],
+) -> bool {
+    output_types
+        .iter()
+        .skip(range.start)
+        .take(range.count)
+        .any(|hash| *hash == Some(type_hash))
+}
+
+pub(crate) fn covered_type_hash_in_base_outputs(
+    output_types: &[Option<[u8; 32]>],
+    range: Range,
+    type_hash: [u8; 32],
+    masks: &crate::view::MaskView,
+) -> Result<bool, CoreError> {
+    for local_index in 0..range.count {
+        let tx_index = range
+            .start
+            .checked_add(local_index)
+            .ok_or(CoreError::InvalidOtxLayout)?;
+        if output_types.get(tx_index).copied().flatten() != Some(type_hash) {
+            continue;
+        }
+        if masks.bit(local_index * 4 + 2)? {
+            return Ok(true);
+        }
+    }
+    Ok(false)
 }
 
 pub(crate) fn range_contains(range: Range, index: usize) -> bool {

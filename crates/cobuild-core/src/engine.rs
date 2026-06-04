@@ -160,11 +160,116 @@ impl PreparedCobuild {
         type_script_hash: [u8; 32],
         _source: &S,
     ) -> Result<TypeValidationPlan, CoreError> {
-        let _prepared_layout = (&self.witnesses, &self.layout_scan);
+        let mut related_messages = Vec::new();
+
+        match &self.layout_scan {
+            OtxLayoutScan::Complete(layout) => {
+                for (otx_index, otx) in layout.otx_data.iter().enumerate() {
+                    let relation = crate::plan::OtxTypeRelation {
+                        input_type_in_base: crate::flow::type_hash_in_input_range(
+                            &self.script_hashes.input_types,
+                            otx.layout.base_inputs,
+                            type_script_hash,
+                        ),
+                        input_type_in_append: crate::flow::type_hash_in_input_range(
+                            &self.script_hashes.input_types,
+                            otx.layout.append_inputs,
+                            type_script_hash,
+                        ),
+                        output_type_in_base: crate::flow::type_hash_in_output_range(
+                            &self.script_hashes.output_types,
+                            otx.layout.base_outputs,
+                            type_script_hash,
+                        ),
+                        output_type_in_base_covered:
+                            crate::flow::covered_type_hash_in_base_outputs(
+                                &self.script_hashes.output_types,
+                                otx.layout.base_outputs,
+                                type_script_hash,
+                                &otx.witness.base_output_masks,
+                            )?,
+                        output_type_in_append: crate::flow::type_hash_in_output_range(
+                            &self.script_hashes.output_types,
+                            otx.layout.append_outputs,
+                            type_script_hash,
+                        ),
+                    };
+                    let is_related = relation.input_type_in_base
+                        || relation.input_type_in_append
+                        || relation.output_type_in_base
+                        || relation.output_type_in_append;
+                    if !is_related {
+                        continue;
+                    }
+                    related_messages.push(crate::plan::RelatedMessage {
+                        origin: crate::plan::MessageOrigin::Otx {
+                            witness_index: otx.layout.witness_index,
+                            otx_index,
+                            layout: crate::plan::OtxMessageLayout {
+                                base_inputs: otx.layout.base_inputs,
+                                append_inputs: otx.layout.append_inputs,
+                                base_outputs: otx.layout.base_outputs,
+                                append_outputs: otx.layout.append_outputs,
+                                base_cell_deps: otx.layout.base_cell_deps,
+                                append_cell_deps: otx.layout.append_cell_deps,
+                                base_header_deps: otx.layout.base_header_deps,
+                                append_header_deps: otx.layout.append_header_deps,
+                            },
+                            relation,
+                        },
+                        message: otx.witness.message.clone().into(),
+                    });
+                }
+            }
+            OtxLayoutScan::Invalid { anchor, error } => {
+                let relevance_known_irrelevant = anchor
+                    .as_ref()
+                    .map(|anchor| {
+                        !self
+                            .script_hashes
+                            .input_types
+                            .iter()
+                            .skip(anchor.start_input_cell)
+                            .any(|hash| *hash == Some(type_script_hash))
+                            && !self
+                                .script_hashes
+                                .output_types
+                                .iter()
+                                .skip(anchor.start_output_cell)
+                                .any(|hash| *hash == Some(type_script_hash))
+                    })
+                    .unwrap_or(false);
+                if !relevance_known_irrelevant {
+                    return Err(error.clone());
+                }
+            }
+            OtxLayoutScan::None => {}
+        }
+
+        if related_messages.is_empty() {
+            if let Some((carrier_witness_index, message)) =
+                crate::flow::unique_sighash_all_message_with_index(&self.witnesses)?
+            {
+                let type_is_present = self
+                    .script_hashes
+                    .input_types
+                    .iter()
+                    .chain(self.script_hashes.output_types.iter())
+                    .any(|hash| *hash == Some(type_script_hash));
+                if type_is_present {
+                    related_messages.push(crate::plan::RelatedMessage {
+                        origin: crate::plan::MessageOrigin::TxLevel {
+                            carrier_witness_index,
+                        },
+                        message: message.into(),
+                    });
+                }
+            }
+        }
 
         Ok(TypeValidationPlan {
             type_script_hash,
-            related_messages: Vec::new(),
+            related_messages,
         })
     }
 

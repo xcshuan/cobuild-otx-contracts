@@ -82,6 +82,12 @@ impl MessageView {
     }
 }
 
+impl From<Cursor> for MessageView {
+    fn from(cursor: Cursor) -> Self {
+        Self::new(cursor)
+    }
+}
+
 impl MaskView {
     pub fn new(cursor: Cursor) -> Self {
         Self { cursor }
