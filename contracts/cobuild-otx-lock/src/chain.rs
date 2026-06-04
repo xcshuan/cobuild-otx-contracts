@@ -4,8 +4,8 @@ use alloc::vec::Vec;
 
 use ckb_std::{ckb_constants::Source, ckb_types::prelude::Unpack, error::SysError, high_level};
 use cobuild_core::{
+    engine::{CobuildEngine, PreparedCobuild},
     error::CoreError,
-    prepare::{SourcePreparedContext, prepare_context_from_source},
     source::{ClassifiedCursor, HashInputSource, TransactionSource, TxCounts},
 };
 use cobuild_types::lazy_reader::{
@@ -24,15 +24,16 @@ pub(crate) fn load_current_script_args() -> Result<Vec<u8>, Error> {
 
 pub(crate) struct LoadedContext {
     pub source: ChainSource,
-    pub prepared: SourcePreparedContext,
+    pub prepared: PreparedCobuild,
 }
 
 pub(crate) fn load_prepared_context() -> Result<LoadedContext, Error> {
-    let source = ChainSource;
-    let prepared = prepare_context_from_source(&source)?;
+    let source = ChainSource::default();
+    let prepared = CobuildEngine::prepare(&source)?;
     Ok(LoadedContext { source, prepared })
 }
 
+#[derive(Default)]
 pub(crate) struct ChainSource;
 
 fn source_cursor(cursor: Result<Cursor, SysError>) -> Result<ClassifiedCursor, CoreError> {

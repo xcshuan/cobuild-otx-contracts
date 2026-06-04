@@ -71,7 +71,7 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         "load_current_script_args",
         "load_script_hash",
         "load_prepared_context",
-        "lock_query",
+        "plan_lock_validation",
         "required_signatures",
         "loaded.source",
         "LocalVerifier",

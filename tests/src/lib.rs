@@ -248,7 +248,9 @@ pub mod fixtures {
         case.tx = case
             .tx
             .as_advanced_builder()
-            .set_witnesses(vec![Bytes::from(vec![1, 2, 3, 4]).pack()])
+            .set_witnesses(vec![
+                Bytes::from(malformed_sighash_all_only_witness()).pack(),
+            ])
             .build();
         case
     }
@@ -563,6 +565,33 @@ pub mod fixtures {
     fn packed_hash_to_array(hash: ckb_testtool::ckb_types::packed::Byte32) -> [u8; 32] {
         let mut out = [0u8; 32];
         out.copy_from_slice(hash.as_slice());
+        out
+    }
+
+    fn malformed_sighash_all_only_witness() -> Vec<u8> {
+        witness_union(0xff00_0002, &table(&[Vec::new()]))
+    }
+
+    fn witness_union(item_id: u32, item: &[u8]) -> Vec<u8> {
+        let mut witness = Vec::with_capacity(4 + item.len());
+        witness.extend_from_slice(&item_id.to_le_bytes());
+        witness.extend_from_slice(item);
+        witness
+    }
+
+    fn table(fields: &[Vec<u8>]) -> Vec<u8> {
+        let header_size = 4 + fields.len() * 4;
+        let total_size = header_size + fields.iter().map(Vec::len).sum::<usize>();
+        let mut out = Vec::with_capacity(total_size);
+        out.extend_from_slice(&(total_size as u32).to_le_bytes());
+        let mut offset = header_size as u32;
+        for field in fields {
+            out.extend_from_slice(&offset.to_le_bytes());
+            offset += field.len() as u32;
+        }
+        for field in fields {
+            out.extend_from_slice(field);
+        }
         out
     }
 
