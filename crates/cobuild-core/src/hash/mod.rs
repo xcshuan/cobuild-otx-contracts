@@ -1,3 +1,5 @@
+mod writer;
+
 use blake2b_ref::Blake2bBuilder;
 use cobuild_types::lazy_reader::{
     blockchain::{CellInput, CellOutput},
@@ -7,7 +9,7 @@ use cobuild_types::lazy_reader::{
 use crate::{
     error::CoreError,
     layout::{OtxLayout, Range},
-    reader::{update_cursor_with_error, update_len_prefixed_cursor},
+    reader::update_cursor_with_error,
     source::HashInputSource,
     view::{MaskView, OtxView},
 };
@@ -38,13 +40,13 @@ fn tx_signing_hash<S: HashInputSource>(
     let counts = source.counts()?;
     for index in 0..counts.inputs {
         let output = source.resolved_input_output_cursor(index)?;
-        update_cursor_with_error(&mut hasher, &output.cursor, output.read_error())?;
+        writer::write_cursor(&mut hasher, &output)?;
         let data = source.resolved_input_data_cursor(index)?;
-        update_len_prefixed_cursor(&mut hasher, &data.cursor, data.read_error())?;
+        writer::write_len_prefixed_classified_cursor(&mut hasher, &data)?;
     }
     for index in counts.inputs..counts.witnesses {
         let witness = source.witness_cursor(index)?;
-        update_len_prefixed_cursor(&mut hasher, &witness.cursor, witness.read_error())?;
+        writer::write_len_prefixed_classified_cursor(&mut hasher, &witness)?;
     }
     hasher.finalize(&mut out);
 
@@ -68,8 +70,8 @@ pub fn otx_base_hash<S: HashInputSource>(
 
     update_cursor_with_error(&mut hasher, &otx.message, CoreError::MalformedCobuild)?;
     hasher.update(&[otx.append_permissions]);
-    update_count(&mut hasher, otx.base_input_cells)?;
-    update_len_prefixed_cursor(
+    writer::write_count(&mut hasher, otx.base_input_cells)?;
+    writer::write_len_prefixed_cursor_with_error(
         &mut hasher,
         otx.base_input_masks.cursor(),
         CoreError::MalformedCobuild,
@@ -79,7 +81,7 @@ pub fn otx_base_hash<S: HashInputSource>(
         let input = source.raw_input_cursor(tx_index)?;
         let input_view = CellInput::from(input.cursor.clone());
 
-        update_count(&mut hasher, local_index)?;
+        writer::write_count(&mut hasher, local_index)?;
         if mask_bit(&otx.base_input_masks, local_index * 2)? {
             hasher.update(
                 &input_view
@@ -95,21 +97,13 @@ pub fn otx_base_hash<S: HashInputSource>(
             update_cursor_with_error(&mut hasher, &previous_output.cursor, input.read_error())?;
         }
         let resolved_output = source.resolved_input_output_cursor(tx_index)?;
-        update_cursor_with_error(
-            &mut hasher,
-            &resolved_output.cursor,
-            resolved_output.read_error(),
-        )?;
+        writer::write_cursor(&mut hasher, &resolved_output)?;
         let resolved_data = source.resolved_input_data_cursor(tx_index)?;
-        update_len_prefixed_cursor(
-            &mut hasher,
-            &resolved_data.cursor,
-            resolved_data.read_error(),
-        )?;
+        writer::write_len_prefixed_classified_cursor(&mut hasher, &resolved_data)?;
     }
 
-    update_count(&mut hasher, otx.base_output_cells)?;
-    update_len_prefixed_cursor(
+    writer::write_count(&mut hasher, otx.base_output_cells)?;
+    writer::write_len_prefixed_cursor_with_error(
         &mut hasher,
         otx.base_output_masks.cursor(),
         CoreError::MalformedCobuild,
@@ -119,7 +113,7 @@ pub fn otx_base_hash<S: HashInputSource>(
         let output = source.raw_output_cursor(tx_index)?;
         let output_view = CellOutput::from(output.cursor.clone());
 
-        update_count(&mut hasher, local_index)?;
+        writer::write_count(&mut hasher, local_index)?;
         if mask_bit(&otx.base_output_masks, local_index * 4)? {
             hasher.update(
                 &output_view
@@ -141,12 +135,12 @@ pub fn otx_base_hash<S: HashInputSource>(
         }
         if mask_bit(&otx.base_output_masks, local_index * 4 + 3)? {
             let output_data = source.raw_output_data_cursor(tx_index)?;
-            update_len_prefixed_cursor(&mut hasher, &output_data.cursor, output_data.read_error())?;
+            writer::write_len_prefixed_classified_cursor(&mut hasher, &output_data)?;
         }
     }
 
-    update_count(&mut hasher, otx.base_cell_deps)?;
-    update_len_prefixed_cursor(
+    writer::write_count(&mut hasher, otx.base_cell_deps)?;
+    writer::write_len_prefixed_cursor_with_error(
         &mut hasher,
         otx.base_cell_dep_masks.cursor(),
         CoreError::MalformedCobuild,
@@ -155,13 +149,13 @@ pub fn otx_base_hash<S: HashInputSource>(
         if mask_bit(&otx.base_cell_dep_masks, local_index)? {
             let tx_index = checked_index(layout.base_cell_deps, local_index)?;
             let cell_dep = source.raw_cell_dep_cursor(tx_index)?;
-            update_count(&mut hasher, local_index)?;
-            update_cursor_with_error(&mut hasher, &cell_dep.cursor, cell_dep.read_error())?;
+            writer::write_count(&mut hasher, local_index)?;
+            writer::write_cursor(&mut hasher, &cell_dep)?;
         }
     }
 
-    update_count(&mut hasher, otx.base_header_deps)?;
-    update_len_prefixed_cursor(
+    writer::write_count(&mut hasher, otx.base_header_deps)?;
+    writer::write_len_prefixed_cursor_with_error(
         &mut hasher,
         otx.base_header_dep_masks.cursor(),
         CoreError::MalformedCobuild,
@@ -169,7 +163,7 @@ pub fn otx_base_hash<S: HashInputSource>(
     for local_index in 0..otx.base_header_deps {
         if mask_bit(&otx.base_header_dep_masks, local_index)? {
             let tx_index = checked_index(layout.base_header_deps, local_index)?;
-            update_count(&mut hasher, local_index)?;
+            writer::write_count(&mut hasher, local_index)?;
             hasher.update(&source.raw_header_dep_hash(tx_index)?);
         }
     }
@@ -191,58 +185,45 @@ pub fn otx_append_hash<S: HashInputSource>(
 
     update_cursor_with_error(&mut hasher, &otx.message, CoreError::MalformedCobuild)?;
     hasher.update(&base_hash);
-    update_count(&mut hasher, otx.append_input_cells)?;
+    writer::write_count(&mut hasher, otx.append_input_cells)?;
     for local_index in 0..otx.append_input_cells {
         let tx_index = checked_index(layout.append_inputs, local_index)?;
         let input = source.raw_input_cursor(tx_index)?;
-        update_count(&mut hasher, local_index)?;
-        update_cursor_with_error(&mut hasher, &input.cursor, input.read_error())?;
+        writer::write_count(&mut hasher, local_index)?;
+        writer::write_cursor(&mut hasher, &input)?;
         let resolved_output = source.resolved_input_output_cursor(tx_index)?;
-        update_cursor_with_error(
-            &mut hasher,
-            &resolved_output.cursor,
-            resolved_output.read_error(),
-        )?;
+        writer::write_cursor(&mut hasher, &resolved_output)?;
         let resolved_data = source.resolved_input_data_cursor(tx_index)?;
-        update_len_prefixed_cursor(
-            &mut hasher,
-            &resolved_data.cursor,
-            resolved_data.read_error(),
-        )?;
+        writer::write_len_prefixed_classified_cursor(&mut hasher, &resolved_data)?;
     }
 
-    update_count(&mut hasher, otx.append_output_cells)?;
+    writer::write_count(&mut hasher, otx.append_output_cells)?;
     for local_index in 0..otx.append_output_cells {
         let tx_index = checked_index(layout.append_outputs, local_index)?;
-        update_count(&mut hasher, local_index)?;
+        writer::write_count(&mut hasher, local_index)?;
         let output = source.raw_output_cursor(tx_index)?;
-        update_cursor_with_error(&mut hasher, &output.cursor, output.read_error())?;
+        writer::write_cursor(&mut hasher, &output)?;
         let output_data = source.raw_output_data_cursor(tx_index)?;
-        update_len_prefixed_cursor(&mut hasher, &output_data.cursor, output_data.read_error())?;
+        writer::write_len_prefixed_classified_cursor(&mut hasher, &output_data)?;
     }
 
-    update_count(&mut hasher, otx.append_cell_deps)?;
+    writer::write_count(&mut hasher, otx.append_cell_deps)?;
     for local_index in 0..otx.append_cell_deps {
         let tx_index = checked_index(layout.append_cell_deps, local_index)?;
-        update_count(&mut hasher, local_index)?;
+        writer::write_count(&mut hasher, local_index)?;
         let cell_dep = source.raw_cell_dep_cursor(tx_index)?;
-        update_cursor_with_error(&mut hasher, &cell_dep.cursor, cell_dep.read_error())?;
+        writer::write_cursor(&mut hasher, &cell_dep)?;
     }
 
-    update_count(&mut hasher, otx.append_header_deps)?;
+    writer::write_count(&mut hasher, otx.append_header_deps)?;
     for local_index in 0..otx.append_header_deps {
         let tx_index = checked_index(layout.append_header_deps, local_index)?;
-        update_count(&mut hasher, local_index)?;
+        writer::write_count(&mut hasher, local_index)?;
         hasher.update(&source.raw_header_dep_hash(tx_index)?);
     }
 
     hasher.finalize(&mut out);
     Ok(out)
-}
-
-fn update_count(hasher: &mut blake2b_ref::Blake2b, count: usize) -> Result<(), CoreError> {
-    hasher.update(&checked_len_prefix(count)?);
-    Ok(())
 }
 
 fn checked_index(range: Range, local_index: usize) -> Result<usize, CoreError> {

@@ -6,7 +6,8 @@ fn manifest_path(relative: &str) -> PathBuf {
 
 const CORE_SOURCE_PATHS: &[&str] = &[
     "src/context.rs",
-    "src/hash.rs",
+    "src/hash/mod.rs",
+    "src/hash/writer.rs",
     "src/layout.rs",
     "src/lib.rs",
     "src/message.rs",
