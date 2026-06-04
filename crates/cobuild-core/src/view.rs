@@ -67,6 +67,21 @@ pub struct OtxView {
     pub seals: Vec<SealPairView>,
 }
 
+#[derive(Clone)]
+pub struct MessageView {
+    cursor: Cursor,
+}
+
+impl MessageView {
+    pub fn new(cursor: Cursor) -> Self {
+        Self { cursor }
+    }
+
+    pub fn cursor(&self) -> &Cursor {
+        &self.cursor
+    }
+}
+
 impl MaskView {
     pub fn new(cursor: Cursor) -> Self {
         Self { cursor }

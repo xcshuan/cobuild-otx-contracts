@@ -1,5 +1,5 @@
 use cobuild_core::reader::{cursor_bytes, OwnedReader};
-use cobuild_core::view::{SighashAllWitnessView, WitnessLayoutView};
+use cobuild_core::view::{MessageView, SighashAllWitnessView, WitnessLayoutView};
 use cobuild_types::lazy_reader::support::{Error as MoleculeError, Read};
 
 #[test]
@@ -48,6 +48,14 @@ fn parsed_sighash_all_view_carries_cursor_backed_seal_and_message() {
         }
         SighashAllWitnessView::SealOnly { .. } => panic!("expected sighash-all message view"),
     }
+}
+
+#[test]
+fn message_view_exposes_backing_cursor() {
+    let message = empty_message();
+    let view = MessageView::new(cobuild_core::reader::cursor_from_slice(&message));
+
+    assert_eq!(cursor_bytes(view.cursor()).unwrap(), message);
 }
 
 fn sighash_all_witness_bytes(seal: &[u8], message: &[u8]) -> Vec<u8> {

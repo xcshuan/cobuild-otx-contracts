@@ -7,6 +7,7 @@ pub mod hash;
 pub mod layout;
 mod message;
 mod otx_request;
+pub mod plan;
 pub mod prepare;
 pub mod protocol;
 mod query;
