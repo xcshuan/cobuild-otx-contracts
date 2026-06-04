@@ -14,7 +14,7 @@ use cobuild_otx_lock as contract_crate;
 pub fn program_entry() -> i8 {
     match contract_crate::entry::main() {
         Ok(()) => 0,
-        Err(err) => err.exit_code(),
+        Err(err) => err.into(),
     }
 }
 

@@ -1,13 +1,7 @@
 pub mod local;
 
 use crate::args::AuthContext;
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum VerifyError {
-    InvalidSealEncoding,
-    VerificationFailed,
-    BackendUnavailable,
-}
+use crate::error::Error;
 
 pub trait LockVerifier {
     fn verify(
@@ -15,5 +9,5 @@ pub trait LockVerifier {
         auth: &AuthContext,
         seal: &[u8],
         signing_message_hash: &[u8; 32],
-    ) -> Result<(), VerifyError>;
+    ) -> Result<(), Error>;
 }

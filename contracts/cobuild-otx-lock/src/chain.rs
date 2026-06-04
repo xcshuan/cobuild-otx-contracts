@@ -16,16 +16,10 @@ use cobuild_types::lazy_reader::{
 use self::reader::{
     resolved_input_cell_cursor, resolved_input_data_cursor, script_cursor, transaction_cursor,
 };
-use crate::{
-    error::Error,
-    errors::{map_core_error, map_sys_error},
-};
+use crate::error::Error;
 
 pub(crate) fn load_current_script_args() -> Result<Vec<u8>, Error> {
-    Ok(high_level::load_script()
-        .map_err(map_sys_error)?
-        .args()
-        .unpack())
+    Ok(high_level::load_script()?.args().unpack())
 }
 
 pub(crate) struct LoadedContext {
@@ -35,7 +29,7 @@ pub(crate) struct LoadedContext {
 
 pub(crate) fn load_prepared_context() -> Result<LoadedContext, Error> {
     let source = ChainSource;
-    let prepared = prepare_context_from_source(&source).map_err(map_core_error)?;
+    let prepared = prepare_context_from_source(&source)?;
     Ok(LoadedContext { source, prepared })
 }
 
@@ -54,7 +48,7 @@ fn hash_cursor(cursor: Result<Cursor, SysError>) -> Result<ClassifiedCursor, Cor
 }
 
 pub(crate) fn load_script_hash() -> Result<[u8; 32], Error> {
-    high_level::load_script_hash().map_err(map_sys_error)
+    Ok(high_level::load_script_hash()?)
 }
 
 fn signing_transaction_view() -> Result<Transaction, CoreError> {

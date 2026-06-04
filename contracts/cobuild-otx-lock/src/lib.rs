@@ -13,5 +13,4 @@ pub mod args;
 mod chain;
 pub mod entry;
 pub mod error;
-mod errors;
 pub mod verify;

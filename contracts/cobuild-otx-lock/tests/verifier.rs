@@ -1,6 +1,7 @@
 use cobuild_otx_lock::{
     args::{AUTH_KIND_SECP256K1_BLAKE160, AuthContext},
-    verify::{LockVerifier, VerifyError, local::LocalVerifier},
+    error::Error,
+    verify::{LockVerifier, local::LocalVerifier},
 };
 
 struct FailingVerifier;
@@ -11,8 +12,8 @@ impl LockVerifier for FailingVerifier {
         _auth: &AuthContext,
         _seal: &[u8],
         _signing_message_hash: &[u8; 32],
-    ) -> Result<(), VerifyError> {
-        Err(VerifyError::VerificationFailed)
+    ) -> Result<(), Error> {
+        Err(Error::VerifyFailure)
     }
 }
 
@@ -24,7 +25,7 @@ fn verifier_trait_returns_verify_error() {
     };
     assert_eq!(
         FailingVerifier.verify(&auth, &[0u8; 65], &[1u8; 32]),
-        Err(VerifyError::VerificationFailed)
+        Err(Error::VerifyFailure)
     );
 }
 
@@ -36,7 +37,7 @@ fn local_verifier_rejects_invalid_seal_encoding() {
     };
     assert_eq!(
         LocalVerifier.verify(&auth, &[0u8; 64], &[1u8; 32]),
-        Err(VerifyError::InvalidSealEncoding)
+        Err(Error::VerifyFailure)
     );
 }
 
@@ -48,6 +49,6 @@ fn local_verifier_rejects_unrecoverable_seal() {
     };
     assert_eq!(
         LocalVerifier.verify(&auth, &[0u8; 65], &[1u8; 32]),
-        Err(VerifyError::VerificationFailed)
+        Err(Error::VerifyFailure)
     );
 }
