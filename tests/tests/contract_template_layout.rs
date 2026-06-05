@@ -101,7 +101,7 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         "load_script()?",
         "AuthContext::try_from",
         "load_script_hash()?",
-        "CobuildEngine::prepare_from_syscalls",
+        "CobuildContext::from_syscalls",
         "plan_lock_validation(current_script_hash)",
         "required_signatures",
         "LocalVerifier",
@@ -118,6 +118,7 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         format!("{}{}", "PreparedCobuild", "Context"),
         format!("{}.{}", "context", "tx_reader"),
         format!("{}{}", "chain", "::"),
+        "CobuildEngine".to_string(),
     ] {
         assert!(
             !entry_rs.contains(&forbidden),
@@ -151,11 +152,11 @@ fn cobuild_core_owns_syscall_streaming_without_full_transaction_load() {
         "core syscall path must parse transaction from syscall cursor"
     );
     for expected in [
+        "pub(crate) struct SyscallTxReader",
+        "impl SyscallTxReader",
         "struct SyscallBackedReader",
         "fn syscall_cursor(",
         "fn hash_transaction_cursor(",
-        "fn resolved_input_output_cursor(",
-        "fn resolved_input_data_cursor(",
         "fn map_syscall_read_error(",
         "high_level::load_tx_hash()",
         "high_level::load_cell_lock_hash(",
@@ -164,6 +165,17 @@ fn cobuild_core_owns_syscall_streaming_without_full_transaction_load() {
         assert!(
             syscalls_rs.contains(expected),
             "syscalls.rs should keep syscall streaming helper {expected}"
+        );
+    }
+    for forbidden in [
+        "pub(crate) fn counts(",
+        "pub(crate) fn witness_cursor(",
+        "pub(crate) fn raw_input_cursor(",
+        "pub(crate) fn resolved_input_output_cursor(",
+    ] {
+        assert!(
+            !syscalls_rs.contains(forbidden),
+            "syscall transaction access should be exposed through SyscallTxReader methods, not free helper {forbidden}"
         );
     }
 }
@@ -237,22 +249,24 @@ fn cobuild_core_uses_explicit_signature_request_names() {
         lib_rs.contains("pub mod protocol"),
         "core should export the protocol value module"
     );
-    for module in ["message", "seal"] {
-        assert!(
-            lib_rs.contains(&format!("mod {module}")),
-            "core should keep {module}.rs as a focused internal module"
-        );
-        assert!(
-            core_src.join(format!("{module}.rs")).is_file(),
-            "missing focused core module {module}.rs"
-        );
-    }
+    assert!(
+        lib_rs.contains("mod seal"),
+        "core should keep seal.rs as a focused internal module"
+    );
+    assert!(core_src.join("seal.rs").is_file(), "missing seal.rs");
+    assert!(
+        !lib_rs.contains("mod message"),
+        "message target validation should move onto TxScriptHashes"
+    );
+    assert!(
+        !core_src.join("message.rs").exists(),
+        "message.rs should be deleted after validation moves onto TxScriptHashes"
+    );
 
     let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("core context.rs");
     for moved_fn in [
         "collect_sighash_all_signatures",
         "collect_otx_signatures",
-        "validate_message_targets",
         "unique_otx_base_seal",
     ] {
         assert!(
@@ -260,6 +274,10 @@ fn cobuild_core_uses_explicit_signature_request_names() {
             "context.rs should not own {moved_fn}"
         );
     }
+    assert!(
+        context_rs.contains("validate_message_targets"),
+        "TxScriptHashes should own message target validation"
+    );
 }
 
 #[test]
@@ -390,7 +408,6 @@ fn cobuild_core_uses_concrete_syscall_reader_without_source_traits() {
         format!("{}{}", "Classified", "Cursor"),
         format!("{}{}", "CursorRead", "Context"),
         format!("{}{}", "PreparedCobuild", "Context"),
-        format!("{}{}", "SyscallTx", "Reader"),
         format!("{} {}", "mod", "chain"),
         format!("{}{}", "source", ".rs"),
     ] {
@@ -413,40 +430,42 @@ fn cobuild_core_uses_concrete_syscall_reader_without_source_traits() {
     let syscalls_rs = fs::read_to_string(core_src.join("syscalls.rs")).expect("syscalls.rs");
     for expected in [
         "ckb_std",
+        "pub(crate) struct SyscallTxReader",
+        "impl SyscallTxReader",
         "SyscallBackedReader",
         "SyscallReadTarget",
-        "pub(crate) fn counts(",
-        "pub(crate) fn witness_cursor(",
-        "pub(crate) fn raw_input_cursor(",
-        "pub(crate) fn hash_transaction_cursor(",
-        "pub(crate) fn resolved_input_output_cursor(",
-        "pub(crate) fn input_lock_hash(",
+        "fn counts(",
+        "fn witness_cursor(",
+        "fn raw_input_cursor(",
+        "fn hash_transaction_cursor(",
+        "fn resolved_input_output_cursor(",
+        "fn input_lock_hash(",
     ] {
         assert!(
             syscalls_rs.contains(expected),
-            "syscalls.rs should expose concrete helper {expected}"
+            "syscalls.rs should contain concrete reader implementation {expected}"
         );
     }
 }
 
 #[test]
-fn cobuild_core_prepares_context_in_prepare_module() {
+fn cobuild_core_context_preparation_is_owned_by_engine_context() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let core_src = workspace_root.join("crates/cobuild-core/src");
 
     assert!(
-        core_src.join("prepare.rs").is_file(),
-        "prepare.rs must own context preparation"
+        !core_src.join("prepare.rs").exists(),
+        "unused prepare.rs should be deleted"
     );
     assert!(
         !core_src.join("loader.rs").exists(),
-        "core loader.rs should be renamed to prepare.rs"
+        "core loader.rs should not be reintroduced"
     );
 
     let lib_rs = fs::read_to_string(core_src.join("lib.rs")).expect("core lib.rs");
     assert!(
-        lib_rs.contains("pub mod prepare"),
-        "core should export prepare"
+        !lib_rs.contains("pub mod prepare"),
+        "core should not export unused prepare module"
     );
     assert!(
         !lib_rs.contains("pub mod loader"),
@@ -455,13 +474,112 @@ fn cobuild_core_prepares_context_in_prepare_module() {
 
     let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("core context.rs");
     assert!(
-        context_rs.contains("ScriptHashIndex"),
-        "context.rs should expose ScriptHashIndex"
+        context_rs.contains("pub struct TxScriptHashes"),
+        "context.rs should expose TxScriptHashes"
     );
     assert!(
-        !context_rs.contains("TxScriptHashes"),
-        "context.rs should not expose TxScriptHashes"
+        !context_rs.contains("ScriptHashIndex"),
+        "ScriptHashIndex should be removed"
     );
+
+    let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs");
+    assert!(
+        engine_rs.contains("pub struct CobuildContext"),
+        "engine.rs should expose CobuildContext"
+    );
+    assert!(
+        engine_rs.contains("pub fn from_syscalls()"),
+        "CobuildContext should own syscall preparation"
+    );
+}
+
+#[test]
+fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+
+    let syscalls_rs = fs::read_to_string(core_src.join("syscalls.rs")).expect("syscalls.rs");
+    assert!(
+        syscalls_rs.contains("pub(crate) struct SyscallTxReader"),
+        "syscall tx access should be owned by SyscallTxReader"
+    );
+    assert!(
+        syscalls_rs.contains("impl SyscallTxReader"),
+        "SyscallTxReader should expose concrete reader methods"
+    );
+
+    let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("context.rs");
+    for expected in [
+        "pub struct TxScriptHashes",
+        "impl TxScriptHashes",
+        "from_reader",
+        "SyscallTxReader",
+        "first_input_with_lock",
+        "lock_in_input_range",
+        "type_relation_for_otx",
+        "lock_group_fully_covered_by_otx",
+        "validate_message_targets",
+    ] {
+        assert!(
+            context_rs.contains(expected),
+            "TxScriptHashes should own script-hash flow method {expected}"
+        );
+    }
+
+    let witness_rs = fs::read_to_string(core_src.join("witness.rs")).expect("witness.rs");
+    for expected in [
+        "pub(crate) struct WitnessScan",
+        "enum WitnessSummary",
+        "impl WitnessScan",
+        "push_witness",
+        "tx_level_carrier_has_sighash_all_layout",
+        "unique_sighash_all_message",
+        "unique_sighash_all_message_with_index",
+    ] {
+        assert!(
+            witness_rs.contains(expected),
+            "WitnessScan should own witness scan method {expected}"
+        );
+    }
+
+    let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs");
+    for expected in [
+        "pub struct CobuildContext",
+        "impl CobuildContext",
+        "from_syscalls()",
+        "struct LockPlanBuilder",
+        "LockPlanBuilder",
+        "struct TypePlanBuilder",
+        "TypePlanBuilder",
+    ] {
+        assert!(
+            engine_rs.contains(expected),
+            "engine.rs should expose concrete flow object {expected}"
+        );
+    }
+
+    let lib_rs = fs::read_to_string(core_src.join("lib.rs")).expect("lib.rs");
+    assert!(
+        !core_src.join("flow.rs").exists(),
+        "flow.rs should be deleted after its logic moves onto TxScriptHashes"
+    );
+    assert!(
+        !lib_rs.contains("mod flow"),
+        "lib.rs should not keep the deleted flow module"
+    );
+
+    for forbidden in [
+        "pub struct CobuildEngine;",
+        "PreparedCobuild",
+        "ScriptHashIndex",
+        "crate::flow::",
+        "TxCountsCache",
+    ] {
+        assert!(
+            !engine_rs.contains(forbidden),
+            "engine.rs should not keep old scattered flow name {forbidden}"
+        );
+    }
 }
 
 #[test]
