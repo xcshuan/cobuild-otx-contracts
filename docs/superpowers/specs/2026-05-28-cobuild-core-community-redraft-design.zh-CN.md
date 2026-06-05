@@ -58,7 +58,7 @@ Cobuild Core 是规范性的 witness 与验证协议。
 - dynamic OTX 语义；
 - 细粒度签名覆盖语义；
 - 标准签名消息哈希构造；
-- 局部 flow 选择规则；
+- 交易级 Cobuild 激活与局部验证选择规则；
 - lock / type 的最小验证职责；
 - 兼容、扩展与版本化规则。
 
@@ -530,15 +530,27 @@ Core v1 不会在这个 digest 之上再做第二次额外哈希。
 
 Core v1 有意不支持 append scope 上的细粒度 mask。
 
-## 局部 Flow 选择
+## Cobuild 激活与局部验证
 
-Cobuild 的 flow 选择是局部的、相关性驱动的、并且 fail-closed。
+对于支持 Cobuild 的脚本，Cobuild 激活是交易级的。
 
-Core 不定义单一的全局 transaction mode。
+如果交易中任何 witness 被编码为 `WitnessLayout`，那么该交易中的每个
+Cobuild-aware lock 或 type script 都必须在 Cobuild Core 规则集下评估自己的验证。
+这类脚本不得仅因为自身 script group witness 或 message 在本地不相关，就忽略
+Cobuild envelope 并 fallback 到 legacy-only 验证。
+
+激活条件取决于 Cobuild `WitnessLayout` envelope 是否存在，而不是它是否唯一，
+也不是所有 Cobuild witness 是否已经满足其余 Core 有效性规则。
+
+这个交易级激活规则不要求交易里的每个脚本都支持 Cobuild。legacy-only 脚本可以
+在同一笔交易中共存，并继续使用它自己的 legacy 规则验证。
+
+Cobuild 激活后，每个 Cobuild-aware 脚本具体承担哪些验证义务，仍然是局部的、
+相关性驱动的、并且 fail-closed。
 
 ### Lock Script 的 Flow 选择
 
-对于某个 lock script：
+对于已激活 Cobuild 交易中的某个 Cobuild-aware lock script：
 
 - 如果当前 script group 的第一个 witness 是有效的 `SighashAll` 或
   `SighashAllOnly`，则该脚本必须对不属于任何相关 OTX-covered input 的那部分
@@ -546,8 +558,8 @@ Core 不定义单一的全局 transaction mode。
 - 如果交易包含一个有效的 OTX 序列，且当前 lock 出现在一个或多个 OTX 的
   base 或 append input scope 中，则该脚本也必须对这些 OTX scope 进入对应的
   OTX flow。
-- 若两者都不成立，该脚本可以使用 legacy witness 解析，或使用其既有的非
-  Cobuild 逻辑。
+- 若两者都不成立，该脚本在本次执行中没有 Cobuild 签名验证义务。它仍然不得仅为
+  绕过已激活的 Cobuild 规则集，而将整笔交易当作 legacy-only 交易处理。
 
 同一次 lock script 执行中，可以同时验证：
 
@@ -556,7 +568,7 @@ Core 不定义单一的全局 transaction mode。
 
 ### Type Script 的 Flow 选择
 
-对于某个 type script：
+对于已激活 Cobuild 交易中的某个 Cobuild-aware type script：
 
 - 如果该脚本出现在某个相关 OTX scope 的 input / output 范围内，它可以读取
   该 OTX 的 `Message`。
@@ -575,6 +587,87 @@ Core 不定义单一的全局 transaction mode。
 - 从 `OtxStart` 后一个 witness 开始，存在一段连续的有效 `Otx` witness 序列；
 - 按 inputs、outputs、cell deps、header deps 累积得到的 OTX scope 划分
   无溢出、无重叠、且彼此一致。
+
+### 验证流程
+
+本小节给出 Cobuild-aware 脚本的规范验证流程。实现可以用不同代码组织方式，
+但最终验证决策必须等价。
+
+对于每笔已激活 Cobuild 的交易，Cobuild-aware 脚本首先准备共享的 Cobuild 视图：
+
+1. 检测交易中是否存在被编码为 `WitnessLayout` 的 witness。若不存在，该流程不激活，
+   脚本可以使用自己的 legacy 规则。
+2. 如果至少存在一个 Cobuild `WitnessLayout` envelope，则为当前 Cobuild-aware 脚本
+   激活 Cobuild 验证。激活条件只看存在性，不看唯一性，也不要求所有 Cobuild
+   witness 已经合法。
+3. 扫描 witnesses，识别可选的 OTX 序列：
+   - 查找有效 `OtxStart` witness；
+   - 如果存在多个有效 `OtxStart`，且 OTX 验证与当前脚本相关，则必须失败；
+   - 如果恰好存在一个有效 `OtxStart`，则以它的 witness 索引和实体索引作为
+     OTX anchor；
+   - 从 `OtxStart` 后一个 witness 开始，收集连续的有效 `Otx` witness 序列；
+   - 当 OTX 验证与当前脚本相关时，任何有效 `Otx` witness 都不得出现在这段连续
+     序列之外；
+   - 从 anchor 开始，按收集到的 OTX 序列累积计数，计算每个 OTX 的 base 与
+     append scope。
+   对每类实体，transaction remainder 是 `OtxStart` anchor 之前的范围，与该类实体
+   最后一个累积 OTX scope 之后的范围的并集。
+4. 构建 tx-level message 视图：
+   - 在需要 tx-level 唯一性的场景中，如果存在有效 `SighashAll` witness，则必须
+     恰好只有一个；
+   - 这个唯一 `SighashAll.message` 是 tx-level `Message`；
+   - `SighashAllOnly` 永远不携带自己的 `Message`，但在存在 tx-level `Message`
+     时签同一个 tx-level hash。
+5. 对当前脚本消费或用于签名验证的每个 tx-level 或 OTX-level `Message`，必须针对
+   完整交易验证所有 action target：
+   - `input_lock` action 必须指向某个真实存在的 input lock script hash；
+   - `input_type` action 必须指向某个真实存在的 input type script hash；
+   - `output_type` action 必须指向某个真实存在的 output type script hash。
+
+Cobuild-aware lock script 随后按以下流程验证 owner 授权：
+
+1. 对每个与当前 lock script 相关的 OTX：
+   - 判断当前 lock script hash 是否出现在该 OTX 的 base input scope、append input
+     scope，或两者都出现；
+   - 如果出现在 base scope，必须为 `(current_lock_hash, base)` 找到且仅找到一个
+     `SealPair`，计算 `OtxBase`，并按该 lock 自己的加密规则验证 seal；
+   - 如果出现在 append scope，必须为 `(current_lock_hash, append)` 找到且仅找到一个
+     `SealPair`，计算 `OtxAppend`，并按该 lock 自己的加密规则验证 seal；
+   - 相关 OTX scope 内缺少 seal、重复 seal、seal 结构错误或签名无效，都必须失败。
+2. 判断当前 lock 是否存在不属于任何相关 OTX-covered input scope 的 tx-level
+   remainder inputs。若不存在，本次 lock 执行不需要 tx-level seal。
+3. 如果存在 tx-level remainder inputs：
+   - 当前 lock script group 的第一个 witness 必须是有效的 `SighashAll` 或
+     `SighashAllOnly`；
+   - 同一 lock script group 中所有非首位 witness 必须不存在或为空，除非该 lock
+     自己的非 Cobuild ABI 明确定义了额外数据，并且这些数据仍被其 Cobuild 签名规则覆盖；
+   - 当存在唯一有效 `SighashAll` 时，选择 `TxWithMessage`；
+   - 当不存在有效 `SighashAll` 且 group-leading witness 是 `SighashAllOnly` 时，
+     选择 `TxWithoutMessage`；
+   - 计算所选 tx-level 签名哈希，并按该 lock 自己的加密规则验证 group-leading seal。
+4. 如果交易已激活 Cobuild，但 OTX 验证和 tx-level remainder 验证都与当前 lock
+   无关，则该 lock 本次执行没有 Cobuild 签名验证义务。它仍然不得仅为了忽略相关
+   Cobuild 错误而把交易当成 legacy-only 交易处理。
+
+Cobuild-aware type script 随后按以下流程验证 message consistency：
+
+1. 首先执行自身原生状态转移验证。Cobuild 不替代该脚本的应用特定有效性规则。
+2. 对每个 base 或 append input/output scope 包含当前 type script hash 的 OTX，
+   type script 可以消费该 OTX-local scope 对应的 OTX `Message`。
+3. 对所有 OTX scope 之外的交易 remainder，如果当前 type script hash 出现在相关
+   input 或 output 范围内，并且存在唯一 tx-level `SighashAll.message`，type script
+   可以消费该 tx-level `Message`。
+4. 当消费某个 `Message` 时，type script：
+   - 必须只消费通过 `(script_role, script_hash)` 指向自己的 action；
+   - 除非自身 ABI 明确定义 multi-action 语义，否则应该拒绝多个匹配 action；
+   - 必须根据自身应用规则，针对相关 OTX scope 或 transaction-remainder scope
+     中的 cells 验证被消费 action 的 `data`；
+   - 对被消费 action data 的结构错误或不一致必须 fail-closed。
+   type script 无法在链上取得或验证某个 action 的完整链下 `ScriptInfo`，Core 也不要求
+   它在链上验证 `Action.script_info_hash`。wallet 与 reference-flow tooling 负责解析
+   `ScriptInfo`、检查 hash、解析 `Action.data`，并把解析后的语义展示给 signer。
+5. 如果不存在相关的有效 Cobuild `Message` 或 `Action`，Core 不要求 type script
+   失败。type script 可以自行定义更严格的必须存在策略。
 
 ## Lock Script 的职责
 
@@ -668,14 +761,14 @@ Core 允许 legacy `WitnessArgs` 与 `WitnessLayout` 在同一交易中共存。
 Core 只保证：
 
 - 两种编码可被区分；
-- 局部 flow 选择是确定性的；
+- Cobuild 激活与局部验证选择是确定性的；
 - 脚本如果愿意，可以安全地保持 legacy-only。
 
 Core 不要求：
 
 - 每个 lock script 都同时支持 legacy 与 Cobuild；
 - 每个 type script 都同时支持 legacy 与 Cobuild；
-- 整笔交易必须只有一种统一的 witness 模式。
+- 交易里的每个脚本都使用同一种 witness 模式验证。
 
 ## 版本化
 
@@ -706,7 +799,7 @@ Core v1 遵循以下演进规则：
 
 - 重定义 Core witness variant；
 - 重定义 Core 签名域或哈希构造；
-- 重定义 Core 的局部 flow 选择规则；
+- 重定义 Core 的 Cobuild 激活或局部验证选择规则；
 - 重定义 Core 的 lock / type 最小职责边界；
 - 要求所有 Core-compatible script 都理解该扩展。
 
@@ -750,7 +843,8 @@ Approved-action 被明确放在 Core 之外，属于标准扩展层。
 - 标准化精确的签名前像构造，并使用 BLAKE2b personalization 进行域隔离。
 - 保留 `TxWithMessage` 与 `TxWithoutMessage` 作为哈希规则说明术语，而不是
   链上字段。
-- 使用局部、相关性驱动的 Cobuild flow 选择，而不是全局 transaction mode。
+- 对 Cobuild-aware 脚本使用交易级 Cobuild 激活，同时保持具体验证义务是局部的、
+  相关性驱动的。
 - 允许 type script 自行决定在缺少 action / message 时是否失败；Core 不强制统一答案。
 - 将 approved-action 放入标准扩展层。
 - 将 `BuildingPacket` 等流程对象保留在参考流程层，而不是把它们当作有效性规则。

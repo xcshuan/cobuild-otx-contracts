@@ -64,7 +64,7 @@ It standardizes:
 - dynamic OTX semantics;
 - fine-grained signing coverage;
 - standard signature-hash construction;
-- local flow selection rules;
+- transaction-global Cobuild activation and local validation selection rules;
 - minimum lock/type validation responsibilities;
 - compatibility and extension/versioning rules.
 
@@ -584,15 +584,30 @@ The `OtxAppend` preimage is:
 
 Core v1 deliberately does not support fine-grained masks for append scope.
 
-## Local Flow Selection
+## Cobuild Activation and Local Validation
 
-Cobuild flow selection is local, relevance-driven, and fail-closed.
+Cobuild activation is transaction-global for scripts that support Cobuild.
 
-Core does not define a single global transaction mode.
+If any witness in the transaction is encoded as `WitnessLayout`, every
+Cobuild-aware lock or type script in that transaction MUST evaluate its
+validation under the Cobuild Core rule set. Such a script MUST NOT ignore the
+Cobuild envelope and fall back to legacy-only validation merely because its own
+script group witness or message is not locally relevant.
+
+Activation depends on the presence of a Cobuild `WitnessLayout` envelope, not
+on uniqueness or on whether all Cobuild witnesses already satisfy the remaining
+Core validity rules.
+
+This transaction-global activation rule does not require every script in the
+transaction to support Cobuild. Legacy-only scripts may coexist in the same
+transaction and continue to validate using their own legacy rules.
+
+After Cobuild is activated, each Cobuild-aware script's concrete validation
+obligations are still local, relevance-driven, and fail-closed.
 
 ### Lock Script Flow Selection
 
-For a lock script:
+For a Cobuild-aware lock script in an activated Cobuild transaction:
 
 - If the first witness in the current script group is a valid `SighashAll` or
   `SighashAllOnly`, the script MUST enter tx-level Cobuild flow for the part of
@@ -600,8 +615,9 @@ For a lock script:
 - If the transaction contains a valid OTX sequence and the current lock appears
   in the base or append input scope of one or more OTXs, the script MUST also
   enter the corresponding OTX flow for those OTX scopes.
-- If neither condition applies, the script MAY use legacy witness parsing or
-  its existing non-Cobuild logic.
+- If neither condition applies, the script has no Cobuild signature obligation
+  for that execution. It still MUST NOT treat the transaction as legacy-only
+  solely to bypass the activated Cobuild rule set.
 
 The same lock script execution MAY validate both:
 
@@ -610,7 +626,7 @@ The same lock script execution MAY validate both:
 
 ### Type Script Flow Selection
 
-For a type script:
+For a Cobuild-aware type script in an activated Cobuild transaction:
 
 - If the script appears in the input/output range of a relevant OTX scope, it
   MAY read that OTX's `Message`.
@@ -632,6 +648,109 @@ An OTX flow exists only when all of the following are true:
   sequence of valid `Otx` witnesses;
 - the accumulated OTX scope partition over inputs, outputs, cell deps, and
   header deps is non-overflowing, non-overlapping, and consistent.
+
+### Validation Procedure
+
+This subsection gives the normative validation procedure for Cobuild-aware
+scripts. Implementations MAY organize the code differently, but the resulting
+validation decisions MUST be equivalent.
+
+For every activated Cobuild transaction, a Cobuild-aware script first prepares
+the shared Cobuild view:
+
+1. Detect whether any witness is encoded as `WitnessLayout`. If none is found,
+   this procedure is not activated and the script may use its legacy rules.
+2. If at least one Cobuild `WitnessLayout` envelope is found, activate Cobuild
+   validation for this Cobuild-aware script. Activation is based on existence,
+   not uniqueness and not validity of all Cobuild witnesses.
+3. Scan witnesses for the optional OTX sequence:
+   - find valid `OtxStart` witnesses;
+   - if more than one valid `OtxStart` exists, fail when OTX validation is
+     relevant to the current script;
+   - if exactly one valid `OtxStart` exists, treat its witness index and entity
+     indices as the OTX anchor;
+   - starting at the witness immediately after `OtxStart`, collect the
+     contiguous run of valid `Otx` witnesses;
+   - no valid `Otx` witness may appear outside this contiguous run when OTX
+     validation is relevant to the current script;
+   - compute every OTX's base and append scopes by accumulating counts from the
+     anchor through the collected OTX sequence.
+   For each entity type, the transaction remainder is the union of the range
+   before the `OtxStart` anchor and the range after the final accumulated OTX
+   scope for that entity type.
+4. Build the tx-level message view:
+   - if valid `SighashAll` witnesses exist where tx-level uniqueness is
+     required, there MUST be exactly one;
+   - that unique `SighashAll.message`, if present, is the tx-level `Message`;
+   - `SighashAllOnly` never carries its own `Message`, but signs the same
+     tx-level hash when a tx-level `Message` exists.
+5. For every tx-level or OTX-level `Message` that the current script consumes
+   or uses for signature verification, validate all action targets against the
+   full transaction:
+   - `input_lock` actions MUST point to an existing input lock script hash;
+   - `input_type` actions MUST point to an existing input type script hash;
+   - `output_type` actions MUST point to an existing output type script hash.
+
+A Cobuild-aware lock script then validates lock ownership as follows:
+
+1. For each collected OTX relevant to the current lock script:
+   - determine whether the current lock script hash appears in the OTX base
+     input scope, append input scope, or both;
+   - if it appears in base scope, find exactly one `SealPair` for
+     `(current_lock_hash, base)`, compute `OtxBase`, and verify the seal using
+     the lock's own cryptographic rules;
+   - if it appears in append scope, find exactly one `SealPair` for
+     `(current_lock_hash, append)`, compute `OtxAppend`, and verify the seal
+     using the lock's own cryptographic rules;
+   - missing, duplicate, malformed, or invalid seals in a relevant OTX scope
+     MUST fail.
+2. Determine whether the current lock has tx-level remainder inputs outside all
+   relevant OTX-covered input scopes. If it does not, no tx-level seal is
+   required for this lock execution.
+3. If tx-level remainder inputs exist:
+   - the first witness in the current lock script group MUST be a valid
+     `SighashAll` or `SighashAllOnly`;
+   - all non-leading witnesses in the same lock script group MUST be absent or
+     empty, unless the lock's own non-Cobuild ABI explicitly defines additional
+     data that is still covered by its Cobuild signing rule;
+   - select `TxWithMessage` when there is a unique valid `SighashAll`;
+   - select `TxWithoutMessage` when no valid `SighashAll` exists and the
+     group-leading witness is `SighashAllOnly`;
+   - compute the selected tx-level signing hash and verify the group-leading
+     seal using the lock's own cryptographic rules.
+4. If the transaction is Cobuild-activated but neither OTX nor tx-level
+   remainder validation is relevant to the current lock, the lock has no
+   Cobuild signature obligation for this execution. It still MUST NOT treat the
+   transaction as legacy-only merely to ignore a relevant Cobuild error.
+
+A Cobuild-aware type script then validates message consistency as follows:
+
+1. Execute its native state-transition validation first. Cobuild does not
+   replace the script's application-specific validity rules.
+2. For each collected OTX whose base or append input/output scope contains the
+   current type script hash, the type script MAY consume the OTX `Message` for
+   that OTX-local scope.
+3. For the transaction remainder outside all OTX scopes, if the current type
+   script hash appears in the relevant input or output ranges and a unique
+   tx-level `SighashAll.message` exists, the type script MAY consume that
+   tx-level `Message`.
+4. When consuming a `Message`, the type script:
+   - MUST only consume actions targeting itself via `(script_role,
+     script_hash)`;
+   - SHOULD reject multiple matching actions unless its ABI explicitly defines
+     multi-action semantics;
+   - MUST validate the consumed action's `data` against the cells in the
+     relevant OTX scope or transaction-remainder scope according to its own
+     application rules;
+   - MUST fail-closed for malformed or inconsistent consumed action data.
+   A type script cannot fetch or verify the complete off-chain `ScriptInfo`
+   for an action, and Core does not require it to validate
+   `Action.script_info_hash` on chain. Wallets and reference-flow tooling are
+   responsible for resolving `ScriptInfo`, checking the hash, parsing
+   `Action.data`, and presenting the parsed meaning to signers.
+5. If no related valid Cobuild `Message` or `Action` exists, Core does not
+   require the type script to fail. The type script MAY define a stricter
+   policy that requires one.
 
 ## Lock Script Responsibilities
 
@@ -737,14 +856,14 @@ transaction.
 Core guarantees only that:
 
 - the encodings are distinguishable;
-- local flow selection is deterministic;
+- Cobuild activation and local validation selection are deterministic;
 - scripts can safely remain legacy-only if they choose.
 
 Core does not require:
 
 - every lock script to support both legacy and Cobuild;
 - every type script to support both legacy and Cobuild;
-- one universal transaction-wide witness mode.
+- every script in a transaction to validate under the same witness mode.
 
 ## Versioning
 
@@ -777,7 +896,7 @@ Standard extensions MUST NOT:
 
 - redefine Core witness variants;
 - redefine Core signature domains or hash construction;
-- redefine Core local flow selection rules;
+- redefine Core Cobuild activation or local validation selection rules;
 - redefine the Core minimum lock/type responsibility split;
 - require every Core-compatible script to understand the extension.
 
@@ -826,8 +945,8 @@ For future implementation work based on this document:
   domain separation.
 - Keep `TxWithMessage` and `TxWithoutMessage` as document terms for hash-rule
   selection, not on-chain fields.
-- Use local, relevance-driven Cobuild flow selection rather than a global
-  transaction mode.
+- Use transaction-global Cobuild activation for Cobuild-aware scripts, while
+  keeping concrete validation obligations local and relevance-driven.
 - Let type scripts choose whether missing action/message is acceptable; Core
   does not force one answer.
 - Place approved-action in the standard-extension layer.
