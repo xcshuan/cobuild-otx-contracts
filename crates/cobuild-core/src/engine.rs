@@ -318,51 +318,46 @@ impl<'a> TypePlanBuilder<'a> {
                     .script_hashes
                     .type_hash_outside_otx_ranges(self.type_script_hash, &layout.otxs))
             }
-            OtxLayoutScan::Invalid { .. } | OtxLayoutScan::None => {
-                self.tx_level_type_relevant_from_invalid_or_none_layout()
-            }
-        }
-    }
-
-    fn tx_level_type_relevant_from_invalid_or_none_layout(&self) -> Result<bool, CoreError> {
-        match &self.context.layout_scan {
             OtxLayoutScan::Invalid { anchor, error } => {
-                let relevance_known_irrelevant = anchor
-                    .as_ref()
-                    .map(|anchor| {
-                        !self
-                            .context
-                            .script_hashes
-                            .input_types
-                            .iter()
-                            .skip(anchor.start_input_cell)
-                            .any(|hash| *hash == Some(self.type_script_hash))
-                            && !self
-                                .context
-                                .script_hashes
-                                .output_types
-                                .iter()
-                                .skip(anchor.start_output_cell)
-                                .any(|hash| *hash == Some(self.type_script_hash))
-                    })
-                    .unwrap_or(false);
-                if !relevance_known_irrelevant {
-                    return Err(error.clone());
-                }
-                Ok(self
-                    .context
-                    .script_hashes
-                    .type_hash_present(self.type_script_hash))
+                self.tx_level_type_relevant_from_invalid_layout(anchor.as_ref(), error)
             }
             OtxLayoutScan::None => Ok(self
                 .context
                 .script_hashes
                 .type_hash_present(self.type_script_hash)),
-            OtxLayoutScan::Complete(layout) => Ok(self
-                .context
-                .script_hashes
-                .type_hash_outside_otx_ranges(self.type_script_hash, &layout.otxs)),
         }
+    }
+
+    fn tx_level_type_relevant_from_invalid_layout(
+        &self,
+        anchor: Option<&crate::view::OtxStartView>,
+        error: &CoreError,
+    ) -> Result<bool, CoreError> {
+        let relevance_known_irrelevant = anchor
+            .map(|anchor| {
+                !self
+                    .context
+                    .script_hashes
+                    .input_types
+                    .iter()
+                    .skip(anchor.start_input_cell)
+                    .any(|hash| *hash == Some(self.type_script_hash))
+                    && !self
+                        .context
+                        .script_hashes
+                        .output_types
+                        .iter()
+                        .skip(anchor.start_output_cell)
+                        .any(|hash| *hash == Some(self.type_script_hash))
+            })
+            .unwrap_or(false);
+        if !relevance_known_irrelevant {
+            return Err(error.clone());
+        }
+        Ok(self
+            .context
+            .script_hashes
+            .type_hash_present(self.type_script_hash))
     }
 
     fn add_tx_level_message_if_relevant(

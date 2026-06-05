@@ -128,55 +128,55 @@ pub(crate) struct SyscallTxReader {
 }
 
 impl SyscallTxReader {
-    pub(crate) fn counts(&self) -> Result<TxCounts, CoreError> {
+    pub(super) fn counts(&self) -> Result<TxCounts, CoreError> {
         counts(&self.counts_cache)
     }
 
-    pub(crate) fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
+    pub(super) fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
         tx_hash()
     }
 
-    pub(crate) fn witness_cursor(&self, absolute_index: usize) -> Result<Cursor, CoreError> {
+    pub(super) fn witness_cursor(&self, absolute_index: usize) -> Result<Cursor, CoreError> {
         witness_cursor(absolute_index)
     }
 
-    pub(crate) fn raw_input_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+    pub(super) fn raw_input_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
         raw_input_cursor(index)
     }
 
-    pub(crate) fn raw_output_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+    pub(super) fn raw_output_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
         raw_output_cursor(index)
     }
 
-    pub(crate) fn raw_output_data_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+    pub(super) fn raw_output_data_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
         raw_output_data_cursor(index)
     }
 
-    pub(crate) fn raw_cell_dep_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+    pub(super) fn raw_cell_dep_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
         raw_cell_dep_cursor(index)
     }
 
-    pub(crate) fn raw_header_dep_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
+    pub(super) fn raw_header_dep_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
         raw_header_dep_hash(index)
     }
 
-    pub(crate) fn resolved_input_output_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+    pub(super) fn resolved_input_output_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
         resolved_input_output_cursor(index)
     }
 
-    pub(crate) fn resolved_input_data_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+    pub(super) fn resolved_input_data_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
         resolved_input_data_cursor(index)
     }
 
-    pub(crate) fn input_lock_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
+    pub(super) fn input_lock_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
         input_lock_hash(index)
     }
 
-    pub(crate) fn input_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+    pub(super) fn input_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
         input_type_hash(index)
     }
 
-    pub(crate) fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+    pub(super) fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
         output_type_hash(index)
     }
 }
