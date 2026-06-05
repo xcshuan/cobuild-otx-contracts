@@ -14,11 +14,15 @@ The parent repository and `../ref` are reference-only unless a human explicitly 
 
 ## Primary Documents
 
-Read these current documents before making behavior changes:
+Read these current documents before changing protocol behavior:
 
-- `docs/superpowers/plans/2026-06-05-cobuild-core-flow-objects-plan.md`
 - `docs/superpowers/specs/2026-05-28-cobuild-core-community-redraft-design.md`
 - `docs/superpowers/specs/2026-05-29-cobuild-otx-lock-design.md`
+
+Use this guide as the source of truth for the current code architecture and
+public API names. The latest completed implementation record is:
+
+- `docs/superpowers/plans/2026-06-05-cobuild-core-flow-objects-plan.md`
 
 These documents are historical implementation records. Do not follow API names
 from them without checking the current architecture in this guide:
@@ -40,6 +44,39 @@ or `message.rs`. The current production entry point is
 Completed implementation plans should stay as records. New work should be
 handled as a new focused task, not by silently rewriting completed plan history.
 
+## Current API And Module Map
+
+- `contracts/cobuild-otx-lock/src/entry.rs` is the production lock entry:
+  - parse `AuthContext` from lock args;
+  - load current script hash;
+  - call `CobuildContext::from_syscalls()`;
+  - call `plan_lock_validation(current_script_hash)`;
+  - verify each signature request through `LockVerifier`.
+- `crates/cobuild-core/src/engine.rs` owns prepared validation state:
+  - `CobuildContext::from_syscalls()`;
+  - `CobuildContext::plan_lock_validation(...)`;
+  - `CobuildContext::plan_type_validation(...)`;
+  - crate-private `LockPlanBuilder` and `TypePlanBuilder`.
+- `crates/cobuild-core/src/syscalls.rs` owns CKB syscall-backed transaction reading:
+  - `SyscallTxReader`;
+  - cached transaction counts;
+  - script hash reads;
+  - witness cursors;
+  - raw transaction fields and resolved input data used by signing hash construction.
+- `crates/cobuild-core/src/context.rs` owns transaction script-hash queries:
+  - `TxScriptHashes`;
+  - lock/type range checks;
+  - message action target validation.
+- `crates/cobuild-core/src/witness.rs` owns witness classification:
+  - `WitnessScan`;
+  - unique sighash-all message selection;
+  - tx-level Cobuild carrier detection.
+- `crates/cobuild-core/src/view.rs` stays the Molecule lazy-reader boundary.
+- `crates/cobuild-core/src/hash/` owns Cobuild signing hash construction.
+
+Do not reintroduce `CobuildEngine`, `PreparedCobuild`, `ScriptHashIndex`,
+`ChainSource`, `source.rs`, `prepare.rs`, `flow.rs`, or `message.rs`.
+
 ## Architecture Boundaries
 
 - `cobuild-types` keeps the crate name and exposes both:
@@ -60,11 +97,9 @@ handled as a new focused task, not by silently rewriting completed plan history.
   - call `CobuildContext::from_syscalls()`;
   - invoke verifier;
   - map errors to stable exit codes.
-- `cobuild-core` owns syscall-backed transaction reading through its internal `syscalls` module;
-- `cobuild-otx-lock` does not own transaction readers or source traits;
-- production Cobuild preparation uses `CobuildContext::from_syscalls()`;
-- source-trait compatibility layers are intentionally removed.
 - The lock contract must not parse Cobuild protocol details, scan OTX layouts, construct Cobuild hash preimages, or depend on `cobuild_types::entity`.
+- `cobuild-otx-lock` must not own transaction readers or source traits.
+- Source-trait compatibility layers are intentionally removed.
 - Do not add a local `critical-section` shim.
 - Do not enable `portable-atomic` unsafe single-core assumptions.
 - Keep the `cobuild-otx-lock` RISC-V build on `-a` while this repository uses
@@ -78,7 +113,7 @@ handled as a new focused task, not by silently rewriting completed plan history.
 
 The Cobuild OTX hash path needs both raw transaction fields and resolved input data:
 
-- `cobuild-core` reads transaction data through concrete helpers in its internal `syscalls` module;
+- `cobuild-core` reads transaction data through `SyscallTxReader` and private helpers in its internal `syscalls` module;
 - syscall-backed cursors map read failures at the call site so public error categories stay stable;
 - protocol/view read failures map to malformed Cobuild data;
 - transaction/script syscall failures map to context input failure;
@@ -89,7 +124,16 @@ The Cobuild OTX hash path needs both raw transaction fields and resolved input d
 
 This mirrors the reference POC split: raw tx lazy reads are appropriate for transaction fields such as inputs, outputs, output data, cell deps, and header deps; syscall-resolved data is still required for previous input cells.
 
-The lock path must not load the whole transaction into a `Vec`. Use `ckb_std::high_level` in the lock for owned or fixed-size reads such as current script args and script hash. Keep transaction-range, resolved-input, and hash preimage reads inside `cobuild-core` syscall helpers, then prepare validation state with `CobuildContext::from_syscalls()`. This depends on the repository's Rust 1.92 toolchain plus `ckb-std` `dummy-atomic`; do not move the contract target back to a newer toolchain or switch the RISC-V target to `+a` without rebuilding the contract and confirming the integration tests still pass under the active `ckb-script` verifier. `crates/cobuild-core/src/engine.rs` owns context preparation through `CobuildContext::from_syscalls()`. The old core and lock loader module names should not be reintroduced.
+The lock path must not load the whole transaction into a `Vec`. Use
+`ckb_std::high_level` in the lock for owned or fixed-size reads such as current
+script args and script hash. Keep transaction-range, resolved-input, and hash
+preimage reads inside `cobuild-core` syscall helpers, then prepare validation
+state with `CobuildContext::from_syscalls()`.
+
+This depends on the repository's Rust 1.92 toolchain plus `ckb-std`
+`dummy-atomic`; do not move the contract target back to a newer toolchain or
+switch the RISC-V target to `+a` without rebuilding the contract and confirming
+the integration tests still pass under the active `ckb-script` verifier.
 
 ## View Boundary
 
@@ -150,9 +194,12 @@ rg -n "cobuild_types::entity|::entity::" crates/cobuild-core/src contracts/cobui
 rg -n "unsafe" crates/cobuild-core/src contracts/cobuild-otx-lock/src
 rg -n "ckb_std" crates/cobuild-core/src | grep -v "src/syscalls.rs"
 rg -n "critical-section|portable-atomic.*unsafe-assume-single-core|\[patch.crates-io\]" Cargo.toml crates contracts
+rg -n "CobuildEngine|PreparedCobuild|ScriptHashIndex|ChainSource|source\\.rs|prepare\\.rs|flow\\.rs|message\\.rs" crates contracts tests docs/CobuildAgentDevelopGuide.md
 ```
 
-These boundary commands should print no matches.
+The first four boundary commands should print no matches. The removed-name
+command may match architecture guards in `tests/tests/contract_template_layout.rs`
+and the warning text in this guide; it should not find production uses.
 
 ## Build Notes
 
@@ -197,9 +244,9 @@ make generate CRATE=<contract-name>
 
 ## Current Completion State
 
-The clean Cobuild OTX implementation plan, the streaming source/view refactor,
-and the concrete flow object refactor have been completed through final
-verification. Current architecture highlights:
+As of 2026-06-05, the clean Cobuild OTX implementation plan, the streaming
+source/view refactor, and the concrete flow object refactor have been completed
+through final verification. Current architecture highlights:
 
 - core reader helpers live in `crates/cobuild-core/src/reader.rs`;
 - concrete syscall transaction helpers live in `crates/cobuild-core/src/syscalls.rs`;
