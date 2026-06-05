@@ -7,7 +7,7 @@ use crate::{
     layout::{OtxLayoutCollector, OtxLayoutScan},
     plan::{
         LockValidationPlan, MessageOrigin, OtxMessageLayout, RelatedMessage, SignatureOrigin,
-        SigningRequirement, TypeValidationPlan,
+        SigningRequirement, TypeRelatedMessage, TypeValidationPlan,
     },
     protocol::SealScope,
     reader::{cursor_bytes, cursor_bytes_with_error},
@@ -89,6 +89,7 @@ impl<'a> LockPlanBuilder<'a> {
         Ok(LockValidationPlan {
             lock_script_hash: self.lock_script_hash,
             required_signatures: self.required_signatures,
+            related_messages: Vec::new(),
         })
     }
 
@@ -256,7 +257,7 @@ impl<'a> LockPlanBuilder<'a> {
 struct TypePlanBuilder<'a> {
     context: &'a CobuildContext,
     type_script_hash: [u8; 32],
-    related_messages: Vec<RelatedMessage>,
+    related_messages: Vec<TypeRelatedMessage>,
 }
 
 impl<'a> TypePlanBuilder<'a> {
@@ -295,23 +296,25 @@ impl<'a> TypePlanBuilder<'a> {
                     self.context
                         .script_hashes
                         .validate_message_targets(&otx.witness.message)?;
-                    self.related_messages.push(RelatedMessage {
-                        origin: MessageOrigin::Otx {
-                            witness_index: otx.layout.witness_index,
-                            otx_index,
-                            layout: OtxMessageLayout {
-                                base_inputs: otx.layout.base_inputs,
-                                append_inputs: otx.layout.append_inputs,
-                                base_outputs: otx.layout.base_outputs,
-                                append_outputs: otx.layout.append_outputs,
-                                base_cell_deps: otx.layout.base_cell_deps,
-                                append_cell_deps: otx.layout.append_cell_deps,
-                                base_header_deps: otx.layout.base_header_deps,
-                                append_header_deps: otx.layout.append_header_deps,
+                    self.related_messages.push(TypeRelatedMessage {
+                        message: RelatedMessage {
+                            origin: MessageOrigin::Otx {
+                                witness_index: otx.layout.witness_index,
+                                otx_index,
+                                layout: OtxMessageLayout {
+                                    base_inputs: otx.layout.base_inputs,
+                                    append_inputs: otx.layout.append_inputs,
+                                    base_outputs: otx.layout.base_outputs,
+                                    append_outputs: otx.layout.append_outputs,
+                                    base_cell_deps: otx.layout.base_cell_deps,
+                                    append_cell_deps: otx.layout.append_cell_deps,
+                                    base_header_deps: otx.layout.base_header_deps,
+                                    append_header_deps: otx.layout.append_header_deps,
+                                },
                             },
-                            relation,
+                            message: otx.witness.message.clone().into(),
                         },
-                        message: otx.witness.message.clone().into(),
+                        otx_relation: Some(relation),
                     });
                 }
                 Ok(self
@@ -374,11 +377,14 @@ impl<'a> TypePlanBuilder<'a> {
                 self.context
                     .script_hashes
                     .validate_message_targets(&message)?;
-                self.related_messages.push(RelatedMessage {
-                    origin: MessageOrigin::TxLevel {
-                        carrier_witness_index,
+                self.related_messages.push(TypeRelatedMessage {
+                    message: RelatedMessage {
+                        origin: MessageOrigin::TxLevel {
+                            carrier_witness_index,
+                        },
+                        message: message.into(),
                     },
-                    message: message.into(),
+                    otx_relation: None,
                 });
             }
         }

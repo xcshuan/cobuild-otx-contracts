@@ -2,10 +2,11 @@ use alloc::vec::Vec;
 
 use crate::{layout::Range, view::MessageView};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone)]
 pub struct LockValidationPlan {
     pub lock_script_hash: [u8; 32],
     pub required_signatures: Vec<SigningRequirement>,
+    pub related_messages: Vec<RelatedMessage>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,7 +27,13 @@ pub enum SignatureOrigin {
 #[derive(Clone)]
 pub struct TypeValidationPlan {
     pub type_script_hash: [u8; 32],
-    pub related_messages: Vec<RelatedMessage>,
+    pub related_messages: Vec<TypeRelatedMessage>,
+}
+
+#[derive(Clone)]
+pub struct TypeRelatedMessage {
+    pub message: RelatedMessage,
+    pub otx_relation: Option<OtxTypeRelation>,
 }
 
 #[derive(Clone)]
@@ -44,7 +51,6 @@ pub enum MessageOrigin {
         witness_index: usize,
         otx_index: usize,
         layout: OtxMessageLayout,
-        relation: OtxTypeRelation,
     },
 }
 
