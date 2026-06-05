@@ -1,5 +1,14 @@
 # Cobuild Core Syscall Concrete Design
 
+> Superseded implementation note (2026-06-05): this design was implemented and
+> then refined by
+> `docs/superpowers/plans/2026-06-05-cobuild-core-flow-objects-plan.md`.
+> References below to `CobuildEngine`, `PreparedCobuild`, and
+> `ScriptHashIndex` are historical. The current API is
+> `CobuildContext::from_syscalls()` with concrete flow objects
+> `SyscallTxReader`, `TxScriptHashes`, `WitnessScan`, `LockPlanBuilder`, and
+> `TypePlanBuilder`.
+
 ## Context
 
 The current implementation keeps `cobuild-core` independent from `ckb-std` by routing transaction data through `TransactionSource`, `HashInputSource`, `ClassifiedCursor`, and `InMemorySource`. That split is no longer a design goal. This repository targets CKB contracts, and `cobuild-core` may depend on `ckb-std` directly.

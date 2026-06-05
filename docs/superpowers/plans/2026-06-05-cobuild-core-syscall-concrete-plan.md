@@ -1,5 +1,13 @@
 # Cobuild Core Syscall Concrete Implementation Plan
 
+> Superseded implementation note (2026-06-05): this completed plan was refined
+> by `docs/superpowers/plans/2026-06-05-cobuild-core-flow-objects-plan.md`.
+> References below to `CobuildEngine`, `PreparedCobuild`, and
+> `ScriptHashIndex` are historical. The current API is
+> `CobuildContext::from_syscalls()` with concrete flow objects
+> `SyscallTxReader`, `TxScriptHashes`, `WitnessScan`, `LockPlanBuilder`, and
+> `TypePlanBuilder`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the source-trait-driven Cobuild core with a concrete syscall-backed core API while keeping `LockVerifier` for now.

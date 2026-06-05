@@ -186,6 +186,65 @@ mod tests {
         Range { start, count }
     }
 
+    fn message_with_action(script_role: u8, script_hash: [u8; 32]) -> Cursor {
+        let action = table_bytes(&[
+            hash(0).to_vec(),
+            alloc::vec![script_role],
+            script_hash.to_vec(),
+            molecule_bytes(&[]),
+        ]);
+        let actions = dynvec_bytes(&[action]);
+        let message = table_bytes(&[actions]);
+        crate::reader::cursor_from_slice(&message)
+    }
+
+    fn molecule_bytes(raw: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(4 + raw.len());
+        bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(raw);
+        bytes
+    }
+
+    fn dynvec_bytes(items: &[Vec<u8>]) -> Vec<u8> {
+        if items.is_empty() {
+            return 4u32.to_le_bytes().to_vec();
+        }
+
+        let header_size = 4 + items.len() * 4;
+        let total_size = header_size + items.iter().map(Vec::len).sum::<usize>();
+        let mut bytes = Vec::with_capacity(total_size);
+        bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
+
+        let mut offset = header_size;
+        for item in items {
+            bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+            offset += item.len();
+        }
+        for item in items {
+            bytes.extend_from_slice(item);
+        }
+
+        bytes
+    }
+
+    fn table_bytes(fields: &[Vec<u8>]) -> Vec<u8> {
+        let header_size = 4 + fields.len() * 4;
+        let total_size = header_size + fields.iter().map(Vec::len).sum::<usize>();
+        let mut bytes = Vec::with_capacity(total_size);
+        bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
+
+        let mut offset = header_size;
+        for field in fields {
+            bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+            offset += field.len();
+        }
+        for field in fields {
+            bytes.extend_from_slice(field);
+        }
+
+        bytes
+    }
+
     #[test]
     fn range_queries_find_locks_and_types() {
         let lock_a = hash(1);
@@ -226,5 +285,39 @@ mod tests {
 
         assert!(hashes.lock_group_fully_covered_by_otx(lock_a, &[layout_covering_lock_a]));
         assert!(!hashes.lock_group_fully_covered_by_otx(lock_a, &[]));
+    }
+
+    #[test]
+    fn validate_message_targets_accepts_existing_targets() {
+        let lock_hash = hash(1);
+        let input_type_hash = hash(2);
+        let output_type_hash = hash(3);
+        let hashes = TxScriptHashes {
+            input_locks: alloc::vec![lock_hash],
+            input_types: alloc::vec![Some(input_type_hash)],
+            output_types: alloc::vec![Some(output_type_hash)],
+        };
+
+        assert!(hashes
+            .validate_message_targets(&message_with_action(0, lock_hash))
+            .is_ok());
+        assert!(hashes
+            .validate_message_targets(&message_with_action(1, input_type_hash))
+            .is_ok());
+        assert!(hashes
+            .validate_message_targets(&message_with_action(2, output_type_hash))
+            .is_ok());
+    }
+
+    #[test]
+    fn validate_message_targets_rejects_missing_or_unknown_targets() {
+        let hashes = TxScriptHashes::default();
+
+        for script_role in [0, 1, 2, 9] {
+            assert_eq!(
+                hashes.validate_message_targets(&message_with_action(script_role, hash(7))),
+                Err(CoreError::InvalidMessageTarget)
+            );
+        }
     }
 }

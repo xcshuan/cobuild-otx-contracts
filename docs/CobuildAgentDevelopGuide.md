@@ -14,16 +14,31 @@ The parent repository and `../ref` are reference-only unless a human explicitly 
 
 ## Primary Documents
 
-Read these before making behavior changes:
+Read these current documents before making behavior changes:
+
+- `docs/superpowers/plans/2026-06-05-cobuild-core-flow-objects-plan.md`
+- `docs/superpowers/specs/2026-05-28-cobuild-core-community-redraft-design.md`
+- `docs/superpowers/specs/2026-05-29-cobuild-otx-lock-design.md`
+
+These documents are historical implementation records. Do not follow API names
+from them without checking the current architecture in this guide:
 
 - `docs/superpowers/specs/2026-05-29-clean-cobuild-otx-contracts-design.md`
 - `docs/superpowers/plans/2026-05-29-clean-cobuild-otx-contracts-implementation-plan.md`
-- `docs/superpowers/specs/2026-05-28-cobuild-core-community-redraft-design.md`
-- `docs/superpowers/specs/2026-05-29-cobuild-otx-lock-design.md`
 - `docs/superpowers/specs/2026-06-03-cobuild-core-streaming-reader-and-hash-input-design.md`
 - `docs/superpowers/plans/2026-06-03-cobuild-core-streaming-reader-and-view-plan.md`
+- `docs/superpowers/specs/2026-06-05-cobuild-core-syscall-concrete-design.md`
+- `docs/superpowers/plans/2026-06-05-cobuild-core-syscall-concrete-plan.md`
 
-The implementation plan is already marked complete. New work should be handled as a new focused task, not by silently rewriting the completed plan history.
+Historical specs and plans may mention removed names such as `CobuildEngine`,
+`PreparedCobuild`, `ScriptHashIndex`, `ChainSource`, `prepare.rs`, `flow.rs`,
+or `message.rs`. The current production entry point is
+`CobuildContext::from_syscalls()`, and the current concrete flow objects are
+`SyscallTxReader`, `TxScriptHashes`, `WitnessScan`, `LockPlanBuilder`, and
+`TypePlanBuilder`.
+
+Completed implementation plans should stay as records. New work should be
+handled as a new focused task, not by silently rewriting completed plan history.
 
 ## Architecture Boundaries
 
@@ -182,10 +197,16 @@ make generate CRATE=<contract-name>
 
 ## Current Completion State
 
-The clean Cobuild OTX implementation plan and the streaming source/view refactor have been completed through final verification. Current architecture highlights:
+The clean Cobuild OTX implementation plan, the streaming source/view refactor,
+and the concrete flow object refactor have been completed through final
+verification. Current architecture highlights:
 
 - core reader helpers live in `crates/cobuild-core/src/reader.rs`;
 - concrete syscall transaction helpers live in `crates/cobuild-core/src/syscalls.rs`;
+- `SyscallTxReader` owns syscall-backed transaction metadata and hash input reads;
+- `TxScriptHashes` owns lock/type script hash queries and message target validation;
+- `WitnessScan` owns witness summaries and sighash-all message selection;
+- `LockPlanBuilder` and `TypePlanBuilder` own validation plan construction;
 - context preparation lives in `crates/cobuild-core/src/engine.rs`;
 - the lock delegates Cobuild preparation to `CobuildContext::from_syscalls()`;
 - hash/query flow uses concrete syscall helpers;
