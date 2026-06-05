@@ -24,7 +24,7 @@
 - Modify `crates/cobuild-core/src/plan.rs`
   - Add `LockValidationPlan.related_messages`.
   - Make `MessageOrigin::Otx` role-neutral by removing `relation`.
-  - Add `TypeRelatedMessage` so type plans keep `OtxTypeRelation` without forcing lock plans to carry type-only data.
+- Add `TypeRelatedMessage` so type plans keep optional `OtxTypeRelation` without forcing lock plans or tx-level type messages to carry type-only data.
 - Modify `crates/cobuild-core/src/engine.rs`
   - Populate lock related messages on tx-level and OTX-relevant lock flows.
   - Populate type related messages using the new `TypeRelatedMessage` shape.
@@ -101,7 +101,7 @@ fn message_view_filters_actions_by_role_and_script_hash() {
 }
 
 #[test]
-fn message_view_returns_empty_actions_for_missing_target() {
+fn message_view_returns_empty_actions_for_role_mismatch() {
     let message = message_with_actions(&[action_bytes([0x01u8; 32], 2, [0x55u8; 32], &[0x99])]);
     let view = MessageView::new(cobuild_core::reader::cursor_from_slice(&message));
 
@@ -440,20 +440,23 @@ let message = RelatedMessage {
 };
 let related = TypeRelatedMessage {
     message,
-    relation: OtxTypeRelation {
+    otx_relation: Some(OtxTypeRelation {
         input_type_in_base: true,
         input_type_in_append: false,
         output_type_in_base: true,
         output_type_in_base_covered: true,
         output_type_in_append: false,
-    },
+    }),
 };
 let plan = TypeValidationPlan {
     type_script_hash: [2u8; 32],
     related_messages: vec![related],
 };
 
-assert!(plan.related_messages[0].relation.input_type_in_base);
+assert!(plan.related_messages[0]
+    .otx_relation
+    .unwrap()
+    .input_type_in_base);
 ```
 
 - [ ] **Step 2: Run plan tests to verify they fail**
@@ -464,7 +467,9 @@ Run:
 cargo test -p cobuild-core --offline --test plan -- --nocapture
 ```
 
-Expected: FAIL because `LockValidationPlan.related_messages` and `TypeRelatedMessage` do not exist, and `MessageOrigin::Otx` still requires `relation`.
+Expected: FAIL because `LockValidationPlan.related_messages` and
+`TypeRelatedMessage` do not exist, and `MessageOrigin::Otx` is not yet
+role-neutral.
 
 - [ ] **Step 3: Update plan types**
 
@@ -487,7 +492,7 @@ pub struct TypeValidationPlan {
 #[derive(Clone)]
 pub struct TypeRelatedMessage {
     pub message: RelatedMessage,
-    pub relation: OtxTypeRelation,
+    pub otx_relation: Option<OtxTypeRelation>,
 }
 
 #[derive(Clone)]
@@ -549,11 +554,11 @@ self.related_messages.push(TypeRelatedMessage {
         },
         message: otx.witness.message.clone().into(),
     },
-    relation,
+    otx_relation: Some(relation),
 });
 ```
 
-When pushing tx-level type messages, use an all-false tx-level relation:
+When pushing tx-level type messages, use no OTX relation:
 
 ```rust
 self.related_messages.push(TypeRelatedMessage {
@@ -563,13 +568,7 @@ self.related_messages.push(TypeRelatedMessage {
         },
         message: message.into(),
     },
-    relation: OtxTypeRelation {
-        input_type_in_base: false,
-        input_type_in_append: false,
-        output_type_in_base: false,
-        output_type_in_base_covered: false,
-        output_type_in_append: false,
-    },
+    otx_relation: None,
 });
 ```
 
@@ -599,7 +598,7 @@ git commit -m "refactor: separate message origins from type relations"
 - Modify: `crates/cobuild-core/tests/plan.rs`
 - Modify: `tests/tests/contract_template_layout.rs`
 
-- [ ] **Step 1: Write failing structure/architecture tests**
+- [ ] **Step 1: Write failing functional and architecture tests**
 
 Add this assertion to `crates/cobuild-core/tests/plan.rs` in `lock_validation_plan_carries_required_signatures_and_related_messages`:
 
@@ -632,6 +631,84 @@ fn cobuild_core_lock_plan_exposes_related_messages() {
 }
 ```
 
+Add these unit tests to `crates/cobuild-core/src/engine.rs` under a
+`#[cfg(test)] mod tests` block:
+
+```rust
+#[test]
+fn lock_related_tx_message_preserves_origin_and_message_cursor() {
+    let message_bytes = [4u8, 0, 0, 0];
+    let message = crate::reader::cursor_from_slice(&message_bytes);
+    let related = related_tx_message(2, message.clone());
+
+    assert!(matches!(
+        related.origin,
+        MessageOrigin::TxLevel {
+            carrier_witness_index: 2
+        }
+    ));
+    assert_eq!(
+        crate::reader::cursor_bytes(related.message.cursor()).unwrap(),
+        message_bytes.to_vec()
+    );
+}
+
+#[test]
+fn lock_related_otx_message_preserves_origin_layout_and_message_cursor() {
+    let message_bytes = [4u8, 0, 0, 0];
+    let otx = crate::layout::OtxLayoutEntry {
+        layout: crate::layout::OtxLayout {
+            witness_index: 7,
+            base_inputs: crate::layout::Range { start: 1, count: 2 },
+            append_inputs: crate::layout::Range { start: 3, count: 1 },
+            base_outputs: crate::layout::Range { start: 0, count: 1 },
+            append_outputs: crate::layout::Range { start: 1, count: 0 },
+            base_cell_deps: crate::layout::Range { start: 0, count: 0 },
+            append_cell_deps: crate::layout::Range { start: 0, count: 0 },
+            base_header_deps: crate::layout::Range { start: 0, count: 0 },
+            append_header_deps: crate::layout::Range { start: 0, count: 0 },
+        },
+        witness: crate::view::OtxView {
+            message: crate::reader::cursor_from_slice(&message_bytes),
+            append_permissions: 0,
+            base_input_cells: 1,
+            base_input_masks: crate::view::MaskView::new(vec![0]),
+            base_output_cells: 0,
+            base_output_masks: crate::view::MaskView::new(Vec::new()),
+            base_cell_deps: 0,
+            base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
+            base_header_deps: 0,
+            base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
+            append_input_cells: 0,
+            append_output_cells: 0,
+            append_cell_deps: 0,
+            append_header_deps: 0,
+            seals: Vec::new(),
+        },
+    };
+
+    let related = related_otx_message(3, &otx);
+
+    match related.origin {
+        MessageOrigin::Otx {
+            witness_index,
+            otx_index,
+            layout,
+        } => {
+            assert_eq!(witness_index, 7);
+            assert_eq!(otx_index, 3);
+            assert_eq!(layout.base_inputs.start, 1);
+            assert_eq!(layout.append_inputs.start, 3);
+        }
+        MessageOrigin::TxLevel { .. } => panic!("expected OTX message origin"),
+    }
+    assert_eq!(
+        crate::reader::cursor_bytes(related.message.cursor()).unwrap(),
+        message_bytes.to_vec()
+    );
+}
+```
+
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run:
@@ -640,7 +717,8 @@ Run:
 cargo test --workspace --offline cobuild_core_lock_plan_exposes_related_messages -- --nocapture
 ```
 
-Expected: FAIL until `LockPlanBuilder` owns and pushes `related_messages`.
+Expected: FAIL until `LockPlanBuilder` owns `related_messages` and the
+`related_tx_message` / `related_otx_message` helpers exist.
 
 - [ ] **Step 3: Add lock related message collection**
 
@@ -705,38 +783,52 @@ After pushing the signature requirement, add:
 
 ```rust
 if let Some(message) = related_message {
-    self.related_messages.push(RelatedMessage {
-        origin: MessageOrigin::TxLevel {
-            carrier_witness_index,
-        },
-        message: message.into(),
-    });
+    self.related_messages
+        .push(related_tx_message(carrier_witness_index, message));
 }
 ```
 
 In `add_otx_requirements`, after target validation and before seal lookup, push one OTX related message per relevant OTX:
 
 ```rust
-self.related_messages.push(RelatedMessage {
-    origin: MessageOrigin::Otx {
-        witness_index: otx.layout.witness_index,
-        otx_index,
-        layout: OtxMessageLayout {
-            base_inputs: otx.layout.base_inputs,
-            append_inputs: otx.layout.append_inputs,
-            base_outputs: otx.layout.base_outputs,
-            append_outputs: otx.layout.append_outputs,
-            base_cell_deps: otx.layout.base_cell_deps,
-            append_cell_deps: otx.layout.append_cell_deps,
-            base_header_deps: otx.layout.base_header_deps,
-            append_header_deps: otx.layout.append_header_deps,
-        },
-    },
-    message: otx.witness.message.clone().into(),
-});
+self.related_messages
+    .push(related_otx_message(otx_index, otx));
 ```
 
 Use `for (otx_index, otx) in layout.otx_entries.iter().enumerate()` in the loop so `otx_index` is available.
+
+Add these private helpers near the bottom of `engine.rs`:
+
+```rust
+fn related_tx_message(carrier_witness_index: usize, message: Cursor) -> RelatedMessage {
+    RelatedMessage {
+        origin: MessageOrigin::TxLevel {
+            carrier_witness_index,
+        },
+        message: message.into(),
+    }
+}
+
+fn related_otx_message(otx_index: usize, otx: &crate::layout::OtxLayoutEntry) -> RelatedMessage {
+    RelatedMessage {
+        origin: MessageOrigin::Otx {
+            witness_index: otx.layout.witness_index,
+            otx_index,
+            layout: OtxMessageLayout {
+                base_inputs: otx.layout.base_inputs,
+                append_inputs: otx.layout.append_inputs,
+                base_outputs: otx.layout.base_outputs,
+                append_outputs: otx.layout.append_outputs,
+                base_cell_deps: otx.layout.base_cell_deps,
+                append_cell_deps: otx.layout.append_cell_deps,
+                base_header_deps: otx.layout.base_header_deps,
+                append_header_deps: otx.layout.append_header_deps,
+            },
+        },
+        message: otx.witness.message.clone().into(),
+    }
+}
+```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
@@ -744,6 +836,7 @@ Run:
 
 ```bash
 cargo test --workspace --offline cobuild_core_lock_plan_exposes_related_messages -- --nocapture
+cargo test -p cobuild-core --offline engine::tests::lock_related_ -- --nocapture
 cargo test -p cobuild-core --offline --test plan -- --nocapture
 ```
 
@@ -787,8 +880,12 @@ Add:
 ```rust
 let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("context.rs");
 assert!(
-    context_rs.contains("MessageView::new(message.clone()).actions()?"),
+    context_rs.contains("MessageView") && context_rs.contains(".actions()?"),
     "message target validation should reuse MessageView action parsing"
+);
+assert!(
+    !context_rs.contains("message_actions"),
+    "context.rs should not parse message actions through the old helper"
 );
 ```
 
@@ -868,7 +965,7 @@ git commit -m "refactor: validate targets through message view"
 Run:
 
 ```bash
-cargo fmt -p cobuild-core
+cargo fmt --all
 ```
 
 Expected: command exits 0.
@@ -900,6 +997,7 @@ Run:
 ```bash
 rg -n "message_actions\\(" crates/cobuild-core/src
 rg -n "pub struct ActionData|ActionData" crates/cobuild-core/src
+rg -n "Message::from|\\.actions\\(" contracts/cobuild-otx-lock/src
 rg -n "unsafe" crates/cobuild-core/src contracts/cobuild-otx-lock/src
 ```
 
@@ -907,6 +1005,8 @@ Expected:
 
 - `message_actions(` appears only as the helper definition or is removed entirely.
 - `ActionData` has no matches.
+- `Message::from` and direct `.actions(` parsing have no matches in the lock
+  contract.
 - `unsafe` has no matches.
 
 - [ ] **Step 5: Commit final formatting if needed**

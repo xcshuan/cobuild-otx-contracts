@@ -150,8 +150,26 @@ messages that are relevant to this lock under Core flow selection.
 
 ### Type Plans
 
-Keep `TypeValidationPlan.related_messages`, but scripts should use
-`MessageView::actions_for()` or `unique_action_for()` to extract:
+Make `RelatedMessage` role-neutral so it can be reused by lock and type plans.
+Move type-specific OTX relation data into `TypeRelatedMessage`:
+
+```rust
+pub struct TypeValidationPlan {
+    pub type_script_hash: [u8; 32],
+    pub related_messages: Vec<TypeRelatedMessage>,
+}
+
+pub struct TypeRelatedMessage {
+    pub message: RelatedMessage,
+    pub otx_relation: Option<OtxTypeRelation>,
+}
+```
+
+`otx_relation` is `Some(_)` for OTX-origin messages and `None` for tx-level
+messages.
+
+Type scripts should use `MessageView::actions_for()` or
+`unique_action_for()` to extract:
 
 - `InputType` actions for the current type hash;
 - `OutputType` actions for the current type hash.
@@ -229,9 +247,13 @@ Architecture guards should assert that action parsing remains in
 
 ## Compatibility
 
-This is an additive API change except for adding a field to
-`LockValidationPlan`. Existing constructors in tests must be updated to include
-`related_messages`.
+This changes the public planning API:
+
+- `LockValidationPlan` gains `related_messages`.
+- `TypeValidationPlan.related_messages` changes from `Vec<RelatedMessage>` to
+  `Vec<TypeRelatedMessage>`.
+
+Existing constructors and downstream type-plan consumers must be updated.
 
 No molecule schema changes are required.
 
