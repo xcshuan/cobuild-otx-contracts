@@ -1,3 +1,7 @@
+use alloc::vec::Vec;
+
+use cobuild_types::lazy_reader::support::Cursor;
+
 use crate::{error::CoreError, view::WitnessLayoutView};
 
 pub enum ParsedWitness {
@@ -5,10 +9,133 @@ pub enum ParsedWitness {
     Cobuild(WitnessLayoutView),
 }
 
+pub(crate) struct WitnessScan {
+    summaries: Vec<WitnessSummary>,
+}
+
+#[derive(Clone)]
+enum WitnessSummary {
+    Empty,
+    Other,
+    Malformed(CoreError),
+    SighashAll { message: Cursor },
+    SighashAllOnly,
+}
+
+impl WitnessScan {
+    pub(crate) fn with_capacity(capacity: usize) -> Self {
+        Self {
+            summaries: Vec::with_capacity(capacity),
+        }
+    }
+
+    pub(crate) fn push_witness(&mut self, witness: &[u8]) -> Result<(), CoreError> {
+        self.summaries.push(Self::summarize_witness(witness)?);
+        Ok(())
+    }
+
+    pub(crate) fn tx_level_carrier_has_sighash_all_layout(
+        &self,
+        index: usize,
+    ) -> Result<bool, CoreError> {
+        match self.summaries.get(index) {
+            Some(WitnessSummary::SighashAll { .. }) | Some(WitnessSummary::SighashAllOnly) => {
+                Ok(true)
+            }
+            Some(WitnessSummary::Malformed(error)) => Err(error.clone()),
+            Some(WitnessSummary::Empty | WitnessSummary::Other) | None => Ok(false),
+        }
+    }
+
+    pub(crate) fn unique_sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
+        let mut message = None;
+        for summary in &self.summaries {
+            match summary {
+                WitnessSummary::SighashAll { message: candidate } => {
+                    if message.is_some() {
+                        return Err(CoreError::DuplicateSighashAll);
+                    }
+                    message = Some(candidate.clone());
+                }
+                WitnessSummary::Malformed(error) => return Err(error.clone()),
+                _ => {}
+            }
+        }
+        Ok(message)
+    }
+
+    pub(crate) fn unique_sighash_all_message_with_index(
+        &self,
+    ) -> Result<Option<(usize, Cursor)>, CoreError> {
+        let mut message = None;
+        for (index, summary) in self.summaries.iter().enumerate() {
+            match summary {
+                WitnessSummary::SighashAll { message: candidate } => {
+                    if message.is_some() {
+                        return Err(CoreError::DuplicateSighashAll);
+                    }
+                    message = Some((index, candidate.clone()));
+                }
+                WitnessSummary::Malformed(error) => return Err(error.clone()),
+                _ => {}
+            }
+        }
+        Ok(message)
+    }
+
+    fn summarize_witness(witness: &[u8]) -> Result<WitnessSummary, CoreError> {
+        if witness.is_empty() {
+            return Ok(WitnessSummary::Empty);
+        }
+
+        let view = match WitnessLayoutView::from_slice(witness) {
+            Ok(view) => view,
+            Err(error) => {
+                return if has_tx_level_witness_id(witness) {
+                    Ok(WitnessSummary::Malformed(error))
+                } else {
+                    Ok(WitnessSummary::Other)
+                };
+            }
+        };
+        if let Some(message) = view.sighash_all_message()? {
+            return Ok(WitnessSummary::SighashAll { message });
+        }
+        if view.is_sighash_all_only() {
+            return Ok(WitnessSummary::SighashAllOnly);
+        }
+        Ok(WitnessSummary::Other)
+    }
+}
+
 pub fn parse_witness(data: &[u8]) -> Result<ParsedWitness, CoreError> {
     match WitnessLayoutView::from_slice(data) {
         Ok(view) => Ok(ParsedWitness::Cobuild(view)),
         Err(CoreError::MalformedCobuild | CoreError::InvalidOtxLayout) => Ok(ParsedWitness::None),
         Err(err) => Err(err),
+    }
+}
+
+fn has_tx_level_witness_id(witness: &[u8]) -> bool {
+    if witness.len() < 4 {
+        return false;
+    }
+    let item_id = u32::from_le_bytes([witness[0], witness[1], witness[2], witness[3]]);
+    matches!(item_id, 0xff00_0001 | 0xff00_0002)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WitnessScan;
+
+    #[test]
+    fn tx_level_carrier_returns_false_for_empty_or_other_witness() {
+        let mut scan = WitnessScan::with_capacity(2);
+        scan.push_witness(&[]).unwrap();
+        scan.push_witness(&[0, 1, 2, 3]).unwrap();
+
+        assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(0), Ok(false));
+        assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(1), Ok(false));
+        assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(2), Ok(false));
     }
 }

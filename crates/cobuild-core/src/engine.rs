@@ -1,7 +1,5 @@
 use alloc::vec::Vec;
 
-use cobuild_types::lazy_reader::support::Cursor;
-
 use crate::{
     context::TxScriptHashes,
     error::CoreError,
@@ -12,6 +10,7 @@ use crate::{
     reader::{cursor_bytes, cursor_bytes_with_error},
     syscalls,
     view::{SighashAllWitnessView, WitnessLayoutView},
+    witness::WitnessScan,
 };
 
 pub struct CobuildEngine;
@@ -19,17 +18,8 @@ pub struct CobuildEngine;
 pub struct PreparedCobuild {
     pub(crate) tx: syscalls::SyscallTxReader,
     pub(crate) script_hashes: TxScriptHashes,
-    witness_summaries: Vec<WitnessSummary>,
+    witnesses: WitnessScan,
     pub(crate) layout_scan: OtxLayoutScan,
-}
-
-#[derive(Clone)]
-enum WitnessSummary {
-    Empty,
-    Other,
-    Malformed(CoreError),
-    SighashAll { message: Cursor },
-    SighashAllOnly,
 }
 
 impl CobuildEngine {
@@ -37,12 +27,12 @@ impl CobuildEngine {
         let tx = syscalls::SyscallTxReader::default();
         let counts = tx.counts()?;
         let script_hashes = TxScriptHashes::from_reader(&tx)?;
-        let mut witness_summaries = Vec::with_capacity(counts.witnesses);
+        let mut witnesses = WitnessScan::with_capacity(counts.witnesses);
         let mut layout_collector = OtxLayoutCollector::new();
         for index in 0..counts.witnesses {
             let witness = tx.witness_cursor(index)?;
             let witness = cursor_bytes_with_error(&witness, CoreError::MissingHashInput)?;
-            witness_summaries.push(witness_summary(&witness)?);
+            witnesses.push_witness(&witness)?;
             layout_collector.push_witness(&witness);
         }
         let layout_scan = layout_collector.finish(
@@ -55,7 +45,7 @@ impl CobuildEngine {
         Ok(PreparedCobuild {
             tx,
             script_hashes,
-            witness_summaries,
+            witnesses,
             layout_scan,
         })
     }
@@ -233,7 +223,7 @@ impl PreparedCobuild {
 
         if tx_level_type_relevant {
             if let Some((carrier_witness_index, message)) =
-                unique_sighash_all_message_with_index_from_summaries(&self.witness_summaries)?
+                self.witnesses.unique_sighash_all_message_with_index()?
             {
                 self.script_hashes.validate_message_targets(&message)?;
                 related_messages.push(crate::plan::RelatedMessage {
@@ -261,10 +251,11 @@ impl PreparedCobuild {
             return Ok(Vec::new());
         };
 
-        match self.witness_summaries.get(carrier_witness_index) {
-            Some(WitnessSummary::SighashAll { .. }) | Some(WitnessSummary::SighashAllOnly) => {}
-            Some(WitnessSummary::Malformed(error)) => return Err(error.clone()),
-            Some(WitnessSummary::Empty | WitnessSummary::Other) | None => return Ok(Vec::new()),
+        if !self
+            .witnesses
+            .tx_level_carrier_has_sighash_all_layout(carrier_witness_index)?
+        {
+            return Ok(Vec::new());
         }
 
         let carrier = self.tx.witness_cursor(carrier_witness_index)?;
@@ -274,7 +265,7 @@ impl PreparedCobuild {
             return Ok(Vec::new());
         };
 
-        let tx_message = unique_sighash_all_message_from_summaries(&self.witness_summaries)?;
+        let tx_message = self.witnesses.unique_sighash_all_message()?;
         let (seal, signing_message_hash) = match sighash_all_witness_layout {
             SighashAllWitnessView::WithMessage { seal, message } => {
                 let message = tx_message.as_ref().unwrap_or(&message);
@@ -301,74 +292,4 @@ impl PreparedCobuild {
             signing_message_hash,
         }])
     }
-}
-
-fn witness_summary(witness: &[u8]) -> Result<WitnessSummary, CoreError> {
-    if witness.is_empty() {
-        return Ok(WitnessSummary::Empty);
-    }
-
-    let view = match WitnessLayoutView::from_slice(witness) {
-        Ok(view) => view,
-        Err(error) => {
-            return if has_tx_level_witness_id(witness) {
-                Ok(WitnessSummary::Malformed(error))
-            } else {
-                Ok(WitnessSummary::Other)
-            };
-        }
-    };
-    if let Some(message) = view.sighash_all_message()? {
-        return Ok(WitnessSummary::SighashAll { message });
-    }
-    if view.is_sighash_all_only() {
-        return Ok(WitnessSummary::SighashAllOnly);
-    }
-    Ok(WitnessSummary::Other)
-}
-
-fn has_tx_level_witness_id(witness: &[u8]) -> bool {
-    if witness.len() < 4 {
-        return false;
-    }
-    let item_id = u32::from_le_bytes([witness[0], witness[1], witness[2], witness[3]]);
-    matches!(item_id, 0xff00_0001 | 0xff00_0002)
-}
-
-fn unique_sighash_all_message_from_summaries(
-    summaries: &[WitnessSummary],
-) -> Result<Option<Cursor>, CoreError> {
-    let mut message = None;
-    for summary in summaries {
-        match summary {
-            WitnessSummary::SighashAll { message: candidate } => {
-                if message.is_some() {
-                    return Err(CoreError::DuplicateSighashAll);
-                }
-                message = Some(candidate.clone());
-            }
-            WitnessSummary::Malformed(error) => return Err(error.clone()),
-            _ => {}
-        }
-    }
-    Ok(message)
-}
-
-fn unique_sighash_all_message_with_index_from_summaries(
-    summaries: &[WitnessSummary],
-) -> Result<Option<(usize, Cursor)>, CoreError> {
-    let mut message = None;
-    for (index, summary) in summaries.iter().enumerate() {
-        match summary {
-            WitnessSummary::SighashAll { message: candidate } => {
-                if message.is_some() {
-                    return Err(CoreError::DuplicateSighashAll);
-                }
-                message = Some((index, candidate.clone()));
-            }
-            WitnessSummary::Malformed(error) => return Err(error.clone()),
-            _ => {}
-        }
-    }
-    Ok(message)
 }
