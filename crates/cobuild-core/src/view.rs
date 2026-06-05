@@ -12,12 +12,6 @@ use crate::{
     reader::{cursor_bytes, cursor_from_slice},
 };
 
-impl From<core::convert::Infallible> for CoreError {
-    fn from(value: core::convert::Infallible) -> Self {
-        match value {}
-    }
-}
-
 pub struct WitnessLayoutView {
     #[allow(dead_code)]
     pub(crate) inner: WitnessLayout,

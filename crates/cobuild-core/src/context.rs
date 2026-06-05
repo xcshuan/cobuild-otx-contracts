@@ -8,7 +8,7 @@ use crate::{
     plan::OtxTypeRelation,
     protocol::ScriptRole,
     syscalls::SyscallTxReader,
-    view::message_actions,
+    view::MessageView,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -125,9 +125,8 @@ impl TxScriptHashes {
     }
 
     pub(crate) fn validate_message_targets(&self, message: &Cursor) -> Result<(), CoreError> {
-        for action in message_actions(message)? {
-            let role = ScriptRole::try_from(action.script_role)?;
-            let target_exists = match role {
+        for action in MessageView::new(message.clone()).actions()? {
+            let target_exists = match action.script_role {
                 ScriptRole::InputLock => self.input_locks.contains(&action.script_hash),
                 ScriptRole::InputType => self
                     .input_types

@@ -363,15 +363,25 @@ fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
         );
     }
     for expected in [
-        "pub fn actions(&self)",
+        "pub struct ActionView",
+        "pub fn actions(&self) -> Result<Vec<ActionView>, CoreError>",
         "pub fn actions_for(",
         "pub fn unique_action_for(",
     ] {
         assert!(
             view_rs.contains(expected),
-            "MessageView should expose action query API via {expected}"
+            "MessageView should expose action query API {expected}"
         );
     }
+    let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("context.rs");
+    assert!(
+        context_rs.contains("MessageView") && context_rs.contains(".actions()?"),
+        "message target validation should reuse MessageView action parsing"
+    );
+    assert!(
+        !context_rs.contains("message_actions"),
+        "context.rs should not parse message actions through the old helper"
+    );
     assert!(
         !view_rs.contains("pub struct MaskView {\n    cursor: Cursor"),
         "MaskView should store compact mask bytes directly, not a cursor"
