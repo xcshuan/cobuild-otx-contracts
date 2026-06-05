@@ -5,7 +5,10 @@ use crate::{
     error::CoreError,
     hash::{otx_append_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash},
     layout::{OtxLayoutCollector, OtxLayoutScan},
-    plan::{LockValidationPlan, SignatureOrigin, SigningRequirement, TypeValidationPlan},
+    plan::{
+        LockValidationPlan, MessageOrigin, OtxMessageLayout, RelatedMessage, SignatureOrigin,
+        SigningRequirement, TypeValidationPlan,
+    },
     protocol::SealScope,
     reader::{cursor_bytes, cursor_bytes_with_error},
     syscalls::SyscallTxReader,
@@ -52,20 +55,114 @@ impl CobuildContext {
         &self,
         lock_script_hash: [u8; 32],
     ) -> Result<LockValidationPlan, CoreError> {
-        let mut required_signatures = self.tx_level_lock_requirements(lock_script_hash)?;
+        LockPlanBuilder::new(self, lock_script_hash).build()
+    }
 
-        match &self.layout_scan {
+    pub fn plan_type_validation(
+        &self,
+        type_script_hash: [u8; 32],
+    ) -> Result<TypeValidationPlan, CoreError> {
+        TypePlanBuilder::new(self, type_script_hash).build()
+    }
+}
+
+struct LockPlanBuilder<'a> {
+    context: &'a CobuildContext,
+    lock_script_hash: [u8; 32],
+    required_signatures: Vec<SigningRequirement>,
+}
+
+impl<'a> LockPlanBuilder<'a> {
+    fn new(context: &'a CobuildContext, lock_script_hash: [u8; 32]) -> Self {
+        Self {
+            context,
+            lock_script_hash,
+            required_signatures: Vec::new(),
+        }
+    }
+
+    fn build(mut self) -> Result<LockValidationPlan, CoreError> {
+        self.add_tx_level_requirement()?;
+        self.add_otx_requirements()?;
+        self.ensure_otx_lock_group_coverage()?;
+        Ok(LockValidationPlan {
+            lock_script_hash: self.lock_script_hash,
+            required_signatures: self.required_signatures,
+        })
+    }
+
+    fn add_tx_level_requirement(&mut self) -> Result<(), CoreError> {
+        let Some(carrier_witness_index) = self
+            .context
+            .script_hashes
+            .first_input_with_lock(self.lock_script_hash)
+        else {
+            return Ok(());
+        };
+
+        if !self
+            .context
+            .witnesses
+            .tx_level_carrier_has_sighash_all_layout(carrier_witness_index)?
+        {
+            return Ok(());
+        }
+
+        let carrier = self.context.tx.witness_cursor(carrier_witness_index)?;
+        let carrier_bytes = cursor_bytes_with_error(&carrier, CoreError::MissingHashInput)?;
+        let view = WitnessLayoutView::from_slice(&carrier_bytes)?;
+        let Some(sighash_all_witness_layout) = view.sighash_all_witness_layout()? else {
+            return Ok(());
+        };
+
+        let tx_message = self.context.witnesses.unique_sighash_all_message()?;
+        let (seal, signing_message_hash) = match sighash_all_witness_layout {
+            SighashAllWitnessView::WithMessage { seal, message } => {
+                let message = tx_message.as_ref().unwrap_or(&message);
+                self.context
+                    .script_hashes
+                    .validate_message_targets(message)?;
+                let signing_message_hash = tx_with_message_hash(message, &self.context.tx)?;
+                (cursor_bytes(&seal)?, signing_message_hash)
+            }
+            SighashAllWitnessView::SealOnly { seal } => {
+                let signing_message_hash = match tx_message {
+                    Some(message) => {
+                        self.context
+                            .script_hashes
+                            .validate_message_targets(&message)?;
+                        tx_with_message_hash(&message, &self.context.tx)?
+                    }
+                    None => tx_without_message_hash(&self.context.tx)?,
+                };
+                (cursor_bytes(&seal)?, signing_message_hash)
+            }
+        };
+
+        self.required_signatures.push(SigningRequirement {
+            origin: SignatureOrigin::TxLevel,
+            carrier_witness_index,
+            seal,
+            signing_message_hash,
+        });
+
+        Ok(())
+    }
+
+    fn add_otx_requirements(&mut self) -> Result<(), CoreError> {
+        match &self.context.layout_scan {
             OtxLayoutScan::None => {}
             OtxLayoutScan::Invalid { anchor, error } => {
                 let relevance_known_irrelevant = anchor
                     .as_ref()
                     .map(|anchor| {
                         !self
+                            .context
                             .script_hashes
                             .input_locks
                             .iter()
                             .skip(anchor.start_input_cell)
-                            .any(|hash| *hash == lock_script_hash)
+                            .any(|hash| *hash == self.lock_script_hash)
                     })
                     .unwrap_or(false);
                 if !relevance_known_irrelevant {
@@ -75,25 +172,28 @@ impl CobuildContext {
             OtxLayoutScan::Complete(layout) => {
                 for otx in &layout.otx_data {
                     let base_relevant = self
+                        .context
                         .script_hashes
-                        .lock_in_input_range(otx.layout.base_inputs, lock_script_hash);
+                        .lock_in_input_range(otx.layout.base_inputs, self.lock_script_hash);
                     let append_relevant = self
+                        .context
                         .script_hashes
-                        .lock_in_input_range(otx.layout.append_inputs, lock_script_hash);
+                        .lock_in_input_range(otx.layout.append_inputs, self.lock_script_hash);
                     if !base_relevant && !append_relevant {
                         continue;
                     }
 
-                    self.script_hashes
+                    self.context
+                        .script_hashes
                         .validate_message_targets(&otx.witness.message)?;
-                    let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.tx)?;
+                    let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.context.tx)?;
                     if base_relevant {
                         let seal = crate::seal::unique_otx_seal_by_scope(
-                            lock_script_hash,
+                            self.lock_script_hash,
                             &otx.witness.seals,
                             SealScope::Base,
                         )?;
-                        required_signatures.push(SigningRequirement {
+                        self.required_signatures.push(SigningRequirement {
                             origin: SignatureOrigin::OtxBase,
                             carrier_witness_index: otx.layout.witness_index,
                             seal,
@@ -102,18 +202,18 @@ impl CobuildContext {
                     }
                     if append_relevant {
                         let seal = crate::seal::unique_otx_seal_by_scope(
-                            lock_script_hash,
+                            self.lock_script_hash,
                             &otx.witness.seals,
                             SealScope::Append,
                         )?;
-                        required_signatures.push(SigningRequirement {
+                        self.required_signatures.push(SigningRequirement {
                             origin: SignatureOrigin::OtxAppend,
                             carrier_witness_index: otx.layout.witness_index,
                             seal,
                             signing_message_hash: otx_append_hash(
                                 &otx.witness,
                                 &otx.layout,
-                                &self.tx,
+                                &self.context.tx,
                                 base_hash,
                             )?,
                         });
@@ -122,44 +222,68 @@ impl CobuildContext {
             }
         }
 
-        let has_tx_level = required_signatures
+        Ok(())
+    }
+
+    fn ensure_otx_lock_group_coverage(&self) -> Result<(), CoreError> {
+        let has_tx_level = self
+            .required_signatures
             .iter()
             .any(|requirement| requirement.origin == SignatureOrigin::TxLevel);
-        let has_otx = required_signatures.iter().any(|requirement| {
+        let has_otx = self.required_signatures.iter().any(|requirement| {
             matches!(
                 requirement.origin,
                 SignatureOrigin::OtxBase | SignatureOrigin::OtxAppend
             )
         });
         if has_otx && !has_tx_level {
-            if let OtxLayoutScan::Complete(layout) = &self.layout_scan {
+            if let OtxLayoutScan::Complete(layout) = &self.context.layout_scan {
                 if !self
+                    .context
                     .script_hashes
-                    .lock_group_fully_covered_by_otx(lock_script_hash, &layout.otxs)
+                    .lock_group_fully_covered_by_otx(self.lock_script_hash, &layout.otxs)
                 {
                     return Err(CoreError::MissingLockGroupCoverage);
                 }
             }
         }
 
-        Ok(LockValidationPlan {
-            lock_script_hash,
-            required_signatures,
+        Ok(())
+    }
+}
+
+struct TypePlanBuilder<'a> {
+    context: &'a CobuildContext,
+    type_script_hash: [u8; 32],
+    related_messages: Vec<RelatedMessage>,
+}
+
+impl<'a> TypePlanBuilder<'a> {
+    fn new(context: &'a CobuildContext, type_script_hash: [u8; 32]) -> Self {
+        Self {
+            context,
+            type_script_hash,
+            related_messages: Vec::new(),
+        }
+    }
+
+    fn build(mut self) -> Result<TypeValidationPlan, CoreError> {
+        let tx_level_type_relevant = self.add_otx_related_messages()?;
+        self.add_tx_level_message_if_relevant(tx_level_type_relevant)?;
+        Ok(TypeValidationPlan {
+            type_script_hash: self.type_script_hash,
+            related_messages: self.related_messages,
         })
     }
 
-    pub fn plan_type_validation(
-        &self,
-        type_script_hash: [u8; 32],
-    ) -> Result<TypeValidationPlan, CoreError> {
-        let mut related_messages = Vec::new();
-
-        let tx_level_type_relevant = match &self.layout_scan {
+    fn add_otx_related_messages(&mut self) -> Result<bool, CoreError> {
+        match &self.context.layout_scan {
             OtxLayoutScan::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_data.iter().enumerate() {
                     let relation = self
+                        .context
                         .script_hashes
-                        .type_relation_for_otx(otx, type_script_hash)?;
+                        .type_relation_for_otx(otx, self.type_script_hash)?;
                     let is_related = relation.input_type_in_base
                         || relation.input_type_in_append
                         || relation.output_type_in_base
@@ -167,13 +291,14 @@ impl CobuildContext {
                     if !is_related {
                         continue;
                     }
-                    self.script_hashes
+                    self.context
+                        .script_hashes
                         .validate_message_targets(&otx.witness.message)?;
-                    related_messages.push(crate::plan::RelatedMessage {
-                        origin: crate::plan::MessageOrigin::Otx {
+                    self.related_messages.push(RelatedMessage {
+                        origin: MessageOrigin::Otx {
                             witness_index: otx.layout.witness_index,
                             otx_index,
-                            layout: crate::plan::OtxMessageLayout {
+                            layout: OtxMessageLayout {
                                 base_inputs: otx.layout.base_inputs,
                                 append_inputs: otx.layout.append_inputs,
                                 base_outputs: otx.layout.base_outputs,
@@ -188,104 +313,79 @@ impl CobuildContext {
                         message: otx.witness.message.clone().into(),
                     });
                 }
-                self.script_hashes
-                    .type_hash_outside_otx_ranges(type_script_hash, &layout.otxs)
+                Ok(self
+                    .context
+                    .script_hashes
+                    .type_hash_outside_otx_ranges(self.type_script_hash, &layout.otxs))
             }
+            OtxLayoutScan::Invalid { .. } | OtxLayoutScan::None => {
+                self.tx_level_type_relevant_from_invalid_or_none_layout()
+            }
+        }
+    }
+
+    fn tx_level_type_relevant_from_invalid_or_none_layout(&self) -> Result<bool, CoreError> {
+        match &self.context.layout_scan {
             OtxLayoutScan::Invalid { anchor, error } => {
                 let relevance_known_irrelevant = anchor
                     .as_ref()
                     .map(|anchor| {
                         !self
+                            .context
                             .script_hashes
                             .input_types
                             .iter()
                             .skip(anchor.start_input_cell)
-                            .any(|hash| *hash == Some(type_script_hash))
+                            .any(|hash| *hash == Some(self.type_script_hash))
                             && !self
+                                .context
                                 .script_hashes
                                 .output_types
                                 .iter()
                                 .skip(anchor.start_output_cell)
-                                .any(|hash| *hash == Some(type_script_hash))
+                                .any(|hash| *hash == Some(self.type_script_hash))
                     })
                     .unwrap_or(false);
                 if !relevance_known_irrelevant {
                     return Err(error.clone());
                 }
-                self.script_hashes.type_hash_present(type_script_hash)
+                Ok(self
+                    .context
+                    .script_hashes
+                    .type_hash_present(self.type_script_hash))
             }
-            OtxLayoutScan::None => self.script_hashes.type_hash_present(type_script_hash),
-        };
+            OtxLayoutScan::None => Ok(self
+                .context
+                .script_hashes
+                .type_hash_present(self.type_script_hash)),
+            OtxLayoutScan::Complete(layout) => Ok(self
+                .context
+                .script_hashes
+                .type_hash_outside_otx_ranges(self.type_script_hash, &layout.otxs)),
+        }
+    }
 
+    fn add_tx_level_message_if_relevant(
+        &mut self,
+        tx_level_type_relevant: bool,
+    ) -> Result<(), CoreError> {
         if tx_level_type_relevant {
-            if let Some((carrier_witness_index, message)) =
-                self.witnesses.unique_sighash_all_message_with_index()?
+            if let Some((carrier_witness_index, message)) = self
+                .context
+                .witnesses
+                .unique_sighash_all_message_with_index()?
             {
-                self.script_hashes.validate_message_targets(&message)?;
-                related_messages.push(crate::plan::RelatedMessage {
-                    origin: crate::plan::MessageOrigin::TxLevel {
+                self.context
+                    .script_hashes
+                    .validate_message_targets(&message)?;
+                self.related_messages.push(RelatedMessage {
+                    origin: MessageOrigin::TxLevel {
                         carrier_witness_index,
                     },
                     message: message.into(),
                 });
             }
         }
-
-        Ok(TypeValidationPlan {
-            type_script_hash,
-            related_messages,
-        })
-    }
-
-    fn tx_level_lock_requirements(
-        &self,
-        lock_script_hash: [u8; 32],
-    ) -> Result<Vec<SigningRequirement>, CoreError> {
-        let Some(carrier_witness_index) =
-            self.script_hashes.first_input_with_lock(lock_script_hash)
-        else {
-            return Ok(Vec::new());
-        };
-
-        if !self
-            .witnesses
-            .tx_level_carrier_has_sighash_all_layout(carrier_witness_index)?
-        {
-            return Ok(Vec::new());
-        }
-
-        let carrier = self.tx.witness_cursor(carrier_witness_index)?;
-        let carrier_bytes = cursor_bytes_with_error(&carrier, CoreError::MissingHashInput)?;
-        let view = WitnessLayoutView::from_slice(&carrier_bytes)?;
-        let Some(sighash_all_witness_layout) = view.sighash_all_witness_layout()? else {
-            return Ok(Vec::new());
-        };
-
-        let tx_message = self.witnesses.unique_sighash_all_message()?;
-        let (seal, signing_message_hash) = match sighash_all_witness_layout {
-            SighashAllWitnessView::WithMessage { seal, message } => {
-                let message = tx_message.as_ref().unwrap_or(&message);
-                self.script_hashes.validate_message_targets(message)?;
-                let signing_message_hash = tx_with_message_hash(message, &self.tx)?;
-                (cursor_bytes(&seal)?, signing_message_hash)
-            }
-            SighashAllWitnessView::SealOnly { seal } => {
-                let signing_message_hash = match tx_message {
-                    Some(message) => {
-                        self.script_hashes.validate_message_targets(&message)?;
-                        tx_with_message_hash(&message, &self.tx)?
-                    }
-                    None => tx_without_message_hash(&self.tx)?,
-                };
-                (cursor_bytes(&seal)?, signing_message_hash)
-            }
-        };
-
-        Ok(alloc::vec![SigningRequirement {
-            origin: SignatureOrigin::TxLevel,
-            carrier_witness_index,
-            seal,
-            signing_message_hash,
-        }])
+        Ok(())
     }
 }
