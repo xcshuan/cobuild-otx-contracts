@@ -43,10 +43,7 @@ impl CobuildContext {
             counts.outputs,
             counts.cell_deps,
             counts.header_deps,
-        );
-        if let OtxLayoutScan::Invalid(error) = &layout_scan {
-            return Err(error.clone());
-        }
+        )?;
 
         Ok(Self {
             tx,
@@ -344,20 +341,6 @@ mod tests {
     }
 
     #[test]
-    fn lock_builder_rejects_invalid_otx_scan() {
-        let lock_hash = hash(1);
-        let other_hash = hash(2);
-        let mut context = test_context(vec![lock_hash, other_hash]);
-        context.layout_scan = OtxLayoutScan::Invalid(CoreError::InvalidOtxLayout);
-        let mut builder = LockPlanBuilder::new(&context, lock_hash);
-
-        assert_eq!(
-            builder.add_otx_requirements(),
-            Err(CoreError::InvalidOtxLayout)
-        );
-    }
-
-    #[test]
     fn type_builder_collects_otx_message_when_action_targets_type_outside_otx_ranges() {
         let type_hash = hash(9);
         let other_type_hash = hash(8);
@@ -369,7 +352,6 @@ mod tests {
             alloc::vec![Some(other_type_hash), Some(type_hash)],
         );
         context.layout_scan = OtxLayoutScan::Complete(crate::layout::BuiltLayout {
-            otxs: alloc::vec![otx.layout.clone()],
             otx_entries: alloc::vec![otx],
         });
 
@@ -493,7 +475,6 @@ impl<'a> LockPlanBuilder<'a> {
     fn add_otx_requirements(&mut self) -> Result<(), CoreError> {
         match &self.context.layout_scan {
             OtxLayoutScan::None => {}
-            OtxLayoutScan::Invalid(error) => return Err(error.clone()),
             OtxLayoutScan::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
                     let Some(relevance) =
@@ -606,7 +587,7 @@ impl<'a> LockPlanBuilder<'a> {
                 if !self
                     .context
                     .script_hashes
-                    .lock_group_fully_covered_by_otx(self.lock_script_hash, &layout.otxs)
+                    .lock_group_fully_covered_by_otx(self.lock_script_hash, &layout.otx_entries)
                 {
                     return Err(CoreError::MissingLockGroupCoverage);
                 }
@@ -697,7 +678,6 @@ impl<'a> TypePlanBuilder<'a> {
                 }
                 Ok(())
             }
-            OtxLayoutScan::Invalid(error) => Err(error.clone()),
             OtxLayoutScan::None => Ok(()),
         }
     }
@@ -736,8 +716,7 @@ impl<'a> TypePlanBuilder<'a> {
             OtxLayoutScan::Complete(layout) => self
                 .context
                 .script_hashes
-                .type_hash_outside_otx_ranges(self.type_script_hash, &layout.otxs),
-            OtxLayoutScan::Invalid(_) => false,
+                .type_hash_outside_otx_ranges(self.type_script_hash, &layout.otx_entries),
             OtxLayoutScan::None => self
                 .context
                 .script_hashes

@@ -4,7 +4,7 @@ use cobuild_types::lazy_reader::support::Cursor;
 
 use crate::{
     error::CoreError,
-    layout::{OtxLayout, OtxLayoutEntry, Range},
+    layout::{OtxLayoutEntry, Range},
     plan::OtxTypeRelation,
     protocol::ScriptRole,
     syscalls::SyscallTxReader,
@@ -92,19 +92,19 @@ impl TxScriptHashes {
     pub(crate) fn type_hash_outside_otx_ranges(
         &self,
         type_hash: [u8; 32],
-        otxs: &[OtxLayout],
+        otxs: &[OtxLayoutEntry],
     ) -> bool {
         self.input_types.iter().enumerate().any(|(index, hash)| {
             *hash == Some(type_hash)
-                && !otxs.iter().any(|otx| {
-                    range_contains(otx.base_inputs, index)
-                        || range_contains(otx.append_inputs, index)
+                && !otxs.iter().any(|entry| {
+                    range_contains(entry.layout.base_inputs, index)
+                        || range_contains(entry.layout.append_inputs, index)
                 })
         }) || self.output_types.iter().enumerate().any(|(index, hash)| {
             *hash == Some(type_hash)
-                && !otxs.iter().any(|otx| {
-                    range_contains(otx.base_outputs, index)
-                        || range_contains(otx.append_outputs, index)
+                && !otxs.iter().any(|entry| {
+                    range_contains(entry.layout.base_outputs, index)
+                        || range_contains(entry.layout.append_outputs, index)
                 })
         })
     }
@@ -112,14 +112,15 @@ impl TxScriptHashes {
     pub(crate) fn lock_group_fully_covered_by_otx(
         &self,
         lock_hash: [u8; 32],
-        otxs: &[OtxLayout],
+        otxs: &[OtxLayoutEntry],
     ) -> bool {
         self.input_locks.iter().enumerate().all(|(index, hash)| {
             if *hash != lock_hash {
                 return true;
             }
-            otxs.iter().any(|otx| {
-                range_contains(otx.base_inputs, index) || range_contains(otx.append_inputs, index)
+            otxs.iter().any(|entry| {
+                range_contains(entry.layout.base_inputs, index)
+                    || range_contains(entry.layout.append_inputs, index)
             })
         })
     }
@@ -183,6 +184,29 @@ mod tests {
 
     fn range(start: usize, count: usize) -> Range {
         Range { start, count }
+    }
+
+    fn otx_entry(layout: crate::layout::OtxLayout) -> OtxLayoutEntry {
+        OtxLayoutEntry {
+            layout,
+            witness: crate::view::OtxView {
+                message: crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
+                append_permissions: 0,
+                base_input_cells: 1,
+                base_input_masks: crate::view::MaskView::new(alloc::vec![0]),
+                base_output_cells: 0,
+                base_output_masks: crate::view::MaskView::new(Vec::new()),
+                base_cell_deps: 0,
+                base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
+                base_header_deps: 0,
+                base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
+                append_input_cells: 0,
+                append_output_cells: 0,
+                append_cell_deps: 0,
+                append_header_deps: 0,
+                seals: Vec::new(),
+            },
+        }
     }
 
     fn message_with_action(script_role: u8, script_hash: [u8; 32]) -> Cursor {
@@ -270,7 +294,7 @@ mod tests {
             input_types: alloc::vec![None, None, None],
             output_types: alloc::vec![],
         };
-        let layout_covering_lock_a = OtxLayout {
+        let layout_covering_lock_a = otx_entry(crate::layout::OtxLayout {
             witness_index: 0,
             base_inputs: range(0, 1),
             append_inputs: range(2, 1),
@@ -280,7 +304,7 @@ mod tests {
             append_cell_deps: range(0, 0),
             base_header_deps: range(0, 0),
             append_header_deps: range(0, 0),
-        };
+        });
 
         assert!(hashes.lock_group_fully_covered_by_otx(lock_a, &[layout_covering_lock_a]));
         assert!(!hashes.lock_group_fully_covered_by_otx(lock_a, &[]));

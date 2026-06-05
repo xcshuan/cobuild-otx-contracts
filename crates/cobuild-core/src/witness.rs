@@ -5,11 +5,11 @@ use cobuild_types::lazy_reader::support::Cursor;
 use crate::{error::CoreError, view::WitnessLayoutView};
 
 pub(crate) struct WitnessScan {
-    summaries: Vec<WitnessSummary>,
+    sighash_all_summaries: Vec<SighashAllWitnessSummary>,
 }
 
 #[derive(Clone)]
-enum WitnessSummary {
+enum SighashAllWitnessSummary {
     Empty,
     Other,
     Malformed(CoreError),
@@ -20,12 +20,13 @@ enum WitnessSummary {
 impl WitnessScan {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
-            summaries: Vec::with_capacity(capacity),
+            sighash_all_summaries: Vec::with_capacity(capacity),
         }
     }
 
     pub(crate) fn push_witness(&mut self, witness: &[u8]) -> Result<(), CoreError> {
-        self.summaries.push(Self::summarize_witness(witness)?);
+        self.sighash_all_summaries
+            .push(Self::summarize_sighash_all_witness(witness)?);
         Ok(())
     }
 
@@ -33,26 +34,27 @@ impl WitnessScan {
         &self,
         index: usize,
     ) -> Result<bool, CoreError> {
-        match self.summaries.get(index) {
-            Some(WitnessSummary::SighashAll { .. }) | Some(WitnessSummary::SighashAllOnly) => {
-                Ok(true)
+        match self.sighash_all_summaries.get(index) {
+            Some(SighashAllWitnessSummary::SighashAll { .. })
+            | Some(SighashAllWitnessSummary::SighashAllOnly) => Ok(true),
+            Some(SighashAllWitnessSummary::Malformed(error)) => Err(error.clone()),
+            Some(SighashAllWitnessSummary::Empty | SighashAllWitnessSummary::Other) | None => {
+                Ok(false)
             }
-            Some(WitnessSummary::Malformed(error)) => Err(error.clone()),
-            Some(WitnessSummary::Empty | WitnessSummary::Other) | None => Ok(false),
         }
     }
 
     pub(crate) fn unique_sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
         let mut message = None;
-        for summary in &self.summaries {
+        for summary in &self.sighash_all_summaries {
             match summary {
-                WitnessSummary::SighashAll { message: candidate } => {
+                SighashAllWitnessSummary::SighashAll { message: candidate } => {
                     if message.is_some() {
                         return Err(CoreError::DuplicateSighashAll);
                     }
                     message = Some(candidate.clone());
                 }
-                WitnessSummary::Malformed(error) => return Err(error.clone()),
+                SighashAllWitnessSummary::Malformed(error) => return Err(error.clone()),
                 _ => {}
             }
         }
@@ -63,43 +65,45 @@ impl WitnessScan {
         &self,
     ) -> Result<Option<(usize, Cursor)>, CoreError> {
         let mut message = None;
-        for (index, summary) in self.summaries.iter().enumerate() {
+        for (index, summary) in self.sighash_all_summaries.iter().enumerate() {
             match summary {
-                WitnessSummary::SighashAll { message: candidate } => {
+                SighashAllWitnessSummary::SighashAll { message: candidate } => {
                     if message.is_some() {
                         return Err(CoreError::DuplicateSighashAll);
                     }
                     message = Some((index, candidate.clone()));
                 }
-                WitnessSummary::Malformed(error) => return Err(error.clone()),
+                SighashAllWitnessSummary::Malformed(error) => return Err(error.clone()),
                 _ => {}
             }
         }
         Ok(message)
     }
 
-    fn summarize_witness(witness: &[u8]) -> Result<WitnessSummary, CoreError> {
+    fn summarize_sighash_all_witness(
+        witness: &[u8],
+    ) -> Result<SighashAllWitnessSummary, CoreError> {
         if witness.is_empty() {
-            return Ok(WitnessSummary::Empty);
+            return Ok(SighashAllWitnessSummary::Empty);
         }
 
         let view = match WitnessLayoutView::from_slice(witness) {
             Ok(view) => view,
             Err(error) => {
                 return if has_tx_level_witness_id(witness) {
-                    Ok(WitnessSummary::Malformed(error))
+                    Ok(SighashAllWitnessSummary::Malformed(error))
                 } else {
-                    Ok(WitnessSummary::Other)
+                    Ok(SighashAllWitnessSummary::Other)
                 };
             }
         };
         if let Some(message) = view.sighash_all_message()? {
-            return Ok(WitnessSummary::SighashAll { message });
+            return Ok(SighashAllWitnessSummary::SighashAll { message });
         }
         if view.is_sighash_all_only() {
-            return Ok(WitnessSummary::SighashAllOnly);
+            return Ok(SighashAllWitnessSummary::SighashAllOnly);
         }
-        Ok(WitnessSummary::Other)
+        Ok(SighashAllWitnessSummary::Other)
     }
 }
 

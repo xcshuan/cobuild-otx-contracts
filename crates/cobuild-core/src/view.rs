@@ -147,18 +147,17 @@ impl MaskView {
         if self.len() != expected_len {
             return Err(CoreError::InvalidOtxLayout);
         }
-        if bit_count == 0 {
-            return Ok(());
-        }
         let used_bits = bit_count % 8;
         if used_bits == 0 {
             return Ok(());
         }
-        for index in bit_count..(expected_len * 8) {
-            if self.get(index)? {
-                return Err(CoreError::InvalidOtxLayout);
-            }
+
+        let used_mask = (1u8 << used_bits) - 1;
+        let last_byte = self.bytes[expected_len - 1];
+        if last_byte & !used_mask != 0 {
+            return Err(CoreError::InvalidOtxLayout);
         }
+
         Ok(())
     }
 }

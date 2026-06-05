@@ -626,7 +626,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
     let witness_rs = fs::read_to_string(core_src.join("witness.rs")).expect("witness.rs");
     for expected in [
         "pub(crate) struct WitnessScan",
-        "enum WitnessSummary",
+        "enum SighashAllWitnessSummary",
         "impl WitnessScan",
         "push_witness",
         "tx_level_carrier_has_sighash_all_layout",
@@ -665,6 +665,21 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
     assert!(
         !lib_rs.contains("mod flow"),
         "lib.rs should not keep the deleted flow module"
+    );
+
+    let layout_rs = fs::read_to_string(core_src.join("layout.rs")).expect("layout.rs");
+    assert!(
+        !layout_rs.contains("pub otxs: Vec<OtxLayout>"),
+        "BuiltLayout should not duplicate OTX layout ranges beside OtxLayoutEntry"
+    );
+    assert!(
+        layout_rs.contains("pub otx_entries: Vec<OtxLayoutEntry>"),
+        "BuiltLayout should keep one entry list carrying both layout and witness view"
+    );
+    assert!(
+        !layout_rs.contains("OtxLayoutScan::Invalid")
+            && !engine_rs.contains("OtxLayoutScan::Invalid"),
+        "layout errors should return Result instead of being stored in OtxLayoutScan"
     );
 
     for forbidden in [

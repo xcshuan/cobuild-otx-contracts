@@ -6,7 +6,7 @@ use super::*;
 fn empty_tx_has_no_otx_layouts() {
     let layout = build_layout(Vec::new(), 0, 0, 0, 0).unwrap();
 
-    assert!(layout.otxs.is_empty());
+    assert!(layout.otx_entries.is_empty());
 }
 
 #[test]
@@ -194,7 +194,7 @@ fn legacy_witness_after_otx_sequence_is_allowed() {
     )
     .unwrap();
 
-    assert_eq!(layout.otxs.len(), 1);
+    assert_eq!(layout.otx_entries.len(), 1);
 }
 
 fn build_layout(
@@ -208,13 +208,11 @@ fn build_layout(
     for witness in witnesses {
         collector.push_witness(&witness)?;
     }
-    match collector.finish(input_count, output_count, cell_dep_count, header_dep_count) {
+    match collector.finish(input_count, output_count, cell_dep_count, header_dep_count)? {
         OtxLayoutScan::None => Ok(BuiltLayout {
-            otxs: Vec::new(),
             otx_entries: Vec::new(),
         }),
         OtxLayoutScan::Complete(layout) => Ok(layout),
-        OtxLayoutScan::Invalid(error) => Err(error),
     }
 }
 

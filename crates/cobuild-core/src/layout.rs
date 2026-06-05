@@ -33,7 +33,6 @@ pub struct OtxLayoutEntry {
 
 #[derive(Clone)]
 pub struct BuiltLayout {
-    pub otxs: Vec<OtxLayout>,
     pub otx_entries: Vec<OtxLayoutEntry>,
 }
 
@@ -41,7 +40,6 @@ pub struct BuiltLayout {
 pub enum OtxLayoutScan {
     None,
     Complete(BuiltLayout),
-    Invalid(CoreError),
 }
 
 pub(crate) struct OtxLayoutCollector {
@@ -86,44 +84,32 @@ impl OtxLayoutCollector {
         output_count: usize,
         cell_dep_count: usize,
         header_dep_count: usize,
-    ) -> OtxLayoutScan {
+    ) -> Result<OtxLayoutScan, CoreError> {
         let Some((start_witness_index, start_data)) = self.start else {
-            return OtxLayoutScan::None;
+            return Ok(OtxLayoutScan::None);
         };
         if self.last_layout_witness_index == Some(start_witness_index) {
-            return OtxLayoutScan::Invalid(CoreError::InvalidOtxLayout);
+            return Err(CoreError::InvalidOtxLayout);
         }
 
         let mut ranges = LayoutRangeCursor::from_start(&start_data);
-        let mut otxs = Vec::new();
         let mut otx_entries = Vec::new();
 
         for (witness_index, otx_view) in self.otx_entries {
-            if let Err(error) = validate_otx_view(&otx_view) {
-                return OtxLayoutScan::Invalid(error);
-            }
-
-            let layout = match ranges.take_layout(witness_index, &otx_view) {
-                Ok(layout) => layout,
-                Err(error) => return OtxLayoutScan::Invalid(error),
-            };
-            otxs.push(layout.clone());
+            validate_otx_view(&otx_view)?;
+            let layout = ranges.take_layout(witness_index, &otx_view)?;
             otx_entries.push(OtxLayoutEntry {
                 layout,
                 witness: otx_view,
             });
         }
 
-        if otxs.is_empty() {
-            return OtxLayoutScan::Invalid(CoreError::InvalidOtxLayout);
+        if otx_entries.is_empty() {
+            return Err(CoreError::InvalidOtxLayout);
         }
-        if let Err(error) =
-            ranges.ensure_within(input_count, output_count, cell_dep_count, header_dep_count)
-        {
-            return OtxLayoutScan::Invalid(error);
-        }
+        ranges.ensure_within(input_count, output_count, cell_dep_count, header_dep_count)?;
 
-        OtxLayoutScan::Complete(BuiltLayout { otxs, otx_entries })
+        Ok(OtxLayoutScan::Complete(BuiltLayout { otx_entries }))
     }
 
     fn layout_witness_view(witness: &[u8]) -> LayoutWitnessView {
@@ -203,31 +189,30 @@ impl LayoutRangeCursor {
     ) -> Result<OtxLayout, CoreError> {
         Ok(OtxLayout {
             witness_index,
-            base_inputs: self.take_inputs(otx_view.base_input_cells)?,
-            append_inputs: self.take_inputs(otx_view.append_input_cells)?,
-            base_outputs: self.take_outputs(otx_view.base_output_cells)?,
-            append_outputs: self.take_outputs(otx_view.append_output_cells)?,
-            base_cell_deps: self.take_cell_deps(otx_view.base_cell_deps)?,
-            append_cell_deps: self.take_cell_deps(otx_view.append_cell_deps)?,
-            base_header_deps: self.take_header_deps(otx_view.base_header_deps)?,
-            append_header_deps: self.take_header_deps(otx_view.append_header_deps)?,
+            base_inputs: Self::take_range(&mut self.next_input, otx_view.base_input_cells)?,
+            append_inputs: Self::take_range(&mut self.next_input, otx_view.append_input_cells)?,
+            base_outputs: Self::take_range(&mut self.next_output, otx_view.base_output_cells)?,
+            append_outputs: Self::take_range(&mut self.next_output, otx_view.append_output_cells)?,
+            base_cell_deps: Self::take_range(&mut self.next_cell_dep, otx_view.base_cell_deps)?,
+            append_cell_deps: Self::take_range(&mut self.next_cell_dep, otx_view.append_cell_deps)?,
+            base_header_deps: Self::take_range(
+                &mut self.next_header_dep,
+                otx_view.base_header_deps,
+            )?,
+            append_header_deps: Self::take_range(
+                &mut self.next_header_dep,
+                otx_view.append_header_deps,
+            )?,
         })
     }
 
-    fn take_inputs(&mut self, count: usize) -> Result<Range, CoreError> {
-        take_range(&mut self.next_input, count)
-    }
-
-    fn take_outputs(&mut self, count: usize) -> Result<Range, CoreError> {
-        take_range(&mut self.next_output, count)
-    }
-
-    fn take_cell_deps(&mut self, count: usize) -> Result<Range, CoreError> {
-        take_range(&mut self.next_cell_dep, count)
-    }
-
-    fn take_header_deps(&mut self, count: usize) -> Result<Range, CoreError> {
-        take_range(&mut self.next_header_dep, count)
+    fn take_range(next: &mut usize, count: usize) -> Result<Range, CoreError> {
+        let range = Range {
+            start: *next,
+            count,
+        };
+        *next = next.checked_add(count).ok_or(CoreError::InvalidOtxLayout)?;
+        Ok(range)
     }
 
     fn ensure_within(
@@ -243,17 +228,6 @@ impl LayoutRangeCursor {
         ensure_within(self.next_header_dep, header_dep_count)?;
         Ok(())
     }
-}
-
-fn take_range(start: &mut usize, count: usize) -> Result<Range, CoreError> {
-    let range = Range {
-        start: *start,
-        count,
-    };
-    *start = start
-        .checked_add(count)
-        .ok_or(CoreError::InvalidOtxLayout)?;
-    Ok(range)
 }
 
 fn ensure_within(value: usize, max: usize) -> Result<(), CoreError> {
