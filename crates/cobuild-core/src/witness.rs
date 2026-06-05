@@ -126,7 +126,10 @@ fn has_tx_level_witness_id(witness: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::WitnessScan;
+    use crate::error::CoreError;
 
     #[test]
     fn tx_level_carrier_returns_false_for_empty_or_other_witness() {
@@ -137,5 +140,106 @@ mod tests {
         assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(0), Ok(false));
         assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(1), Ok(false));
         assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(2), Ok(false));
+    }
+
+    #[test]
+    fn malformed_relevant_tx_level_witness_is_retained_and_reported() {
+        let mut scan = WitnessScan::with_capacity(1);
+        scan.push_witness(&0xff00_0001u32.to_le_bytes()).unwrap();
+
+        assert_eq!(
+            scan.tx_level_carrier_has_sighash_all_layout(0),
+            Err(CoreError::InvalidOtxLayout)
+        );
+        assert_eq!(
+            scan.unique_sighash_all_message()
+                .map(|message| message.is_some()),
+            Err(CoreError::InvalidOtxLayout)
+        );
+    }
+
+    #[test]
+    fn duplicate_sighash_all_messages_are_rejected() {
+        let mut scan = WitnessScan::with_capacity(2);
+        let message = empty_message();
+        scan.push_witness(&sighash_all_witness_bytes(&[0x11], &message))
+            .unwrap();
+        scan.push_witness(&sighash_all_witness_bytes(&[0x22], &message))
+            .unwrap();
+
+        assert_eq!(
+            scan.unique_sighash_all_message()
+                .map(|message| message.is_some()),
+            Err(CoreError::DuplicateSighashAll)
+        );
+        assert_eq!(
+            scan.unique_sighash_all_message_with_index()
+                .map(|message| message.map(|(index, _)| index)),
+            Err(CoreError::DuplicateSighashAll)
+        );
+    }
+
+    #[test]
+    fn sighash_all_only_is_carrier_layout_without_unique_message() {
+        let mut scan = WitnessScan::with_capacity(1);
+        scan.push_witness(&sighash_all_only_witness_bytes(&[0x11, 0x22]))
+            .unwrap();
+
+        assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(0), Ok(true));
+        assert_eq!(
+            scan.unique_sighash_all_message()
+                .map(|message| message.is_some()),
+            Ok(false)
+        );
+        assert_eq!(
+            scan.unique_sighash_all_message_with_index()
+                .map(|message| message.map(|(index, _)| index)),
+            Ok(None)
+        );
+    }
+
+    fn sighash_all_witness_bytes(seal: &[u8], message: &[u8]) -> Vec<u8> {
+        let seal_bytes = molecule_bytes(seal);
+        let item = table_bytes(&[seal_bytes, message.to_vec()]);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0xff00_0001u32.to_le_bytes());
+        bytes.extend_from_slice(&item);
+        bytes
+    }
+
+    fn sighash_all_only_witness_bytes(seal: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0xff00_0002u32.to_le_bytes());
+        bytes.extend_from_slice(&table_bytes(&[molecule_bytes(seal)]));
+        bytes
+    }
+
+    fn empty_message() -> Vec<u8> {
+        table_bytes(&[4u32.to_le_bytes().to_vec()])
+    }
+
+    fn molecule_bytes(raw: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(4 + raw.len());
+        bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(raw);
+        bytes
+    }
+
+    fn table_bytes(fields: &[Vec<u8>]) -> Vec<u8> {
+        let header_size = 4 + fields.len() * 4;
+        let total_size = header_size + fields.iter().map(Vec::len).sum::<usize>();
+        let mut bytes = Vec::with_capacity(total_size);
+        bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
+
+        let mut offset = header_size;
+        for field in fields {
+            bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+            offset += field.len();
+        }
+        for field in fields {
+            bytes.extend_from_slice(field);
+        }
+
+        bytes
     }
 }
