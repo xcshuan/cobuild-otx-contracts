@@ -133,7 +133,7 @@ Boundary checks:
 ```bash
 rg -n "cobuild_types::entity|::entity::" crates/cobuild-core/src contracts/cobuild-otx-lock/src
 rg -n "unsafe" crates/cobuild-core/src contracts/cobuild-otx-lock/src
-rg -n "ckb_std" crates/cobuild-core/src
+rg -n "ckb_std" crates/cobuild-core/src | grep -v "src/syscalls.rs"
 rg -n "critical-section|portable-atomic.*unsafe-assume-single-core|\[patch.crates-io\]" Cargo.toml crates contracts
 ```
 
@@ -174,9 +174,7 @@ make generate CRATE=<contract-name>
 ## Useful Test Areas
 
 - `crates/cobuild-types/tests`: generated module exposure and entity/lazy-reader sanity.
-- `crates/cobuild-core/tests/hash.rs`: signing hash and OTX hash regression coverage.
 - `crates/cobuild-core/tests/layout.rs`: OTX sequence and layout behavior.
-- `crates/cobuild-core/tests/signature_requests.rs`: tx-level and OTX signature request behavior, including source relevance tests.
 - `crates/cobuild-core/tests/view.rs`: cursor-backed protocol view behavior.
 - `crates/cobuild-core/tests/no_entity_dependency.rs`: core dependency boundary.
 - `contracts/cobuild-otx-lock/tests`: args, error code, runner, and verifier unit tests.

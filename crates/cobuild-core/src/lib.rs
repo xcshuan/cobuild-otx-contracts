@@ -5,7 +5,7 @@ pub mod context;
 pub mod engine;
 pub mod error;
 mod flow;
-pub mod hash;
+mod hash;
 pub mod layout;
 mod message;
 pub mod plan;

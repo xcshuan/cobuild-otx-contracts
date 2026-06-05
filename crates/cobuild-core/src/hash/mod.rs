@@ -62,7 +62,7 @@ fn tx_signing_hash(
     Ok(out)
 }
 
-pub fn checked_len_prefix(len: usize) -> Result<[u8; 4], CoreError> {
+pub(crate) fn checked_len_prefix(len: usize) -> Result<[u8; 4], CoreError> {
     let len = u32::try_from(len).map_err(|_| CoreError::HashInputTooLarge)?;
     Ok(len.to_le_bytes())
 }
