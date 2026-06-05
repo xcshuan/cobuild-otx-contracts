@@ -831,7 +831,7 @@ cargo check --workspace --offline
 cargo test -p tests --offline --test contract_template_layout
 ```
 
-Expected: PASS after updating all call sites.
+Expected: `cargo check` passes. `contract_template_layout` may still fail only on the Task 6 `LockPlanBuilder` / `TypePlanBuilder` requirements; all other architecture guards should pass after updating call sites.
 
 - [ ] **Step 6: Commit**
 
