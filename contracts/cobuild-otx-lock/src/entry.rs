@@ -3,7 +3,7 @@ use ckb_std::{
     ckb_types::prelude::Unpack,
     high_level::{load_script, load_script_hash},
 };
-use cobuild_core::engine::CobuildEngine;
+use cobuild_core::engine::CobuildContext;
 
 use crate::{
     args::AuthContext,
@@ -19,7 +19,7 @@ pub fn main() -> Result<(), Error> {
     };
 
     let current_script_hash = load_script_hash()?;
-    let plan = CobuildEngine::prepare_from_syscalls()?.plan_lock_validation(current_script_hash)?;
+    let plan = CobuildContext::from_syscalls()?.plan_lock_validation(current_script_hash)?;
 
     if plan.required_signatures.is_empty() {
         return Err(Error::LockSemanticFailure);

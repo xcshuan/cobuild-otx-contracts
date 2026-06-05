@@ -7,7 +7,6 @@ pub mod error;
 mod hash;
 pub mod layout;
 pub mod plan;
-pub mod prepare;
 pub mod protocol;
 pub mod reader;
 mod seal;

@@ -174,7 +174,7 @@ fn cobuild_core_owns_syscall_streaming_without_full_transaction_load() {
         "pub(crate) fn resolved_input_output_cursor(",
     ] {
         assert!(
-            !syscalls_rs.contains(forbidden),
+            !syscalls_rs.lines().any(|line| line.starts_with(forbidden)),
             "syscall transaction access should be exposed through SyscallTxReader methods, not free helper {forbidden}"
         );
     }

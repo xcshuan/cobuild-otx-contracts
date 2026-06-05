@@ -42,12 +42,12 @@ The implementation plan is already marked complete. New work should be handled a
   - message action target validation.
 - `cobuild-otx-lock` stays thin:
   - load current script args and script hash;
-  - call `CobuildEngine::prepare_from_syscalls()`;
+  - call `CobuildContext::from_syscalls()`;
   - invoke verifier;
   - map errors to stable exit codes.
 - `cobuild-core` owns syscall-backed transaction reading through its internal `syscalls` module;
 - `cobuild-otx-lock` does not own transaction readers or source traits;
-- production Cobuild preparation uses `CobuildEngine::prepare_from_syscalls()`;
+- production Cobuild preparation uses `CobuildContext::from_syscalls()`;
 - source-trait compatibility layers are intentionally removed.
 - The lock contract must not parse Cobuild protocol details, scan OTX layouts, construct Cobuild hash preimages, or depend on `cobuild_types::entity`.
 - Do not add a local `critical-section` shim.
@@ -74,7 +74,7 @@ The Cobuild OTX hash path needs both raw transaction fields and resolved input d
 
 This mirrors the reference POC split: raw tx lazy reads are appropriate for transaction fields such as inputs, outputs, output data, cell deps, and header deps; syscall-resolved data is still required for previous input cells.
 
-The lock path must not load the whole transaction into a `Vec`. Use `ckb_std::high_level` in the lock for owned or fixed-size reads such as current script args and script hash. Keep transaction-range, resolved-input, and hash preimage reads inside `cobuild-core` syscall helpers, then prepare validation state with `CobuildEngine::prepare_from_syscalls()`. This depends on the repository's Rust 1.92 toolchain plus `ckb-std` `dummy-atomic`; do not move the contract target back to a newer toolchain or switch the RISC-V target to `+a` without rebuilding the contract and confirming the integration tests still pass under the active `ckb-script` verifier. `crates/cobuild-core/src/prepare.rs` owns context preparation. The old core and lock loader module names should not be reintroduced.
+The lock path must not load the whole transaction into a `Vec`. Use `ckb_std::high_level` in the lock for owned or fixed-size reads such as current script args and script hash. Keep transaction-range, resolved-input, and hash preimage reads inside `cobuild-core` syscall helpers, then prepare validation state with `CobuildContext::from_syscalls()`. This depends on the repository's Rust 1.92 toolchain plus `ckb-std` `dummy-atomic`; do not move the contract target back to a newer toolchain or switch the RISC-V target to `+a` without rebuilding the contract and confirming the integration tests still pass under the active `ckb-script` verifier. `crates/cobuild-core/src/engine.rs` owns context preparation through `CobuildContext::from_syscalls()`. The old core and lock loader module names should not be reintroduced.
 
 ## View Boundary
 
@@ -186,8 +186,8 @@ The clean Cobuild OTX implementation plan and the streaming source/view refactor
 
 - core reader helpers live in `crates/cobuild-core/src/reader.rs`;
 - concrete syscall transaction helpers live in `crates/cobuild-core/src/syscalls.rs`;
-- context preparation lives in `crates/cobuild-core/src/prepare.rs`;
-- the lock delegates Cobuild preparation to `CobuildEngine::prepare_from_syscalls()`;
+- context preparation lives in `crates/cobuild-core/src/engine.rs`;
+- the lock delegates Cobuild preparation to `CobuildContext::from_syscalls()`;
 - hash/query flow uses concrete syscall helpers;
 - view DTOs are cursor-backed.
 

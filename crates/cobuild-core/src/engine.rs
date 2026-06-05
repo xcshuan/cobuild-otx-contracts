@@ -8,23 +8,21 @@ use crate::{
     plan::{LockValidationPlan, SignatureOrigin, SigningRequirement, TypeValidationPlan},
     protocol::SealScope,
     reader::{cursor_bytes, cursor_bytes_with_error},
-    syscalls,
+    syscalls::SyscallTxReader,
     view::{SighashAllWitnessView, WitnessLayoutView},
     witness::WitnessScan,
 };
 
-pub struct CobuildEngine;
-
-pub struct PreparedCobuild {
-    pub(crate) tx: syscalls::SyscallTxReader,
+pub struct CobuildContext {
+    pub(crate) tx: SyscallTxReader,
     pub(crate) script_hashes: TxScriptHashes,
     witnesses: WitnessScan,
     pub(crate) layout_scan: OtxLayoutScan,
 }
 
-impl CobuildEngine {
-    pub fn prepare_from_syscalls() -> Result<PreparedCobuild, CoreError> {
-        let tx = syscalls::SyscallTxReader::default();
+impl CobuildContext {
+    pub fn from_syscalls() -> Result<Self, CoreError> {
+        let tx = SyscallTxReader::default();
         let counts = tx.counts()?;
         let script_hashes = TxScriptHashes::from_reader(&tx)?;
         let mut witnesses = WitnessScan::with_capacity(counts.witnesses);
@@ -42,16 +40,14 @@ impl CobuildEngine {
             counts.header_deps,
         );
 
-        Ok(PreparedCobuild {
+        Ok(Self {
             tx,
             script_hashes,
             witnesses,
             layout_scan,
         })
     }
-}
 
-impl PreparedCobuild {
     pub fn plan_lock_validation(
         &self,
         lock_script_hash: [u8; 32],
