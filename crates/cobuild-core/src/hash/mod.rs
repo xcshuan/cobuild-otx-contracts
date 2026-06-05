@@ -14,22 +14,22 @@ use crate::{
 };
 
 pub(crate) fn tx_without_message_hash(
-    counts_cache: &syscalls::TxCountsCache,
+    reader: &syscalls::SyscallTxReader,
 ) -> Result<[u8; 32], CoreError> {
-    tx_signing_hash(b"ckbcb_tnm_core1\0", None, counts_cache)
+    tx_signing_hash(b"ckbcb_tnm_core1\0", None, reader)
 }
 
 pub(crate) fn tx_with_message_hash(
     message: &Cursor,
-    counts_cache: &syscalls::TxCountsCache,
+    reader: &syscalls::SyscallTxReader,
 ) -> Result<[u8; 32], CoreError> {
-    tx_signing_hash(b"ckbcb_twm_core1\0", Some(message), counts_cache)
+    tx_signing_hash(b"ckbcb_twm_core1\0", Some(message), reader)
 }
 
 fn tx_signing_hash(
     personalization: &[u8; 16],
     message: Option<&Cursor>,
-    counts_cache: &syscalls::TxCountsCache,
+    reader: &syscalls::SyscallTxReader,
 ) -> Result<[u8; 32], CoreError> {
     let mut out = [0u8; 32];
     let mut hasher = Blake2bBuilder::new(32).personal(personalization).build();
@@ -37,12 +37,12 @@ fn tx_signing_hash(
     if let Some(message) = message {
         writer::write_cursor_with_error(&mut hasher, message, CoreError::MalformedCobuild)?;
     }
-    hasher.update(&syscalls::tx_hash()?);
-    let counts = syscalls::counts(counts_cache)?;
+    hasher.update(&reader.tx_hash()?);
+    let counts = reader.counts()?;
     for index in 0..counts.inputs {
-        let output = syscalls::resolved_input_output_cursor(index)?;
+        let output = reader.resolved_input_output_cursor(index)?;
         writer::write_cursor_with_error(&mut hasher, &output, CoreError::MissingHashInput)?;
-        let data = syscalls::resolved_input_data_cursor(index)?;
+        let data = reader.resolved_input_data_cursor(index)?;
         writer::write_len_prefixed_cursor_with_error(
             &mut hasher,
             &data,
@@ -50,7 +50,7 @@ fn tx_signing_hash(
         )?;
     }
     for index in counts.inputs..counts.witnesses {
-        let witness = syscalls::witness_cursor(index)?;
+        let witness = reader.witness_cursor(index)?;
         writer::write_len_prefixed_cursor_with_error(
             &mut hasher,
             &witness,
@@ -70,7 +70,7 @@ pub(crate) fn checked_len_prefix(len: usize) -> Result<[u8; 4], CoreError> {
 pub(crate) fn otx_base_hash(
     otx: &OtxView,
     layout: &OtxLayout,
-    _counts_cache: &syscalls::TxCountsCache,
+    reader: &syscalls::SyscallTxReader,
 ) -> Result<[u8; 32], CoreError> {
     let mut out = [0u8; 32];
     let mut hasher = Blake2bBuilder::new(32)
@@ -87,7 +87,7 @@ pub(crate) fn otx_base_hash(
     )?;
     for local_index in 0..otx.base_input_cells {
         let tx_index = checked_index(layout.base_inputs, local_index)?;
-        let input = syscalls::raw_input_cursor(tx_index)?;
+        let input = reader.raw_input_cursor(tx_index)?;
         let input_view = CellInput::from(input.clone());
 
         writer::write_count(&mut hasher, local_index)?;
@@ -109,13 +109,13 @@ pub(crate) fn otx_base_hash(
                 CoreError::MissingHashInput,
             )?;
         }
-        let resolved_output = syscalls::resolved_input_output_cursor(tx_index)?;
+        let resolved_output = reader.resolved_input_output_cursor(tx_index)?;
         writer::write_cursor_with_error(
             &mut hasher,
             &resolved_output,
             CoreError::MissingHashInput,
         )?;
-        let resolved_data = syscalls::resolved_input_data_cursor(tx_index)?;
+        let resolved_data = reader.resolved_input_data_cursor(tx_index)?;
         writer::write_len_prefixed_cursor_with_error(
             &mut hasher,
             &resolved_data,
@@ -131,7 +131,7 @@ pub(crate) fn otx_base_hash(
     )?;
     for local_index in 0..otx.base_output_cells {
         let tx_index = checked_index(layout.base_outputs, local_index)?;
-        let output = syscalls::raw_output_cursor(tx_index)?;
+        let output = reader.raw_output_cursor(tx_index)?;
         let output_view = CellOutput::from(output.clone());
 
         writer::write_count(&mut hasher, local_index)?;
@@ -165,7 +165,7 @@ pub(crate) fn otx_base_hash(
             )?;
         }
         if mask_bit(&otx.base_output_masks, local_index * 4 + 3)? {
-            let output_data = syscalls::raw_output_data_cursor(tx_index)?;
+            let output_data = reader.raw_output_data_cursor(tx_index)?;
             writer::write_len_prefixed_cursor_with_error(
                 &mut hasher,
                 &output_data,
@@ -183,7 +183,7 @@ pub(crate) fn otx_base_hash(
     for local_index in 0..otx.base_cell_deps {
         if mask_bit(&otx.base_cell_dep_masks, local_index)? {
             let tx_index = checked_index(layout.base_cell_deps, local_index)?;
-            let cell_dep = syscalls::raw_cell_dep_cursor(tx_index)?;
+            let cell_dep = reader.raw_cell_dep_cursor(tx_index)?;
             writer::write_count(&mut hasher, local_index)?;
             writer::write_cursor_with_error(&mut hasher, &cell_dep, CoreError::MissingHashInput)?;
         }
@@ -199,7 +199,7 @@ pub(crate) fn otx_base_hash(
         if mask_bit(&otx.base_header_dep_masks, local_index)? {
             let tx_index = checked_index(layout.base_header_deps, local_index)?;
             writer::write_count(&mut hasher, local_index)?;
-            hasher.update(&syscalls::raw_header_dep_hash(tx_index)?);
+            hasher.update(&reader.raw_header_dep_hash(tx_index)?);
         }
     }
 
@@ -210,7 +210,7 @@ pub(crate) fn otx_base_hash(
 pub(crate) fn otx_append_hash(
     otx: &OtxView,
     layout: &OtxLayout,
-    _counts_cache: &syscalls::TxCountsCache,
+    reader: &syscalls::SyscallTxReader,
     base_hash: [u8; 32],
 ) -> Result<[u8; 32], CoreError> {
     let mut out = [0u8; 32];
@@ -223,16 +223,16 @@ pub(crate) fn otx_append_hash(
     writer::write_count(&mut hasher, otx.append_input_cells)?;
     for local_index in 0..otx.append_input_cells {
         let tx_index = checked_index(layout.append_inputs, local_index)?;
-        let input = syscalls::raw_input_cursor(tx_index)?;
+        let input = reader.raw_input_cursor(tx_index)?;
         writer::write_count(&mut hasher, local_index)?;
         writer::write_cursor_with_error(&mut hasher, &input, CoreError::MissingHashInput)?;
-        let resolved_output = syscalls::resolved_input_output_cursor(tx_index)?;
+        let resolved_output = reader.resolved_input_output_cursor(tx_index)?;
         writer::write_cursor_with_error(
             &mut hasher,
             &resolved_output,
             CoreError::MissingHashInput,
         )?;
-        let resolved_data = syscalls::resolved_input_data_cursor(tx_index)?;
+        let resolved_data = reader.resolved_input_data_cursor(tx_index)?;
         writer::write_len_prefixed_cursor_with_error(
             &mut hasher,
             &resolved_data,
@@ -244,9 +244,9 @@ pub(crate) fn otx_append_hash(
     for local_index in 0..otx.append_output_cells {
         let tx_index = checked_index(layout.append_outputs, local_index)?;
         writer::write_count(&mut hasher, local_index)?;
-        let output = syscalls::raw_output_cursor(tx_index)?;
+        let output = reader.raw_output_cursor(tx_index)?;
         writer::write_cursor_with_error(&mut hasher, &output, CoreError::MissingHashInput)?;
-        let output_data = syscalls::raw_output_data_cursor(tx_index)?;
+        let output_data = reader.raw_output_data_cursor(tx_index)?;
         writer::write_len_prefixed_cursor_with_error(
             &mut hasher,
             &output_data,
@@ -258,7 +258,7 @@ pub(crate) fn otx_append_hash(
     for local_index in 0..otx.append_cell_deps {
         let tx_index = checked_index(layout.append_cell_deps, local_index)?;
         writer::write_count(&mut hasher, local_index)?;
-        let cell_dep = syscalls::raw_cell_dep_cursor(tx_index)?;
+        let cell_dep = reader.raw_cell_dep_cursor(tx_index)?;
         writer::write_cursor_with_error(&mut hasher, &cell_dep, CoreError::MissingHashInput)?;
     }
 
@@ -266,7 +266,7 @@ pub(crate) fn otx_append_hash(
     for local_index in 0..otx.append_header_deps {
         let tx_index = checked_index(layout.append_header_deps, local_index)?;
         writer::write_count(&mut hasher, local_index)?;
-        hasher.update(&syscalls::raw_header_dep_hash(tx_index)?);
+        hasher.update(&reader.raw_header_dep_hash(tx_index)?);
     }
 
     hasher.finalize(&mut out);

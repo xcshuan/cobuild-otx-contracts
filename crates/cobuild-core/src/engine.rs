@@ -11,14 +11,14 @@ use crate::{
     plan::{LockValidationPlan, SignatureOrigin, SigningRequirement, TypeValidationPlan},
     protocol::SealScope,
     reader::{cursor_bytes, cursor_bytes_with_error},
-    syscalls::{self, TxCounts, TxCountsCache},
+    syscalls::{self, TxCounts},
     view::{SighashAllWitnessView, WitnessLayoutView},
 };
 
 pub struct CobuildEngine;
 
 pub struct PreparedCobuild {
-    pub(crate) counts_cache: TxCountsCache,
+    pub(crate) tx: syscalls::SyscallTxReader,
     pub(crate) script_hashes: ScriptHashIndex,
     witness_summaries: Vec<WitnessSummary>,
     pub(crate) layout_scan: OtxLayoutScan,
@@ -35,13 +35,13 @@ enum WitnessSummary {
 
 impl CobuildEngine {
     pub fn prepare_from_syscalls() -> Result<PreparedCobuild, CoreError> {
-        let counts_cache = TxCountsCache::default();
-        let counts = syscalls::counts(&counts_cache)?;
-        let script_hashes = script_hashes_from_syscalls(counts)?;
+        let tx = syscalls::SyscallTxReader::default();
+        let counts = tx.counts()?;
+        let script_hashes = script_hashes_from_syscalls(&tx, counts)?;
         let mut witness_summaries = Vec::with_capacity(counts.witnesses);
         let mut layout_collector = OtxLayoutCollector::new();
         for index in 0..counts.witnesses {
-            let witness = syscalls::witness_cursor(index)?;
+            let witness = tx.witness_cursor(index)?;
             let witness = cursor_bytes_with_error(&witness, CoreError::MissingHashInput)?;
             witness_summaries.push(witness_summary(&witness)?);
             layout_collector.push_witness(&witness);
@@ -54,7 +54,7 @@ impl CobuildEngine {
         );
 
         Ok(PreparedCobuild {
-            counts_cache,
+            tx,
             script_hashes,
             witness_summaries,
             layout_scan,
@@ -104,7 +104,7 @@ impl PreparedCobuild {
                     }
 
                     validate_message_targets(&otx.witness.message, &self.script_hashes)?;
-                    let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.counts_cache)?;
+                    let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.tx)?;
                     if base_relevant {
                         let seal = crate::seal::unique_otx_seal_by_scope(
                             lock_script_hash,
@@ -131,7 +131,7 @@ impl PreparedCobuild {
                             signing_message_hash: otx_append_hash(
                                 &otx.witness,
                                 &otx.layout,
-                                &self.counts_cache,
+                                &self.tx,
                                 base_hash,
                             )?,
                         });
@@ -309,7 +309,7 @@ impl PreparedCobuild {
             Some(WitnessSummary::Empty | WitnessSummary::Other) | None => return Ok(Vec::new()),
         }
 
-        let carrier = syscalls::witness_cursor(carrier_witness_index)?;
+        let carrier = self.tx.witness_cursor(carrier_witness_index)?;
         let carrier_bytes = cursor_bytes_with_error(&carrier, CoreError::MissingHashInput)?;
         let view = WitnessLayoutView::from_slice(&carrier_bytes)?;
         let Some(sighash_all_witness_layout) = view.sighash_all_witness_layout()? else {
@@ -321,16 +321,16 @@ impl PreparedCobuild {
             SighashAllWitnessView::WithMessage { seal, message } => {
                 let message = tx_message.as_ref().unwrap_or(&message);
                 validate_message_targets(message, &self.script_hashes)?;
-                let signing_message_hash = tx_with_message_hash(message, &self.counts_cache)?;
+                let signing_message_hash = tx_with_message_hash(message, &self.tx)?;
                 (cursor_bytes(&seal)?, signing_message_hash)
             }
             SighashAllWitnessView::SealOnly { seal } => {
                 let signing_message_hash = match tx_message {
                     Some(message) => {
                         validate_message_targets(&message, &self.script_hashes)?;
-                        tx_with_message_hash(&message, &self.counts_cache)?
+                        tx_with_message_hash(&message, &self.tx)?
                     }
-                    None => tx_without_message_hash(&self.counts_cache)?,
+                    None => tx_without_message_hash(&self.tx)?,
                 };
                 (cursor_bytes(&seal)?, signing_message_hash)
             }
@@ -345,17 +345,20 @@ impl PreparedCobuild {
     }
 }
 
-fn script_hashes_from_syscalls(counts: TxCounts) -> Result<ScriptHashIndex, CoreError> {
+fn script_hashes_from_syscalls(
+    tx: &syscalls::SyscallTxReader,
+    counts: TxCounts,
+) -> Result<ScriptHashIndex, CoreError> {
     let mut input_locks = Vec::with_capacity(counts.inputs);
     let mut input_types = Vec::with_capacity(counts.inputs);
     for index in 0..counts.inputs {
-        input_locks.push(syscalls::input_lock_hash(index)?);
-        input_types.push(syscalls::input_type_hash(index)?);
+        input_locks.push(tx.input_lock_hash(index)?);
+        input_types.push(tx.input_type_hash(index)?);
     }
 
     let mut output_types = Vec::with_capacity(counts.outputs);
     for index in 0..counts.outputs {
-        output_types.push(syscalls::output_type_hash(index)?);
+        output_types.push(tx.output_type_hash(index)?);
     }
 
     Ok(ScriptHashIndex {

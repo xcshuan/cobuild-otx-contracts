@@ -80,18 +80,18 @@ fn syscall_cursor(target: SyscallReadTarget, error: CoreError) -> Result<Cursor,
     Ok(Cursor::new(total_size, Box::new(reader)))
 }
 
-pub(crate) fn hash_transaction_cursor() -> Result<Cursor, CoreError> {
+fn hash_transaction_cursor() -> Result<Cursor, CoreError> {
     syscall_cursor(SyscallReadTarget::Transaction, CoreError::MissingHashInput)
 }
 
-pub(crate) fn resolved_input_output_cursor(index: usize) -> Result<Cursor, CoreError> {
+fn resolved_input_output_cursor(index: usize) -> Result<Cursor, CoreError> {
     syscall_cursor(
         SyscallReadTarget::ResolvedInputCell { index },
         CoreError::MissingHashInput,
     )
 }
 
-pub(crate) fn resolved_input_data_cursor(index: usize) -> Result<Cursor, CoreError> {
+fn resolved_input_data_cursor(index: usize) -> Result<Cursor, CoreError> {
     syscall_cursor(
         SyscallReadTarget::ResolvedInputData { index },
         CoreError::MissingHashInput,
@@ -108,17 +108,76 @@ pub(crate) struct TxCounts {
 }
 
 #[derive(Default)]
-pub(crate) struct TxCountsCache {
+struct TxCountsCache {
     counts: Cell<Option<TxCounts>>,
 }
 
 impl TxCountsCache {
-    pub(crate) fn counts(&self) -> Option<TxCounts> {
+    fn counts(&self) -> Option<TxCounts> {
         self.counts.get()
     }
 
-    pub(crate) fn set_counts(&self, counts: TxCounts) {
+    fn set_counts(&self, counts: TxCounts) {
         self.counts.set(Some(counts));
+    }
+}
+
+#[derive(Default)]
+pub(crate) struct SyscallTxReader {
+    counts_cache: TxCountsCache,
+}
+
+impl SyscallTxReader {
+    pub(crate) fn counts(&self) -> Result<TxCounts, CoreError> {
+        counts(&self.counts_cache)
+    }
+
+    pub(crate) fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
+        tx_hash()
+    }
+
+    pub(crate) fn witness_cursor(&self, absolute_index: usize) -> Result<Cursor, CoreError> {
+        witness_cursor(absolute_index)
+    }
+
+    pub(crate) fn raw_input_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+        raw_input_cursor(index)
+    }
+
+    pub(crate) fn raw_output_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+        raw_output_cursor(index)
+    }
+
+    pub(crate) fn raw_output_data_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+        raw_output_data_cursor(index)
+    }
+
+    pub(crate) fn raw_cell_dep_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+        raw_cell_dep_cursor(index)
+    }
+
+    pub(crate) fn raw_header_dep_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
+        raw_header_dep_hash(index)
+    }
+
+    pub(crate) fn resolved_input_output_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+        resolved_input_output_cursor(index)
+    }
+
+    pub(crate) fn resolved_input_data_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
+        resolved_input_data_cursor(index)
+    }
+
+    pub(crate) fn input_lock_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
+        input_lock_hash(index)
+    }
+
+    pub(crate) fn input_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        input_type_hash(index)
+    }
+
+    pub(crate) fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        output_type_hash(index)
     }
 }
 
@@ -132,7 +191,7 @@ fn raw_transaction_for_hash() -> Result<RawTransaction, CoreError> {
         .map_err(|_| CoreError::MissingHashInput)
 }
 
-pub(crate) fn counts(cache: &TxCountsCache) -> Result<TxCounts, CoreError> {
+fn counts(cache: &TxCountsCache) -> Result<TxCounts, CoreError> {
     if let Some(counts) = cache.counts() {
         return Ok(counts);
     }
@@ -165,14 +224,14 @@ pub(crate) fn counts(cache: &TxCountsCache) -> Result<TxCounts, CoreError> {
     Ok(counts)
 }
 
-pub(crate) fn witness_cursor(absolute_index: usize) -> Result<Cursor, CoreError> {
+fn witness_cursor(absolute_index: usize) -> Result<Cursor, CoreError> {
     transaction_view_for_hash()?
         .witnesses()
         .and_then(|witnesses| witnesses.get(absolute_index))
         .map_err(|_| CoreError::MissingHashInput)
 }
 
-pub(crate) fn raw_input_cursor(index: usize) -> Result<Cursor, CoreError> {
+fn raw_input_cursor(index: usize) -> Result<Cursor, CoreError> {
     Ok(raw_transaction_for_hash()?
         .inputs()
         .and_then(|inputs| inputs.get(index))
@@ -180,7 +239,7 @@ pub(crate) fn raw_input_cursor(index: usize) -> Result<Cursor, CoreError> {
         .cursor)
 }
 
-pub(crate) fn raw_output_cursor(index: usize) -> Result<Cursor, CoreError> {
+fn raw_output_cursor(index: usize) -> Result<Cursor, CoreError> {
     Ok(raw_transaction_for_hash()?
         .outputs()
         .and_then(|outputs| outputs.get(index))
@@ -188,14 +247,14 @@ pub(crate) fn raw_output_cursor(index: usize) -> Result<Cursor, CoreError> {
         .cursor)
 }
 
-pub(crate) fn raw_output_data_cursor(index: usize) -> Result<Cursor, CoreError> {
+fn raw_output_data_cursor(index: usize) -> Result<Cursor, CoreError> {
     raw_transaction_for_hash()?
         .outputs_data()
         .and_then(|outputs_data| outputs_data.get(index))
         .map_err(|_| CoreError::MissingHashInput)
 }
 
-pub(crate) fn raw_cell_dep_cursor(index: usize) -> Result<Cursor, CoreError> {
+fn raw_cell_dep_cursor(index: usize) -> Result<Cursor, CoreError> {
     Ok(raw_transaction_for_hash()?
         .cell_deps()
         .and_then(|cell_deps| cell_deps.get(index))
@@ -203,28 +262,28 @@ pub(crate) fn raw_cell_dep_cursor(index: usize) -> Result<Cursor, CoreError> {
         .cursor)
 }
 
-pub(crate) fn raw_header_dep_hash(index: usize) -> Result<[u8; 32], CoreError> {
+fn raw_header_dep_hash(index: usize) -> Result<[u8; 32], CoreError> {
     raw_transaction_for_hash()?
         .header_deps()
         .and_then(|header_deps| header_deps.get(index))
         .map_err(|_| CoreError::MissingHashInput)
 }
 
-pub(crate) fn tx_hash() -> Result<[u8; 32], CoreError> {
+fn tx_hash() -> Result<[u8; 32], CoreError> {
     high_level::load_tx_hash().map_err(|_| CoreError::InvalidContextInput)
 }
 
-pub(crate) fn input_lock_hash(index: usize) -> Result<[u8; 32], CoreError> {
+fn input_lock_hash(index: usize) -> Result<[u8; 32], CoreError> {
     high_level::load_cell_lock_hash(index, Source::Input)
         .map_err(|_| CoreError::InvalidContextInput)
 }
 
-pub(crate) fn input_type_hash(index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+fn input_type_hash(index: usize) -> Result<Option<[u8; 32]>, CoreError> {
     high_level::load_cell_type_hash(index, Source::Input)
         .map_err(|_| CoreError::InvalidContextInput)
 }
 
-pub(crate) fn output_type_hash(index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+fn output_type_hash(index: usize) -> Result<Option<[u8; 32]>, CoreError> {
     high_level::load_cell_type_hash(index, Source::Output)
         .map_err(|_| CoreError::InvalidContextInput)
 }
