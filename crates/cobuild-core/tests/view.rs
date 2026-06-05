@@ -1,3 +1,4 @@
+use cobuild_core::protocol::ScriptRole;
 use cobuild_core::reader::{cursor_bytes, OwnedReader};
 use cobuild_core::view::{MessageView, SighashAllWitnessView, WitnessLayoutView};
 use cobuild_types::lazy_reader::support::{Error as MoleculeError, Read};
@@ -58,6 +59,61 @@ fn message_view_exposes_backing_cursor() {
     assert_eq!(cursor_bytes(view.cursor()).unwrap(), message);
 }
 
+#[test]
+fn message_view_returns_action_views_with_cursor_backed_data() {
+    let script_info_hash = [0x11u8; 32];
+    let script_hash = [0x22u8; 32];
+    let message = message_with_actions(&[action_bytes(
+        script_info_hash,
+        0,
+        script_hash,
+        &[0xaa, 0xbb],
+    )]);
+    let view = MessageView::new(cobuild_core::reader::cursor_from_slice(&message));
+
+    let actions = view.actions().unwrap();
+
+    assert_eq!(actions.len(), 1);
+    assert_eq!(actions[0].index, 0);
+    assert_eq!(actions[0].script_info_hash, script_info_hash);
+    assert_eq!(actions[0].script_role, ScriptRole::InputLock);
+    assert_eq!(actions[0].script_hash, script_hash);
+    assert_eq!(cursor_bytes(&actions[0].data).unwrap(), vec![0xaa, 0xbb]);
+}
+
+#[test]
+fn message_view_filters_actions_by_role_and_script_hash() {
+    let lock_hash = [0x33u8; 32];
+    let other_hash = [0x44u8; 32];
+    let message = message_with_actions(&[
+        action_bytes([0x01u8; 32], 0, lock_hash, &[0x10]),
+        action_bytes([0x02u8; 32], 1, lock_hash, &[0x20]),
+        action_bytes([0x03u8; 32], 0, other_hash, &[0x30]),
+        action_bytes([0x04u8; 32], 0, lock_hash, &[0x40]),
+    ]);
+    let view = MessageView::new(cobuild_core::reader::cursor_from_slice(&message));
+
+    let actions = view.actions_for(ScriptRole::InputLock, lock_hash).unwrap();
+
+    assert_eq!(actions.len(), 2);
+    assert_eq!(actions[0].index, 0);
+    assert_eq!(cursor_bytes(&actions[0].data).unwrap(), vec![0x10]);
+    assert_eq!(actions[1].index, 3);
+    assert_eq!(cursor_bytes(&actions[1].data).unwrap(), vec![0x40]);
+}
+
+#[test]
+fn message_view_returns_empty_actions_for_role_mismatch() {
+    let message = message_with_actions(&[action_bytes([0x01u8; 32], 2, [0x55u8; 32], &[0x99])]);
+    let view = MessageView::new(cobuild_core::reader::cursor_from_slice(&message));
+
+    let actions = view
+        .actions_for(ScriptRole::InputLock, [0x55u8; 32])
+        .unwrap();
+
+    assert!(actions.is_empty());
+}
+
 fn sighash_all_witness_bytes(seal: &[u8], message: &[u8]) -> Vec<u8> {
     let seal_bytes = molecule_bytes(seal);
     let item = table_bytes(&[seal_bytes, message.to_vec()]);
@@ -76,6 +132,43 @@ fn sighash_all_only_witness_bytes(seal: &[u8]) -> Vec<u8> {
 
 fn empty_message() -> Vec<u8> {
     table_bytes(&[4u32.to_le_bytes().to_vec()])
+}
+
+fn message_with_actions(actions: &[Vec<u8>]) -> Vec<u8> {
+    table_bytes(&[dynvec_bytes(actions)])
+}
+
+fn action_bytes(
+    script_info_hash: [u8; 32],
+    script_role: u8,
+    script_hash: [u8; 32],
+    data: &[u8],
+) -> Vec<u8> {
+    table_bytes(&[
+        script_info_hash.to_vec(),
+        vec![script_role],
+        script_hash.to_vec(),
+        molecule_bytes(data),
+    ])
+}
+
+fn dynvec_bytes(items: &[Vec<u8>]) -> Vec<u8> {
+    if items.is_empty() {
+        return 4u32.to_le_bytes().to_vec();
+    }
+    let header_size = 4 + items.len() * 4;
+    let total_size = header_size + items.iter().map(Vec::len).sum::<usize>();
+    let mut bytes = Vec::with_capacity(total_size);
+    bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
+    let mut offset = header_size;
+    for item in items {
+        bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+        offset += item.len();
+    }
+    for item in items {
+        bytes.extend_from_slice(item);
+    }
+    bytes
 }
 
 fn molecule_bytes(raw: &[u8]) -> Vec<u8> {

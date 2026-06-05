@@ -8,8 +8,15 @@ use cobuild_types::lazy_reader::{
 
 use crate::{
     error::CoreError,
+    protocol::ScriptRole,
     reader::{cursor_bytes, cursor_from_slice},
 };
+
+impl From<core::convert::Infallible> for CoreError {
+    fn from(value: core::convert::Infallible) -> Self {
+        match value {}
+    }
+}
 
 pub struct WitnessLayoutView {
     #[allow(dead_code)]
@@ -42,10 +49,13 @@ pub struct SealPairView {
     pub seal: Cursor,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct MessageActionView {
-    pub script_role: u8,
+#[derive(Clone)]
+pub struct ActionView {
+    pub index: usize,
+    pub script_info_hash: [u8; 32],
+    pub script_role: ScriptRole,
     pub script_hash: [u8; 32],
+    pub data: Cursor,
 }
 
 #[derive(Clone)]
@@ -79,6 +89,22 @@ impl MessageView {
 
     pub fn cursor(&self) -> &Cursor {
         &self.cursor
+    }
+
+    pub fn actions(&self) -> Result<Vec<ActionView>, CoreError> {
+        message_actions(&self.cursor)
+    }
+
+    pub fn actions_for(
+        &self,
+        role: ScriptRole,
+        script_hash: [u8; 32],
+    ) -> Result<Vec<ActionView>, CoreError> {
+        Ok(self
+            .actions()?
+            .into_iter()
+            .filter(|action| action.script_role == role && action.script_hash == script_hash)
+            .collect())
     }
 }
 
@@ -199,7 +225,7 @@ impl WitnessLayoutView {
     }
 }
 
-pub(crate) fn message_actions(message: &Cursor) -> Result<Vec<MessageActionView>, CoreError> {
+pub(crate) fn message_actions(message: &Cursor) -> Result<Vec<ActionView>, CoreError> {
     let message = Message::from(message.clone());
     message
         .verify(false)
@@ -211,13 +237,19 @@ pub(crate) fn message_actions(message: &Cursor) -> Result<Vec<MessageActionView>
         let action = actions
             .get(index)
             .map_err(|_| CoreError::MalformedCobuild)?;
-        out.push(MessageActionView {
-            script_role: action
-                .script_role()
+        let script_role = action
+            .script_role()
+            .map_err(|_| CoreError::MalformedCobuild)?;
+        out.push(ActionView {
+            index,
+            script_info_hash: action
+                .script_info_hash()
                 .map_err(|_| CoreError::MalformedCobuild)?,
+            script_role: ScriptRole::try_from(script_role)?,
             script_hash: action
                 .script_hash()
                 .map_err(|_| CoreError::MalformedCobuild)?,
+            data: action.data().map_err(|_| CoreError::MalformedCobuild)?,
         });
     }
     Ok(out)
