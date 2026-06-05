@@ -154,8 +154,11 @@ fn cobuild_core_owns_syscall_streaming_without_full_transaction_load() {
     for expected in [
         "pub(crate) struct SyscallTxReader",
         "impl SyscallTxReader",
-        "struct SyscallBackedReader",
-        "fn syscall_cursor(",
+        "struct TransactionReader",
+        "struct ResolvedInputCellReader",
+        "struct ResolvedInputDataReader",
+        "fn read_syscall_size",
+        "fn read_syscall_data",
         "fn transaction_cursor_from_syscalls(",
         "fn map_syscall_read_error(",
         "high_level::load_tx_hash()",
@@ -400,6 +403,17 @@ fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
         !layout_rs.contains("fn validate_mask"),
         "layout.rs should delegate mask validation to MaskView"
     );
+    for forbidden in [
+        "pub struct LayoutTx",
+        "pub fn build_layout",
+        "pub fn scan_layout",
+        "scan_layout_with_counts",
+    ] {
+        assert!(
+            !layout_rs.contains(forbidden),
+            "layout.rs should not expose owned test layout API {forbidden}"
+        );
+    }
 }
 
 #[test]
@@ -471,8 +485,9 @@ fn cobuild_core_uses_concrete_syscall_reader_without_source_traits() {
         "ckb_std",
         "pub(crate) struct SyscallTxReader",
         "impl SyscallTxReader",
-        "SyscallBackedReader",
-        "SyscallReadTarget",
+        "struct TransactionReader",
+        "struct ResolvedInputCellReader",
+        "struct ResolvedInputDataReader",
         "fn counts(",
         "fn witness_cursor(",
         "fn raw_input_cursor(",
@@ -483,6 +498,17 @@ fn cobuild_core_uses_concrete_syscall_reader_without_source_traits() {
         assert!(
             syscalls_rs.contains(expected),
             "syscalls.rs should contain concrete reader implementation {expected}"
+        );
+    }
+
+    for forbidden in [
+        "SyscallBackedReader",
+        "SyscallReadTarget",
+        "fn syscall_cursor(",
+    ] {
+        assert!(
+            !syscalls_rs.contains(forbidden),
+            "syscalls.rs should use explicit syscall readers instead of old generic abstraction {forbidden}"
         );
     }
 }

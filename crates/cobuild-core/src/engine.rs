@@ -11,10 +11,10 @@ use crate::{
         LockValidationPlan, MessageOrigin, OtxMessageLayout, RelatedMessage, SignatureOrigin,
         SigningRequirement, TypeRelatedMessage, TypeValidationPlan,
     },
-    protocol::SealScope,
+    protocol::{ScriptRole, SealScope},
     reader::{cursor_bytes, cursor_bytes_with_error},
     syscalls::SyscallTxReader,
-    view::{SighashAllWitnessView, WitnessLayoutView},
+    view::{MessageView, SighashAllWitnessView, WitnessLayoutView},
     witness::WitnessScan,
 };
 
@@ -36,7 +36,7 @@ impl CobuildContext {
             let witness = tx.witness_cursor(index)?;
             let witness = cursor_bytes_with_error(&witness, CoreError::MissingHashInput)?;
             witnesses.push_witness(&witness)?;
-            layout_collector.push_witness(&witness);
+            layout_collector.push_witness(&witness)?;
         }
         let layout_scan = layout_collector.finish(
             counts.inputs,
@@ -44,6 +44,9 @@ impl CobuildContext {
             counts.cell_deps,
             counts.header_deps,
         );
+        if let OtxLayoutScan::Invalid(error) = &layout_scan {
+            return Err(error.clone());
+        }
 
         Ok(Self {
             tx,
@@ -79,6 +82,14 @@ mod tests {
     }
 
     fn test_context(input_locks: Vec<[u8; 32]>) -> CobuildContext {
+        test_context_with_scripts(input_locks, Vec::new(), Vec::new())
+    }
+
+    fn test_context_with_scripts(
+        input_locks: Vec<[u8; 32]>,
+        input_types: Vec<Option<[u8; 32]>>,
+        output_types: Vec<Option<[u8; 32]>>,
+    ) -> CobuildContext {
         CobuildContext {
             tx: SyscallTxReader::from_cached_parts_for_tests(
                 crate::syscalls::TxCounts::default(),
@@ -87,12 +98,70 @@ mod tests {
             ),
             script_hashes: TxScriptHashes {
                 input_locks,
-                input_types: Vec::new(),
-                output_types: Vec::new(),
+                input_types,
+                output_types,
             },
             witnesses: WitnessScan::with_capacity(0),
             layout_scan: OtxLayoutScan::None,
         }
+    }
+
+    fn message_with_action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {
+        let action = table_bytes(&[
+            hash(0).to_vec(),
+            alloc::vec![script_role],
+            script_hash.to_vec(),
+            molecule_bytes(&[]),
+        ]);
+        let actions = dynvec_bytes(&[action]);
+        table_bytes(&[actions])
+    }
+
+    fn molecule_bytes(raw: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(4 + raw.len());
+        bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(raw);
+        bytes
+    }
+
+    fn dynvec_bytes(items: &[Vec<u8>]) -> Vec<u8> {
+        if items.is_empty() {
+            return 4u32.to_le_bytes().to_vec();
+        }
+
+        let header_size = 4 + items.len() * 4;
+        let total_size = header_size + items.iter().map(Vec::len).sum::<usize>();
+        let mut bytes = Vec::with_capacity(total_size);
+        bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
+
+        let mut offset = header_size;
+        for item in items {
+            bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+            offset += item.len();
+        }
+        for item in items {
+            bytes.extend_from_slice(item);
+        }
+
+        bytes
+    }
+
+    fn table_bytes(fields: &[Vec<u8>]) -> Vec<u8> {
+        let header_size = 4 + fields.len() * 4;
+        let total_size = header_size + fields.iter().map(Vec::len).sum::<usize>();
+        let mut bytes = Vec::with_capacity(total_size);
+        bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
+
+        let mut offset = header_size;
+        for field in fields {
+            bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+            offset += field.len();
+        }
+        for field in fields {
+            bytes.extend_from_slice(field);
+        }
+
+        bytes
     }
 
     fn test_otx(
@@ -244,6 +313,50 @@ mod tests {
             .is_none());
         assert!(builder.related_messages.is_empty());
     }
+
+    #[test]
+    fn lock_builder_rejects_invalid_otx_scan() {
+        let lock_hash = hash(1);
+        let other_hash = hash(2);
+        let mut context = test_context(vec![lock_hash, other_hash]);
+        context.layout_scan = OtxLayoutScan::Invalid(CoreError::InvalidOtxLayout);
+        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+
+        assert_eq!(
+            builder.add_otx_requirements(),
+            Err(CoreError::InvalidOtxLayout)
+        );
+    }
+
+    #[test]
+    fn type_builder_collects_otx_message_when_action_targets_type_outside_otx_ranges() {
+        let type_hash = hash(9);
+        let other_type_hash = hash(8);
+        let message_bytes = message_with_action(2, type_hash);
+        let otx = test_otx(&message_bytes, 0, 1);
+        let mut context = test_context_with_scripts(
+            Vec::new(),
+            alloc::vec![Some(other_type_hash), Some(other_type_hash)],
+            alloc::vec![Some(other_type_hash), Some(type_hash)],
+        );
+        context.layout_scan = OtxLayoutScan::Complete(crate::layout::BuiltLayout {
+            otxs: alloc::vec![otx.layout.clone()],
+            otx_entries: alloc::vec![otx],
+        });
+
+        let plan = TypePlanBuilder::new(&context, type_hash).build().unwrap();
+
+        assert_eq!(plan.related_messages.len(), 1);
+        assert!(matches!(
+            plan.related_messages[0].message.origin,
+            MessageOrigin::Otx { otx_index: 0, .. }
+        ));
+        let relation = plan.related_messages[0].otx_relation.clone().unwrap();
+        assert!(!relation.input_type_in_base);
+        assert!(!relation.input_type_in_append);
+        assert!(!relation.output_type_in_base);
+        assert!(!relation.output_type_in_append);
+    }
 }
 
 struct LockPlanBuilder<'a> {
@@ -340,23 +453,7 @@ impl<'a> LockPlanBuilder<'a> {
     fn add_otx_requirements(&mut self) -> Result<(), CoreError> {
         match &self.context.layout_scan {
             OtxLayoutScan::None => {}
-            OtxLayoutScan::Invalid { anchor, error } => {
-                let relevance_known_irrelevant = anchor
-                    .as_ref()
-                    .map(|anchor| {
-                        !self
-                            .context
-                            .script_hashes
-                            .input_locks
-                            .iter()
-                            .skip(anchor.start_input_cell)
-                            .any(|hash| *hash == self.lock_script_hash)
-                    })
-                    .unwrap_or(false);
-                if !relevance_known_irrelevant {
-                    return Err(error.clone());
-                }
-            }
+            OtxLayoutScan::Invalid(error) => return Err(error.clone()),
             OtxLayoutScan::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
                     let Some((base_relevant, append_relevant)) =
@@ -512,15 +609,15 @@ impl<'a> TypePlanBuilder<'a> {
     }
 
     fn build(mut self) -> Result<TypeValidationPlan, CoreError> {
-        let tx_level_type_relevant = self.add_otx_related_messages()?;
-        self.add_tx_level_message_if_relevant(tx_level_type_relevant)?;
+        self.add_otx_related_messages()?;
+        self.add_tx_level_message_if_relevant()?;
         Ok(TypeValidationPlan {
             type_script_hash: self.type_script_hash,
             related_messages: self.related_messages,
         })
     }
 
-    fn add_otx_related_messages(&mut self) -> Result<bool, CoreError> {
+    fn add_otx_related_messages(&mut self) -> Result<(), CoreError> {
         match &self.context.layout_scan {
             OtxLayoutScan::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
@@ -528,11 +625,13 @@ impl<'a> TypePlanBuilder<'a> {
                         .context
                         .script_hashes
                         .type_relation_for_otx(otx, self.type_script_hash)?;
-                    let is_related = relation.input_type_in_base
-                        || relation.input_type_in_append
-                        || relation.output_type_in_base
-                        || relation.output_type_in_append;
-                    if !is_related {
+                    let range_related = otx_type_relation_mentions_type(&relation);
+                    let action_related = if range_related {
+                        false
+                    } else {
+                        message_targets_type_script(&otx.witness.message, self.type_script_hash)?
+                    };
+                    if !range_related && !action_related {
                         continue;
                     }
                     self.context
@@ -543,72 +642,76 @@ impl<'a> TypePlanBuilder<'a> {
                         otx_relation: Some(relation),
                     });
                 }
-                Ok(self
-                    .context
-                    .script_hashes
-                    .type_hash_outside_otx_ranges(self.type_script_hash, &layout.otxs))
+                Ok(())
             }
-            OtxLayoutScan::Invalid { anchor, error } => {
-                self.tx_level_type_relevant_from_invalid_layout(anchor.as_ref(), error)
-            }
-            OtxLayoutScan::None => Ok(self
-                .context
-                .script_hashes
-                .type_hash_present(self.type_script_hash)),
+            OtxLayoutScan::Invalid(error) => Err(error.clone()),
+            OtxLayoutScan::None => Ok(()),
         }
     }
 
-    fn tx_level_type_relevant_from_invalid_layout(
-        &self,
-        anchor: Option<&crate::view::OtxStartView>,
-        error: &CoreError,
-    ) -> Result<bool, CoreError> {
-        let relevance_known_irrelevant = anchor
-            .map(|anchor| {
-                !self
-                    .context
-                    .script_hashes
-                    .input_types
-                    .iter()
-                    .skip(anchor.start_input_cell)
-                    .any(|hash| *hash == Some(self.type_script_hash))
-                    && !self
-                        .context
-                        .script_hashes
-                        .output_types
-                        .iter()
-                        .skip(anchor.start_output_cell)
-                        .any(|hash| *hash == Some(self.type_script_hash))
-            })
-            .unwrap_or(false);
-        if !relevance_known_irrelevant {
-            return Err(error.clone());
-        }
-        Ok(self
+    fn add_tx_level_message_if_relevant(&mut self) -> Result<(), CoreError> {
+        let Some((carrier_witness_index, message)) = self
             .context
-            .script_hashes
-            .type_hash_present(self.type_script_hash))
-    }
+            .witnesses
+            .unique_sighash_all_message_with_index()?
+        else {
+            return Ok(());
+        };
 
-    fn add_tx_level_message_if_relevant(
-        &mut self,
-        tx_level_type_relevant: bool,
-    ) -> Result<(), CoreError> {
-        if tx_level_type_relevant {
-            if let Some((carrier_witness_index, message)) = self
-                .context
-                .witnesses
-                .unique_sighash_all_message_with_index()?
-            {
-                self.context
-                    .script_hashes
-                    .validate_message_targets(&message)?;
-                self.related_messages.push(TypeRelatedMessage {
-                    message: related_tx_message(carrier_witness_index, message),
-                    otx_relation: None,
-                });
-            }
+        let scope_related = self.tx_level_scope_mentions_type();
+        let action_related = if scope_related {
+            false
+        } else {
+            message_targets_type_script(&message, self.type_script_hash)?
+        };
+        if !scope_related && !action_related {
+            return Ok(());
         }
+
+        self.context
+            .script_hashes
+            .validate_message_targets(&message)?;
+        self.related_messages.push(TypeRelatedMessage {
+            message: related_tx_message(carrier_witness_index, message),
+            otx_relation: None,
+        });
         Ok(())
     }
+
+    fn tx_level_scope_mentions_type(&self) -> bool {
+        match &self.context.layout_scan {
+            OtxLayoutScan::Complete(layout) => self
+                .context
+                .script_hashes
+                .type_hash_outside_otx_ranges(self.type_script_hash, &layout.otxs),
+            OtxLayoutScan::Invalid(_) => false,
+            OtxLayoutScan::None => self
+                .context
+                .script_hashes
+                .type_hash_present(self.type_script_hash),
+        }
+    }
+}
+
+fn otx_type_relation_mentions_type(relation: &crate::plan::OtxTypeRelation) -> bool {
+    relation.input_type_in_base
+        || relation.input_type_in_append
+        || relation.output_type_in_base
+        || relation.output_type_in_append
+}
+
+fn message_targets_type_script(
+    message: &Cursor,
+    type_script_hash: [u8; 32],
+) -> Result<bool, CoreError> {
+    Ok(MessageView::new(message.clone())
+        .actions()?
+        .into_iter()
+        .any(|action| {
+            action.script_hash == type_script_hash
+                && matches!(
+                    action.script_role,
+                    ScriptRole::InputType | ScriptRole::OutputType
+                )
+        }))
 }

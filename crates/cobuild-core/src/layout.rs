@@ -6,15 +6,6 @@ use crate::{
     view::{OtxStartView, OtxView, WitnessLayoutView},
 };
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct LayoutTx {
-    pub witnesses: Vec<Vec<u8>>,
-    pub input_count: usize,
-    pub output_count: usize,
-    pub cell_dep_count: usize,
-    pub header_dep_count: usize,
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Range {
     pub start: usize,
@@ -50,83 +41,21 @@ pub struct BuiltLayout {
 pub enum OtxLayoutScan {
     None,
     Complete(BuiltLayout),
-    Invalid {
-        anchor: Option<OtxStartView>,
-        error: CoreError,
-    },
+    Invalid(CoreError),
 }
 
 pub(crate) struct OtxLayoutCollector {
     witness_count: usize,
     start: Option<(usize, OtxStartView)>,
-    last_otx_or_start: Option<usize>,
+    last_layout_witness_index: Option<usize>,
     otx_entries: Vec<(usize, OtxView)>,
-    invalid: Option<OtxLayoutScan>,
 }
 
-pub fn build_layout(tx: &LayoutTx) -> Result<BuiltLayout, CoreError> {
-    match scan_layout(tx) {
-        OtxLayoutScan::None => Ok(empty_layout()),
-        OtxLayoutScan::Complete(layout) => Ok(layout),
-        OtxLayoutScan::Invalid { error, .. } => Err(error),
-    }
-}
-
-pub fn build_layout_from_witnesses(
-    tx: &LayoutTx,
-    input_count: usize,
-    output_count: usize,
-    cell_dep_count: usize,
-    header_dep_count: usize,
-) -> Result<BuiltLayout, CoreError> {
-    match scan_layout_from_witnesses(
-        tx,
-        input_count,
-        output_count,
-        cell_dep_count,
-        header_dep_count,
-    ) {
-        OtxLayoutScan::None => Ok(empty_layout()),
-        OtxLayoutScan::Complete(layout) => Ok(layout),
-        OtxLayoutScan::Invalid { error, .. } => Err(error),
-    }
-}
-
-pub fn scan_layout(tx: &LayoutTx) -> OtxLayoutScan {
-    scan_layout_from_witnesses(
-        tx,
-        tx.input_count,
-        tx.output_count,
-        tx.cell_dep_count,
-        tx.header_dep_count,
-    )
-}
-
-pub(crate) fn scan_layout_from_witnesses(
-    tx: &LayoutTx,
-    input_count: usize,
-    output_count: usize,
-    cell_dep_count: usize,
-    header_dep_count: usize,
-) -> OtxLayoutScan {
-    let mut collector = OtxLayoutCollector::new();
-    for index in 0..tx.witnesses.len() {
-        let witness = match witness_bytes_from_layout_tx(tx, index) {
-            Ok(witness) => witness,
-            Err(error) => {
-                return OtxLayoutScan::Invalid {
-                    anchor: None,
-                    error,
-                };
-            }
-        };
-        collector.push_witness(&witness);
-        if collector.has_invalid() {
-            return collector.finish(input_count, output_count, cell_dep_count, header_dep_count);
-        }
-    }
-
-    collector.finish(input_count, output_count, cell_dep_count, header_dep_count)
+enum LayoutWitnessView {
+    Ignore,
+    MalformedOtx(CoreError),
+    OtxStart(OtxStartView),
+    Otx(OtxView),
 }
 
 impl OtxLayoutCollector {
@@ -134,76 +63,21 @@ impl OtxLayoutCollector {
         Self {
             witness_count: 0,
             start: None,
-            last_otx_or_start: None,
+            last_layout_witness_index: None,
             otx_entries: Vec::new(),
-            invalid: None,
         }
     }
 
-    pub(crate) fn push_witness(&mut self, witness: &[u8]) {
+    pub(crate) fn push_witness(&mut self, witness: &[u8]) -> Result<(), CoreError> {
         let index = self.witness_count;
         self.witness_count += 1;
 
-        if self.invalid.is_some() {
-            return;
+        match Self::layout_witness_view(witness) {
+            LayoutWitnessView::Ignore => Ok(()),
+            LayoutWitnessView::MalformedOtx(error) => Err(error),
+            LayoutWitnessView::OtxStart(view) => self.push_otx_start(index, view),
+            LayoutWitnessView::Otx(view) => self.push_otx(index, view),
         }
-
-        if witness.is_empty() {
-            return;
-        }
-
-        let view = match WitnessLayoutView::from_slice(witness) {
-            Ok(view) => view,
-            Err(error) => {
-                if has_otx_witness_id(witness) {
-                    self.set_invalid(self.start.as_ref().map(|(_, data)| data.clone()), error);
-                }
-                return;
-            }
-        };
-
-        let otx_start = match view.otx_start() {
-            Ok(data) => data,
-            Err(error) => {
-                self.set_invalid(None, error);
-                return;
-            }
-        };
-        if let Some(data) = otx_start {
-            if self.start.is_some() {
-                self.set_invalid(
-                    self.start.as_ref().map(|(_, data)| data.clone()),
-                    CoreError::InvalidOtxLayout,
-                );
-                return;
-            }
-            self.start = Some((index, data));
-            self.last_otx_or_start = Some(index);
-            return;
-        }
-
-        let otx = match view.otx() {
-            Ok(data) => data,
-            Err(error) => {
-                self.set_invalid(None, error);
-                return;
-            }
-        };
-        let Some(data) = otx else {
-            return;
-        };
-
-        let Some(last_index) = self.last_otx_or_start else {
-            self.set_invalid(None, CoreError::InvalidOtxLayout);
-            return;
-        };
-        if last_index + 1 != index {
-            self.set_invalid(None, CoreError::InvalidOtxLayout);
-            return;
-        }
-
-        self.last_otx_or_start = Some(index);
-        self.otx_entries.push((index, data));
     }
 
     pub(crate) fn finish(
@@ -213,130 +87,161 @@ impl OtxLayoutCollector {
         cell_dep_count: usize,
         header_dep_count: usize,
     ) -> OtxLayoutScan {
-        if let Some(invalid) = self.invalid {
-            return invalid;
-        }
-
         let Some((start_witness_index, start_data)) = self.start else {
             return OtxLayoutScan::None;
         };
-        if self.last_otx_or_start == Some(start_witness_index) {
-            return invalid_layout(Some(&start_data), CoreError::InvalidOtxLayout);
+        if self.last_layout_witness_index == Some(start_witness_index) {
+            return OtxLayoutScan::Invalid(CoreError::InvalidOtxLayout);
         }
 
-        let mut next_input = start_data.start_input_cell;
-        let mut next_output = start_data.start_output_cell;
-        let mut next_cell_dep = start_data.start_cell_deps;
-        let mut next_header_dep = start_data.start_header_deps;
+        let mut ranges = LayoutRangeCursor::from_start(&start_data);
         let mut otxs = Vec::new();
         let mut otx_entries = Vec::new();
 
-        for (witness_index, otx_witness) in self.otx_entries {
-            if let Err(error) = validate_otx_view(&otx_witness) {
-                return invalid_layout(Some(&start_data), error);
+        for (witness_index, otx_view) in self.otx_entries {
+            if let Err(error) = validate_otx_view(&otx_view) {
+                return OtxLayoutScan::Invalid(error);
             }
 
-            let base_inputs = match take_range(&mut next_input, otx_witness.base_input_cells) {
-                Ok(range) => range,
-                Err(error) => return invalid_layout(Some(&start_data), error),
-            };
-            let append_inputs = match take_range(&mut next_input, otx_witness.append_input_cells) {
-                Ok(range) => range,
-                Err(error) => return invalid_layout(Some(&start_data), error),
-            };
-            let base_outputs = match take_range(&mut next_output, otx_witness.base_output_cells) {
-                Ok(range) => range,
-                Err(error) => return invalid_layout(Some(&start_data), error),
-            };
-            let append_outputs = match take_range(&mut next_output, otx_witness.append_output_cells)
-            {
-                Ok(range) => range,
-                Err(error) => return invalid_layout(Some(&start_data), error),
-            };
-            let base_cell_deps = match take_range(&mut next_cell_dep, otx_witness.base_cell_deps) {
-                Ok(range) => range,
-                Err(error) => return invalid_layout(Some(&start_data), error),
-            };
-            let append_cell_deps =
-                match take_range(&mut next_cell_dep, otx_witness.append_cell_deps) {
-                    Ok(range) => range,
-                    Err(error) => return invalid_layout(Some(&start_data), error),
-                };
-            let base_header_deps =
-                match take_range(&mut next_header_dep, otx_witness.base_header_deps) {
-                    Ok(range) => range,
-                    Err(error) => return invalid_layout(Some(&start_data), error),
-                };
-            let append_header_deps =
-                match take_range(&mut next_header_dep, otx_witness.append_header_deps) {
-                    Ok(range) => range,
-                    Err(error) => return invalid_layout(Some(&start_data), error),
-                };
-
-            let layout = OtxLayout {
-                witness_index,
-                base_inputs,
-                append_inputs,
-                base_outputs,
-                append_outputs,
-                base_cell_deps,
-                append_cell_deps,
-                base_header_deps,
-                append_header_deps,
+            let layout = match ranges.take_layout(witness_index, &otx_view) {
+                Ok(layout) => layout,
+                Err(error) => return OtxLayoutScan::Invalid(error),
             };
             otxs.push(layout.clone());
             otx_entries.push(OtxLayoutEntry {
                 layout,
-                witness: otx_witness,
+                witness: otx_view,
             });
         }
 
         if otxs.is_empty() {
-            return invalid_layout(Some(&start_data), CoreError::InvalidOtxLayout);
+            return OtxLayoutScan::Invalid(CoreError::InvalidOtxLayout);
         }
-        if let Err(error) = ensure_within(next_input, input_count) {
-            return invalid_layout(Some(&start_data), error);
-        }
-        if let Err(error) = ensure_within(next_output, output_count) {
-            return invalid_layout(Some(&start_data), error);
-        }
-        if let Err(error) = ensure_within(next_cell_dep, cell_dep_count) {
-            return invalid_layout(Some(&start_data), error);
-        }
-        if let Err(error) = ensure_within(next_header_dep, header_dep_count) {
-            return invalid_layout(Some(&start_data), error);
+        if let Err(error) =
+            ranges.ensure_within(input_count, output_count, cell_dep_count, header_dep_count)
+        {
+            return OtxLayoutScan::Invalid(error);
         }
 
         OtxLayoutScan::Complete(BuiltLayout { otxs, otx_entries })
     }
 
-    fn has_invalid(&self) -> bool {
-        self.invalid.is_some()
+    fn layout_witness_view(witness: &[u8]) -> LayoutWitnessView {
+        if witness.is_empty() {
+            return LayoutWitnessView::Ignore;
+        }
+
+        let view = match WitnessLayoutView::from_slice(witness) {
+            Ok(view) => view,
+            Err(error) => {
+                return if has_otx_witness_id(witness) {
+                    LayoutWitnessView::MalformedOtx(error)
+                } else {
+                    LayoutWitnessView::Ignore
+                };
+            }
+        };
+
+        match view.otx_start() {
+            Ok(Some(data)) => return LayoutWitnessView::OtxStart(data),
+            Ok(None) => {}
+            Err(error) => return LayoutWitnessView::MalformedOtx(error),
+        }
+
+        match view.otx() {
+            Ok(Some(data)) => LayoutWitnessView::Otx(data),
+            Ok(None) => LayoutWitnessView::Ignore,
+            Err(error) => LayoutWitnessView::MalformedOtx(error),
+        }
     }
 
-    fn set_invalid(&mut self, anchor: Option<OtxStartView>, error: CoreError) {
-        self.invalid = Some(OtxLayoutScan::Invalid { anchor, error });
+    fn push_otx_start(&mut self, index: usize, view: OtxStartView) -> Result<(), CoreError> {
+        if self.start.is_some() {
+            return Err(CoreError::InvalidOtxLayout);
+        }
+
+        self.start = Some((index, view));
+        self.last_layout_witness_index = Some(index);
+        Ok(())
+    }
+
+    fn push_otx(&mut self, index: usize, view: OtxView) -> Result<(), CoreError> {
+        let Some(last_index) = self.last_layout_witness_index else {
+            return Err(CoreError::InvalidOtxLayout);
+        };
+        if last_index + 1 != index {
+            return Err(CoreError::InvalidOtxLayout);
+        }
+
+        self.last_layout_witness_index = Some(index);
+        self.otx_entries.push((index, view));
+        Ok(())
     }
 }
 
-fn witness_bytes_from_layout_tx(tx: &LayoutTx, index: usize) -> Result<Vec<u8>, CoreError> {
-    tx.witnesses
-        .get(index)
-        .cloned()
-        .ok_or(CoreError::MissingHashInput)
+struct LayoutRangeCursor {
+    next_input: usize,
+    next_output: usize,
+    next_cell_dep: usize,
+    next_header_dep: usize,
 }
 
-fn invalid_layout(anchor: Option<&OtxStartView>, error: CoreError) -> OtxLayoutScan {
-    OtxLayoutScan::Invalid {
-        anchor: anchor.cloned(),
-        error,
+impl LayoutRangeCursor {
+    fn from_start(start: &OtxStartView) -> Self {
+        Self {
+            next_input: start.start_input_cell,
+            next_output: start.start_output_cell,
+            next_cell_dep: start.start_cell_deps,
+            next_header_dep: start.start_header_deps,
+        }
     }
-}
 
-fn empty_layout() -> BuiltLayout {
-    BuiltLayout {
-        otxs: Vec::new(),
-        otx_entries: Vec::new(),
+    fn take_layout(
+        &mut self,
+        witness_index: usize,
+        otx_view: &OtxView,
+    ) -> Result<OtxLayout, CoreError> {
+        Ok(OtxLayout {
+            witness_index,
+            base_inputs: self.take_inputs(otx_view.base_input_cells)?,
+            append_inputs: self.take_inputs(otx_view.append_input_cells)?,
+            base_outputs: self.take_outputs(otx_view.base_output_cells)?,
+            append_outputs: self.take_outputs(otx_view.append_output_cells)?,
+            base_cell_deps: self.take_cell_deps(otx_view.base_cell_deps)?,
+            append_cell_deps: self.take_cell_deps(otx_view.append_cell_deps)?,
+            base_header_deps: self.take_header_deps(otx_view.base_header_deps)?,
+            append_header_deps: self.take_header_deps(otx_view.append_header_deps)?,
+        })
+    }
+
+    fn take_inputs(&mut self, count: usize) -> Result<Range, CoreError> {
+        take_range(&mut self.next_input, count)
+    }
+
+    fn take_outputs(&mut self, count: usize) -> Result<Range, CoreError> {
+        take_range(&mut self.next_output, count)
+    }
+
+    fn take_cell_deps(&mut self, count: usize) -> Result<Range, CoreError> {
+        take_range(&mut self.next_cell_dep, count)
+    }
+
+    fn take_header_deps(&mut self, count: usize) -> Result<Range, CoreError> {
+        take_range(&mut self.next_header_dep, count)
+    }
+
+    fn ensure_within(
+        &self,
+        input_count: usize,
+        output_count: usize,
+        cell_dep_count: usize,
+        header_dep_count: usize,
+    ) -> Result<(), CoreError> {
+        ensure_within(self.next_input, input_count)?;
+        ensure_within(self.next_output, output_count)?;
+        ensure_within(self.next_cell_dep, cell_dep_count)?;
+        ensure_within(self.next_header_dep, header_dep_count)?;
+        Ok(())
     }
 }
 
@@ -386,3 +291,6 @@ fn has_otx_witness_id(witness: &[u8]) -> bool {
     let item_id = u32::from_le_bytes([witness[0], witness[1], witness[2], witness[3]]);
     matches!(item_id, 0xff00_0003 | 0xff00_0004)
 }
+
+#[cfg(test)]
+mod tests;

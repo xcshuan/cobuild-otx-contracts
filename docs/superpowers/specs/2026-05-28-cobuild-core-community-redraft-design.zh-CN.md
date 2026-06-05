@@ -602,12 +602,11 @@ Cobuild 激活后，每个 Cobuild-aware 脚本具体承担哪些验证义务，
    witness 已经合法。
 3. 扫描 witnesses，识别可选的 OTX 序列：
    - 查找有效 `OtxStart` witness；
-   - 如果存在多个有效 `OtxStart`，且 OTX 验证与当前脚本相关，则必须失败；
+   - 如果存在多个有效 `OtxStart`，则必须失败；
    - 如果恰好存在一个有效 `OtxStart`，则以它的 witness 索引和实体索引作为
      OTX anchor；
    - 从 `OtxStart` 后一个 witness 开始，收集连续的有效 `Otx` witness 序列；
-   - 当 OTX 验证与当前脚本相关时，任何有效 `Otx` witness 都不得出现在这段连续
-     序列之外；
+   - 任何有效 `Otx` witness 都不得出现在这段连续序列之外；
    - 从 anchor 开始，按收集到的 OTX 序列累积计数，计算每个 OTX 的 base 与
      append scope。
    对每类实体，transaction remainder 是 `OtxStart` anchor 之前的范围，与该类实体
@@ -653,15 +652,19 @@ Cobuild-aware type script 随后按以下流程验证 message consistency：
 
 1. 首先执行自身原生状态转移验证。Cobuild 不替代该脚本的应用特定有效性规则。
 2. 对每个 base 或 append input/output scope 包含当前 type script hash 的 OTX，
-   type script 可以消费该 OTX-local scope 对应的 OTX `Message`。
+   或者 OTX `Message` 中存在指向当前 type script hash 的 `input_type` /
+   `output_type` action 的 OTX，type script 可以消费该 OTX `Message`。该
+   action target 可以指向不在当前 OTX local cell 范围内的 type script，只要该
+   target 在完整交易中真实存在。
 3. 对所有 OTX scope 之外的交易 remainder，如果当前 type script hash 出现在相关
-   input 或 output 范围内，并且存在唯一 tx-level `SighashAll.message`，type script
-   可以消费该 tx-level `Message`。
+   input 或 output 范围内，或者唯一 tx-level `SighashAll.message` 中存在指向当前
+   type script hash 的 `input_type` / `output_type` action，type script 可以消费该
+   tx-level `Message`。
 4. 当消费某个 `Message` 时，type script：
    - 必须只消费通过 `(script_role, script_hash)` 指向自己的 action；
    - 除非自身 ABI 明确定义 multi-action 语义，否则应该拒绝多个匹配 action；
-   - 必须根据自身应用规则，针对相关 OTX scope 或 transaction-remainder scope
-     中的 cells 验证被消费 action 的 `data`；
+   - 必须根据自身应用规则，针对 action target 以及相关 OTX scope 或
+     transaction-remainder scope 中的 cells 验证被消费 action 的 `data`；
    - 对被消费 action data 的结构错误或不一致必须 fail-closed。
    type script 无法在链上取得或验证某个 action 的完整链下 `ScriptInfo`，Core 也不要求
    它在链上验证 `Action.script_info_hash`。wallet 与 reference-flow tooling 负责解析
@@ -718,22 +721,20 @@ Core 不要求每个 type script 必须要求 action 存在。
 
 ## 畸形 Witness 处理
 
-Core 区分“相关错误”和“无关错误”。
+OTX layout 错误对处理该交易的每个 Cobuild-aware 脚本都必须 fail-closed。
 
-- 如果某个脚本已经将某个 Cobuild witness 或 OTX scope 选为与自身验证相关，
-  则该相关 witness 数据的结构错误必须 fail-closed。
-- 交易中其他与当前脚本无关的畸形 `WitnessLayout`，本身不应强迫该脚本进入
-  Cobuild flow。
-- 如果畸形 witness 占据了当前 lock group 的首 witness 位置，那么它与该
-  lock group 相关；若脚本尝试进入 tx-level Cobuild flow，则必须失败。
-- 如果畸形 witness 位于某脚本要消费的 OTX witness 段内，那么它与该脚本
-  相关；该脚本的 OTX flow 必须失败。
+- 畸形 `OtxStart` 或 `Otx` witness 必须导致 OTX layout 扫描失败。
+- 多个有效 `OtxStart` witness 必须导致 OTX layout 扫描失败。
+- 任何有效 `Otx` witness 出现在唯一连续 OTX 序列之外，都必须导致 OTX layout
+  扫描失败。
+- tx-level `SighashAll` / `SighashAllOnly` 的畸形处理仍然由 tx-level flow
+  选择规则决定。
 
 ## 错误模型
 
 Core 标准化失败类别，但不标准化全网统一 numeric error code。
 
-当与当前脚本相关时，以下情况必须失败：
+以下 OTX layout 情况必须失败：
 
 - 被选中的 `WitnessLayout` 结构非法；
 - 出现多个有效 `OtxStart`；

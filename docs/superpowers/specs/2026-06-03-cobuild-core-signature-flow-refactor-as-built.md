@@ -117,11 +117,9 @@ rule explicit.
 
 - no OTX layout;
 - a complete OTX layout;
-- an invalid OTX layout with an optional `OtxStart` anchor.
+- an invalid OTX layout error.
 
-This lets lock queries avoid failing unrelated transaction-level locks for OTX
-layout problems that can be proven irrelevant. When relevance cannot be safely
-excluded, malformed OTX layout still fails with `CoreError::InvalidOtxLayout`.
+Malformed OTX layout fails closed with `CoreError::InvalidOtxLayout`.
 
 The refactor also fixes the relevance-before-hash-input behavior: an unrelated
 lock query no longer needs OTX raw hash inputs merely because the transaction

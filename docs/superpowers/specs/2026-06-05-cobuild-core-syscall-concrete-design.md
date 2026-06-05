@@ -96,7 +96,7 @@ Delete these production APIs and all architecture guards that require them:
 - `ClassifiedCursor`
 - `CursorReadContext`
 - `WitnessCursorSource`
-- generic `build_layout_from_witnesses` / `scan_layout_from_witnesses` APIs backed by witness source traits
+- generic witness-source layout builder APIs backed by source traits
 - `PreparedCobuildContext`
 - `SyscallTxReader` as a lock crate type
 - lock crate `chain.rs`

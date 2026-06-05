@@ -279,7 +279,7 @@ It outputs compact OTX segment data:
 - OTX ordinal index;
 - base and append ranges for inputs, outputs, cell deps, and header deps;
 - cursor-backed `OtxView`;
-- invalid scan state with enough anchor information for relevance checks.
+- invalid scan state carrying the layout error.
 
 It remains responsible for:
 
@@ -300,8 +300,7 @@ should make the Core local flow selection rules explicit:
 - unique `SighashAll` detection;
 - OTX relevance for lock input scopes;
 - OTX relevance for type input/output scopes;
-- OTX relevance classification as irrelevant, relevant, or unknown;
-- related versus unrelated malformed witness handling;
+- strict malformed OTX layout failure;
 - lock group OTX coverage checks.
 
 ### `hash.rs` And `hash/writer.rs`
@@ -402,11 +401,9 @@ For each OTX:
 `OtxAppend` binds to the current OTX's base hash. The engine computes the base
 hash once and passes the digest to append hash construction.
 
-When OTX scan is invalid, the engine must classify the invalid sequence against
-the current lock as irrelevant, relevant, or unknown. Irrelevant malformed OTX
-data must not force this lock into Cobuild flow. Relevant or unknown malformed
-OTX data must fail closed. Unknown means the scanner could not retain enough
-anchor or range information to safely prove irrelevance.
+When OTX scan is invalid, the engine fails closed with the layout error. Invalid
+OTX layout is treated as a transaction-level Cobuild protocol error rather than
+being classified per current script relevance.
 
 ### Lock Group Coverage
 
@@ -435,9 +432,12 @@ The plan exposes related Cobuild messages:
 
 - tx-level message when a unique valid `SighashAll` exists and the type script
   hash appears in an input type or output type position not covered by a
-  relevant OTX type relation;
+  relevant OTX type relation, or when the tx-level message has an `input_type`
+  or `output_type` action targeting the current type script hash;
 - OTX message when the type script appears in an OTX input type or output type
-  range;
+  range, or when the OTX message has an `input_type` or `output_type` action
+  targeting the current type script hash even if that type is outside the OTX's
+  local cell ranges;
 - origin information for every related message.
 
 For OTX messages, `MessageOrigin::Otx` includes:
@@ -446,7 +446,8 @@ For OTX messages, `MessageOrigin::Otx` includes:
 - OTX ordinal index;
 - compact layout ranges;
 - relation flags indicating whether the current type appeared in base inputs,
-  append inputs, base outputs, or append outputs.
+  append inputs, base outputs, or append outputs. These flags may all be false
+  for an action-target-only OTX message.
 - for base output type relations, an explicit coverage flag indicating whether
   the matching output type field was covered by the base output mask.
 
@@ -458,8 +459,7 @@ Type validation must also fail closed for related malformed data:
 
 - duplicate `SighashAll` fails when a tx-level message would otherwise be
   relevant to the type hash;
-- malformed OTX scan fails when OTX relevance to the type hash is relevant or
-  unknown;
+- malformed OTX scan fails before building any lock or type validation plan;
 - invalid action roles or malformed actions fail when they appear in a related
   message.
 
@@ -509,8 +509,7 @@ New engine tests should cover:
 - lock plan with combined tx-level and OTX requirements;
 - OTX-only plan failing when the lock group is not fully OTX-covered;
 - duplicate `SighashAll` failing only when tx-level flow is relevant;
-- invalid OTX ignored only when proven irrelevant, and failing when relevant or
-  unknown to the current lock;
+- invalid OTX layout failing immediately;
 - message action target validation for tx-level and OTX messages;
 - type plan exposing a tx-level related message;
 - type plan exposing an OTX related message with OTX origin layout and relation

@@ -665,14 +665,12 @@ the shared Cobuild view:
    not uniqueness and not validity of all Cobuild witnesses.
 3. Scan witnesses for the optional OTX sequence:
    - find valid `OtxStart` witnesses;
-   - if more than one valid `OtxStart` exists, fail when OTX validation is
-     relevant to the current script;
+   - if more than one valid `OtxStart` exists, fail;
    - if exactly one valid `OtxStart` exists, treat its witness index and entity
      indices as the OTX anchor;
    - starting at the witness immediately after `OtxStart`, collect the
      contiguous run of valid `Otx` witnesses;
-   - no valid `Otx` witness may appear outside this contiguous run when OTX
-     validation is relevant to the current script;
+   - no valid `Otx` witness may appear outside this contiguous run;
    - compute every OTX's base and append scopes by accumulating counts from the
      anchor through the collected OTX sequence.
    For each entity type, the transaction remainder is the union of the range
@@ -728,19 +726,23 @@ A Cobuild-aware type script then validates message consistency as follows:
 1. Execute its native state-transition validation first. Cobuild does not
    replace the script's application-specific validity rules.
 2. For each collected OTX whose base or append input/output scope contains the
-   current type script hash, the type script MAY consume the OTX `Message` for
-   that OTX-local scope.
+   current type script hash, or whose OTX `Message` contains an `input_type` or
+   `output_type` action targeting the current type script hash, the type script
+   MAY consume that OTX `Message`. The action target may refer to a type script
+   outside that OTX's local cell ranges, as long as the target exists in the
+   complete transaction.
 3. For the transaction remainder outside all OTX scopes, if the current type
-   script hash appears in the relevant input or output ranges and a unique
-   tx-level `SighashAll.message` exists, the type script MAY consume that
-   tx-level `Message`.
+   script hash appears in the relevant input or output ranges, or if the unique
+   tx-level `SighashAll.message` contains an `input_type` or `output_type`
+   action targeting the current type script hash, the type script MAY consume
+   that tx-level `Message`.
 4. When consuming a `Message`, the type script:
    - MUST only consume actions targeting itself via `(script_role,
      script_hash)`;
    - SHOULD reject multiple matching actions unless its ABI explicitly defines
      multi-action semantics;
-   - MUST validate the consumed action's `data` against the cells in the
-     relevant OTX scope or transaction-remainder scope according to its own
+   - MUST validate the consumed action's `data` against the action target and
+     any relevant OTX scope or transaction-remainder cells according to its own
      application rules;
    - MUST fail-closed for malformed or inconsistent consumed action data.
    A type script cannot fetch or verify the complete off-chain `ScriptInfo`
@@ -808,24 +810,21 @@ require one as a script-specific policy.
 
 ## Malformed Witness Handling
 
-Core distinguishes related errors from unrelated malformed data.
+OTX layout errors fail closed for every Cobuild-aware script processing the
+transaction.
 
-- If a script has already selected a Cobuild witness or OTX scope as relevant
-  to its own validation, malformed structure in that relevant witness data MUST
-  fail-closed.
-- Unrelated malformed `WitnessLayout` instances elsewhere in the transaction
-  MUST NOT by themselves force an unrelated script into Cobuild flow.
-- A malformed witness occupying the current lock group's first witness position
-  is related to that lock group and MUST fail it if the script attempts
-  tx-level Cobuild flow.
-- A malformed witness within the OTX witness segment consumed by a script is
-  related and MUST fail that script's OTX flow.
+- Malformed `OtxStart` or `Otx` witnesses fail OTX layout scanning.
+- Multiple valid `OtxStart` witnesses fail OTX layout scanning.
+- Any valid `Otx` witness outside the single contiguous OTX sequence fails OTX
+  layout scanning.
+- Tx-level `SighashAll` / `SighashAllOnly` malformed handling remains scoped to
+  tx-level flow selection.
 
 ## Error Model
 
 Core standardizes failure categories, not universal numeric error codes.
 
-The following conditions MUST fail when relevant to the current script:
+The following OTX layout conditions MUST fail:
 
 - malformed selected `WitnessLayout`;
 - multiple valid `OtxStart` witnesses;
