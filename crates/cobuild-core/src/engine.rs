@@ -117,6 +117,10 @@ mod tests {
         table_bytes(&[actions])
     }
 
+    fn message_without_actions() -> Vec<u8> {
+        table_bytes(&[dynvec_bytes(&[])])
+    }
+
     fn molecule_bytes(raw: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(4 + raw.len());
         bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
@@ -286,12 +290,13 @@ mod tests {
         let message_bytes = [4u8, 0, 0, 0];
         let otx = test_otx(&message_bytes, 0, 2);
 
-        let (base_relevant, append_relevant) = builder
+        let relevance = builder
             .collect_otx_related_message_if_relevant(5, &otx)
+            .unwrap()
             .unwrap();
 
-        assert!(base_relevant);
-        assert!(append_relevant);
+        assert!(relevance.base_signature);
+        assert!(relevance.append_signature);
         assert_eq!(builder.related_messages.len(), 1);
         match builder.related_messages[0].origin {
             MessageOrigin::Otx { otx_index, .. } => assert_eq!(otx_index, 5),
@@ -305,13 +310,37 @@ mod tests {
         let other_hash = hash(2);
         let context = test_context(vec![other_hash, other_hash]);
         let mut builder = LockPlanBuilder::new(&context, lock_hash);
-        let message_bytes = [4u8, 0, 0, 0];
+        let message_bytes = message_without_actions();
         let otx = test_otx(&message_bytes, 0, 1);
 
         assert!(builder
             .collect_otx_related_message_if_relevant(0, &otx)
+            .unwrap()
             .is_none());
         assert!(builder.related_messages.is_empty());
+    }
+
+    #[test]
+    fn lock_builder_collects_otx_message_when_action_targets_lock_outside_otx_ranges() {
+        let lock_hash = hash(1);
+        let other_hash = hash(2);
+        let context = test_context(vec![other_hash, other_hash, lock_hash]);
+        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let message_bytes = message_with_action(0, lock_hash);
+        let otx = test_otx(&message_bytes, 0, 1);
+
+        let relevance = builder
+            .collect_otx_related_message_if_relevant(0, &otx)
+            .unwrap()
+            .unwrap();
+
+        assert!(!relevance.base_signature);
+        assert!(!relevance.append_signature);
+        assert_eq!(builder.related_messages.len(), 1);
+        assert!(matches!(
+            builder.related_messages[0].origin,
+            MessageOrigin::Otx { otx_index: 0, .. }
+        ));
     }
 
     #[test]
@@ -364,6 +393,17 @@ struct LockPlanBuilder<'a> {
     lock_script_hash: [u8; 32],
     required_signatures: Vec<SigningRequirement>,
     related_messages: Vec<RelatedMessage>,
+}
+
+struct LockOtxRelevance {
+    base_signature: bool,
+    append_signature: bool,
+}
+
+impl LockOtxRelevance {
+    fn needs_signature(&self) -> bool {
+        self.base_signature || self.append_signature
+    }
 }
 
 impl<'a> LockPlanBuilder<'a> {
@@ -456,8 +496,8 @@ impl<'a> LockPlanBuilder<'a> {
             OtxLayoutScan::Invalid(error) => return Err(error.clone()),
             OtxLayoutScan::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
-                    let Some((base_relevant, append_relevant)) =
-                        self.collect_otx_related_message_if_relevant(otx_index, otx)
+                    let Some(relevance) =
+                        self.collect_otx_related_message_if_relevant(otx_index, otx)?
                     else {
                         continue;
                     };
@@ -465,8 +505,12 @@ impl<'a> LockPlanBuilder<'a> {
                     self.context
                         .script_hashes
                         .validate_message_targets(&otx.witness.message)?;
+                    if !relevance.needs_signature() {
+                        continue;
+                    }
+
                     let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.context.tx)?;
-                    if base_relevant {
+                    if relevance.base_signature {
                         let seal = crate::seal::unique_otx_seal_by_scope(
                             self.lock_script_hash,
                             &otx.witness.seals,
@@ -479,7 +523,7 @@ impl<'a> LockPlanBuilder<'a> {
                             signing_message_hash: base_hash,
                         });
                     }
-                    if append_relevant {
+                    if relevance.append_signature {
                         let seal = crate::seal::unique_otx_seal_by_scope(
                             self.lock_script_hash,
                             &otx.witness.seals,
@@ -519,22 +563,31 @@ impl<'a> LockPlanBuilder<'a> {
         &mut self,
         otx_index: usize,
         otx: &crate::layout::OtxLayoutEntry,
-    ) -> Option<(bool, bool)> {
-        let base_relevant = self
+    ) -> Result<Option<LockOtxRelevance>, CoreError> {
+        let base_signature = self
             .context
             .script_hashes
             .lock_in_input_range(otx.layout.base_inputs, self.lock_script_hash);
-        let append_relevant = self
+        let append_signature = self
             .context
             .script_hashes
             .lock_in_input_range(otx.layout.append_inputs, self.lock_script_hash);
-        if !base_relevant && !append_relevant {
-            return None;
+        let scope_related = base_signature || append_signature;
+        let action_related = if scope_related {
+            false
+        } else {
+            message_targets_lock_script(&otx.witness.message, self.lock_script_hash)?
+        };
+        if !scope_related && !action_related {
+            return Ok(None);
         }
 
         self.related_messages
             .push(related_otx_message(otx_index, otx));
-        Some((base_relevant, append_relevant))
+        Ok(Some(LockOtxRelevance {
+            base_signature,
+            append_signature,
+        }))
     }
 
     fn ensure_otx_lock_group_coverage(&self) -> Result<(), CoreError> {
@@ -698,6 +751,18 @@ fn otx_type_relation_mentions_type(relation: &crate::plan::OtxTypeRelation) -> b
         || relation.input_type_in_append
         || relation.output_type_in_base
         || relation.output_type_in_append
+}
+
+fn message_targets_lock_script(
+    message: &Cursor,
+    lock_script_hash: [u8; 32],
+) -> Result<bool, CoreError> {
+    Ok(MessageView::new(message.clone())
+        .actions()?
+        .into_iter()
+        .any(|action| {
+            action.script_hash == lock_script_hash && action.script_role == ScriptRole::InputLock
+        }))
 }
 
 fn message_targets_type_script(

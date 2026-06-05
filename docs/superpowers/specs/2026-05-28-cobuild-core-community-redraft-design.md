@@ -694,6 +694,9 @@ A Cobuild-aware lock script then validates lock ownership as follows:
 1. For each collected OTX relevant to the current lock script:
    - determine whether the current lock script hash appears in the OTX base
      input scope, append input scope, or both;
+   - the OTX `Message` is also related to the current lock when it contains an
+     `input_lock` action targeting the current lock script hash, even if that
+     lock hash is outside the OTX's local input scopes;
    - if it appears in base scope, find exactly one `SealPair` for
      `(current_lock_hash, base)`, compute `OtxBase`, and verify the seal using
      the lock's own cryptographic rules;
@@ -702,6 +705,9 @@ A Cobuild-aware lock script then validates lock ownership as follows:
      using the lock's own cryptographic rules;
    - missing, duplicate, malformed, or invalid seals in a relevant OTX scope
      MUST fail.
+   An action targeting the current lock does not by itself create an OTX
+   signing requirement; OTX lock signatures are required only for lock hashes
+   present in the OTX base or append input scope.
 2. Determine whether the current lock has tx-level remainder inputs outside all
    relevant OTX-covered input scopes. If it does not, no tx-level seal is
    required for this lock execution.

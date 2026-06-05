@@ -628,11 +628,16 @@ Cobuild-aware lock script 随后按以下流程验证 owner 授权：
 1. 对每个与当前 lock script 相关的 OTX：
    - 判断当前 lock script hash 是否出现在该 OTX 的 base input scope、append input
      scope，或两者都出现；
+   - 如果 OTX `Message` 中存在指向当前 lock script hash 的 `input_lock` action，
+     即使该 lock hash 不在当前 OTX local input scopes 中，该 OTX `Message` 也与当前
+     lock 相关；
    - 如果出现在 base scope，必须为 `(current_lock_hash, base)` 找到且仅找到一个
      `SealPair`，计算 `OtxBase`，并按该 lock 自己的加密规则验证 seal；
    - 如果出现在 append scope，必须为 `(current_lock_hash, append)` 找到且仅找到一个
      `SealPair`，计算 `OtxAppend`，并按该 lock 自己的加密规则验证 seal；
    - 相关 OTX scope 内缺少 seal、重复 seal、seal 结构错误或签名无效，都必须失败。
+   指向当前 lock 的 action 本身不会创建 OTX 签名要求；只有 lock hash 真实出现在
+   OTX base 或 append input scope 中时，才要求对应的 OTX lock 签名。
 2. 判断当前 lock 是否存在不属于任何相关 OTX-covered input scope 的 tx-level
    remainder inputs。若不存在，本次 lock 执行不需要 tx-level seal。
 3. 如果存在 tx-level remainder inputs：

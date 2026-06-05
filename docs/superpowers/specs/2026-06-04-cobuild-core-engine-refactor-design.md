@@ -387,16 +387,24 @@ When OTX scan succeeds, the engine iterates OTX segments in layout order.
 
 For each OTX:
 
+- expose the OTX as a related message when its message has an `input_lock`
+  action targeting the current lock hash, even if that lock is outside the
+  OTX's local input ranges;
 - if the current lock hash appears in the base input range, emit an
   `OtxBase` signing requirement;
 - if it appears in the append input range, emit an `OtxAppend` signing
   requirement;
 - if both are true, emit both requirements;
-- validate the OTX message targets when the OTX is relevant;
+- validate the OTX message targets when the OTX message is related or an OTX
+  signature is required;
 - find exactly one matching `SealPair` for each required
   `(script_hash, scope)`;
 - fail missing, duplicate, or invalid-scope seals only when the OTX scope is
   relevant to the current lock.
+
+An `input_lock` action target does not create a signing requirement by itself;
+OTX lock signatures remain tied to lock ownership of OTX base or append input
+scopes.
 
 `OtxAppend` binds to the current OTX's base hash. The engine computes the base
 hash once and passes the digest to append hash construction.
@@ -511,6 +519,8 @@ New engine tests should cover:
 - duplicate `SighashAll` failing only when tx-level flow is relevant;
 - invalid OTX layout failing immediately;
 - message action target validation for tx-level and OTX messages;
+- lock plan exposing an OTX related message for an action-target-only
+  `input_lock` action without creating an OTX signing requirement;
 - type plan exposing a tx-level related message;
 - type plan exposing an OTX related message with OTX origin layout and relation
   data;
