@@ -616,6 +616,27 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
 }
 
 #[test]
+fn cobuild_core_lock_plan_exposes_related_messages() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+    let plan_rs = fs::read_to_string(core_src.join("plan.rs")).expect("plan.rs");
+    let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs");
+
+    assert!(
+        plan_rs.contains("pub related_messages: Vec<RelatedMessage>"),
+        "LockValidationPlan should expose related messages for input_lock actions"
+    );
+    assert!(
+        engine_rs.contains("related_messages: Vec<RelatedMessage>"),
+        "LockPlanBuilder should collect lock related messages"
+    );
+    assert!(
+        engine_rs.contains("self.related_messages.push(RelatedMessage"),
+        "lock planning should push tx-level or OTX related messages"
+    );
+}
+
+#[test]
 fn cobuild_core_hashing_uses_syscalls_not_owned_hash_parts() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let core_src = workspace_root.join("crates/cobuild-core/src");
