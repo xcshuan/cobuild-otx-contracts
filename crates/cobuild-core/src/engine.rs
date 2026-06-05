@@ -3,15 +3,14 @@ use alloc::vec::Vec;
 use cobuild_types::lazy_reader::support::Cursor;
 
 use crate::{
-    context::ScriptHashIndex,
+    context::TxScriptHashes,
     error::CoreError,
     hash::{otx_append_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash},
     layout::{OtxLayoutCollector, OtxLayoutScan},
-    message::validate_message_targets,
     plan::{LockValidationPlan, SignatureOrigin, SigningRequirement, TypeValidationPlan},
     protocol::SealScope,
     reader::{cursor_bytes, cursor_bytes_with_error},
-    syscalls::{self, TxCounts},
+    syscalls,
     view::{SighashAllWitnessView, WitnessLayoutView},
 };
 
@@ -19,7 +18,7 @@ pub struct CobuildEngine;
 
 pub struct PreparedCobuild {
     pub(crate) tx: syscalls::SyscallTxReader,
-    pub(crate) script_hashes: ScriptHashIndex,
+    pub(crate) script_hashes: TxScriptHashes,
     witness_summaries: Vec<WitnessSummary>,
     pub(crate) layout_scan: OtxLayoutScan,
 }
@@ -37,7 +36,7 @@ impl CobuildEngine {
     pub fn prepare_from_syscalls() -> Result<PreparedCobuild, CoreError> {
         let tx = syscalls::SyscallTxReader::default();
         let counts = tx.counts()?;
-        let script_hashes = script_hashes_from_syscalls(&tx, counts)?;
+        let script_hashes = TxScriptHashes::from_reader(&tx)?;
         let mut witness_summaries = Vec::with_capacity(counts.witnesses);
         let mut layout_collector = OtxLayoutCollector::new();
         for index in 0..counts.witnesses {
@@ -89,21 +88,18 @@ impl PreparedCobuild {
             }
             OtxLayoutScan::Complete(layout) => {
                 for otx in &layout.otx_data {
-                    let base_relevant = crate::flow::script_in_input_range(
-                        &self.script_hashes.input_locks,
-                        otx.layout.base_inputs,
-                        lock_script_hash,
-                    );
-                    let append_relevant = crate::flow::script_in_input_range(
-                        &self.script_hashes.input_locks,
-                        otx.layout.append_inputs,
-                        lock_script_hash,
-                    );
+                    let base_relevant = self
+                        .script_hashes
+                        .lock_in_input_range(otx.layout.base_inputs, lock_script_hash);
+                    let append_relevant = self
+                        .script_hashes
+                        .lock_in_input_range(otx.layout.append_inputs, lock_script_hash);
                     if !base_relevant && !append_relevant {
                         continue;
                     }
 
-                    validate_message_targets(&otx.witness.message, &self.script_hashes)?;
+                    self.script_hashes
+                        .validate_message_targets(&otx.witness.message)?;
                     let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.tx)?;
                     if base_relevant {
                         let seal = crate::seal::unique_otx_seal_by_scope(
@@ -151,11 +147,10 @@ impl PreparedCobuild {
         });
         if has_otx && !has_tx_level {
             if let OtxLayoutScan::Complete(layout) = &self.layout_scan {
-                if !crate::flow::lock_group_fully_covered_by_otx(
-                    &self.script_hashes.input_locks,
-                    lock_script_hash,
-                    &layout.otxs,
-                ) {
+                if !self
+                    .script_hashes
+                    .lock_group_fully_covered_by_otx(lock_script_hash, &layout.otxs)
+                {
                     return Err(CoreError::MissingLockGroupCoverage);
                 }
             }
@@ -176,35 +171,9 @@ impl PreparedCobuild {
         let tx_level_type_relevant = match &self.layout_scan {
             OtxLayoutScan::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_data.iter().enumerate() {
-                    let relation = crate::plan::OtxTypeRelation {
-                        input_type_in_base: crate::flow::type_hash_in_input_range(
-                            &self.script_hashes.input_types,
-                            otx.layout.base_inputs,
-                            type_script_hash,
-                        ),
-                        input_type_in_append: crate::flow::type_hash_in_input_range(
-                            &self.script_hashes.input_types,
-                            otx.layout.append_inputs,
-                            type_script_hash,
-                        ),
-                        output_type_in_base: crate::flow::type_hash_in_output_range(
-                            &self.script_hashes.output_types,
-                            otx.layout.base_outputs,
-                            type_script_hash,
-                        ),
-                        output_type_in_base_covered:
-                            crate::flow::covered_type_hash_in_base_outputs(
-                                &self.script_hashes.output_types,
-                                otx.layout.base_outputs,
-                                type_script_hash,
-                                &otx.witness.base_output_masks,
-                            )?,
-                        output_type_in_append: crate::flow::type_hash_in_output_range(
-                            &self.script_hashes.output_types,
-                            otx.layout.append_outputs,
-                            type_script_hash,
-                        ),
-                    };
+                    let relation = self
+                        .script_hashes
+                        .type_relation_for_otx(otx, type_script_hash)?;
                     let is_related = relation.input_type_in_base
                         || relation.input_type_in_append
                         || relation.output_type_in_base
@@ -212,7 +181,8 @@ impl PreparedCobuild {
                     if !is_related {
                         continue;
                     }
-                    validate_message_targets(&otx.witness.message, &self.script_hashes)?;
+                    self.script_hashes
+                        .validate_message_targets(&otx.witness.message)?;
                     related_messages.push(crate::plan::RelatedMessage {
                         origin: crate::plan::MessageOrigin::Otx {
                             witness_index: otx.layout.witness_index,
@@ -232,12 +202,8 @@ impl PreparedCobuild {
                         message: otx.witness.message.clone().into(),
                     });
                 }
-                crate::flow::type_hash_outside_otx_ranges(
-                    &self.script_hashes.input_types,
-                    &self.script_hashes.output_types,
-                    type_script_hash,
-                    &layout.otxs,
-                )
+                self.script_hashes
+                    .type_hash_outside_otx_ranges(type_script_hash, &layout.otxs)
             }
             OtxLayoutScan::Invalid { anchor, error } => {
                 let relevance_known_irrelevant = anchor
@@ -260,24 +226,16 @@ impl PreparedCobuild {
                 if !relevance_known_irrelevant {
                     return Err(error.clone());
                 }
-                crate::flow::type_hash_present(
-                    &self.script_hashes.input_types,
-                    &self.script_hashes.output_types,
-                    type_script_hash,
-                )
+                self.script_hashes.type_hash_present(type_script_hash)
             }
-            OtxLayoutScan::None => crate::flow::type_hash_present(
-                &self.script_hashes.input_types,
-                &self.script_hashes.output_types,
-                type_script_hash,
-            ),
+            OtxLayoutScan::None => self.script_hashes.type_hash_present(type_script_hash),
         };
 
         if tx_level_type_relevant {
             if let Some((carrier_witness_index, message)) =
                 unique_sighash_all_message_with_index_from_summaries(&self.witness_summaries)?
             {
-                validate_message_targets(&message, &self.script_hashes)?;
+                self.script_hashes.validate_message_targets(&message)?;
                 related_messages.push(crate::plan::RelatedMessage {
                     origin: crate::plan::MessageOrigin::TxLevel {
                         carrier_witness_index,
@@ -298,7 +256,7 @@ impl PreparedCobuild {
         lock_script_hash: [u8; 32],
     ) -> Result<Vec<SigningRequirement>, CoreError> {
         let Some(carrier_witness_index) =
-            crate::flow::first_input_with_lock(&self.script_hashes, lock_script_hash)
+            self.script_hashes.first_input_with_lock(lock_script_hash)
         else {
             return Ok(Vec::new());
         };
@@ -320,14 +278,14 @@ impl PreparedCobuild {
         let (seal, signing_message_hash) = match sighash_all_witness_layout {
             SighashAllWitnessView::WithMessage { seal, message } => {
                 let message = tx_message.as_ref().unwrap_or(&message);
-                validate_message_targets(message, &self.script_hashes)?;
+                self.script_hashes.validate_message_targets(message)?;
                 let signing_message_hash = tx_with_message_hash(message, &self.tx)?;
                 (cursor_bytes(&seal)?, signing_message_hash)
             }
             SighashAllWitnessView::SealOnly { seal } => {
                 let signing_message_hash = match tx_message {
                     Some(message) => {
-                        validate_message_targets(&message, &self.script_hashes)?;
+                        self.script_hashes.validate_message_targets(&message)?;
                         tx_with_message_hash(&message, &self.tx)?
                     }
                     None => tx_without_message_hash(&self.tx)?,
@@ -343,29 +301,6 @@ impl PreparedCobuild {
             signing_message_hash,
         }])
     }
-}
-
-fn script_hashes_from_syscalls(
-    tx: &syscalls::SyscallTxReader,
-    counts: TxCounts,
-) -> Result<ScriptHashIndex, CoreError> {
-    let mut input_locks = Vec::with_capacity(counts.inputs);
-    let mut input_types = Vec::with_capacity(counts.inputs);
-    for index in 0..counts.inputs {
-        input_locks.push(tx.input_lock_hash(index)?);
-        input_types.push(tx.input_type_hash(index)?);
-    }
-
-    let mut output_types = Vec::with_capacity(counts.outputs);
-    for index in 0..counts.outputs {
-        output_types.push(tx.output_type_hash(index)?);
-    }
-
-    Ok(ScriptHashIndex {
-        input_locks,
-        input_types,
-        output_types,
-    })
 }
 
 fn witness_summary(witness: &[u8]) -> Result<WitnessSummary, CoreError> {
