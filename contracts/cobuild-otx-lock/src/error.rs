@@ -22,6 +22,7 @@ pub enum Error {
     MissingSealPair,
     DuplicateSealPair,
     InvalidSealScope,
+    DuplicateMatchingAction,
     LockSemanticFailure,
     VerifyFailure,
     InternalFailure,
@@ -54,6 +55,7 @@ impl Error {
             Self::MissingSealPair => 35,
             Self::DuplicateSealPair => 36,
             Self::InvalidSealScope => 37,
+            Self::DuplicateMatchingAction => 38,
 
             Self::LockSemanticFailure => 40,
 
@@ -104,6 +106,7 @@ impl From<CoreError> for Error {
             CoreError::MissingSealPair => Self::MissingSealPair,
             CoreError::DuplicateSealPair => Self::DuplicateSealPair,
             CoreError::InvalidSealScope => Self::InvalidSealScope,
+            CoreError::DuplicateMatchingAction => Self::DuplicateMatchingAction,
         }
     }
 }

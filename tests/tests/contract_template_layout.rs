@@ -353,13 +353,23 @@ fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
         "OtxStartView",
         "OtxView",
         "SealPairView",
-        "MessageActionView",
+        "ActionView",
         "MaskView",
         "bytes: Vec<u8>",
     ] {
         assert!(
             view_rs.contains(expected),
             "view.rs should expose cursor-backed view {expected}"
+        );
+    }
+    for expected in [
+        "pub fn actions(&self)",
+        "pub fn actions_for(",
+        "pub fn unique_action_for(",
+    ] {
+        assert!(
+            view_rs.contains(expected),
+            "MessageView should expose action query API via {expected}"
         );
     }
     assert!(

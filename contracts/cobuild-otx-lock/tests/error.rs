@@ -24,6 +24,7 @@ fn error_codes_are_grouped_by_category() {
     assert_eq!(Error::MissingSealPair.code(), 35);
     assert_eq!(Error::DuplicateSealPair.code(), 36);
     assert_eq!(Error::InvalidSealScope.code(), 37);
+    assert_eq!(Error::DuplicateMatchingAction.code(), 38);
 
     assert_eq!(Error::LockSemanticFailure.code(), 40);
     assert_eq!(Error::VerifyFailure.code(), 50);
@@ -92,6 +93,10 @@ fn core_errors_map_to_dedicated_contract_errors() {
     assert_eq!(
         Error::from(CoreError::InvalidSealScope),
         Error::InvalidSealScope
+    );
+    assert_eq!(
+        Error::from(CoreError::DuplicateMatchingAction),
+        Error::DuplicateMatchingAction
     );
     assert_eq!(
         Error::from(CoreError::InvalidContextInput),
