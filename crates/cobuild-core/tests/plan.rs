@@ -73,10 +73,12 @@ fn type_validation_plan_carries_type_specific_otx_relation() {
     };
 
     assert_eq!(plan.type_script_hash, [2u8; 32]);
-    assert!(plan.related_messages[0]
-        .otx_relation
-        .unwrap()
-        .input_type_in_base);
+    assert!(
+        plan.related_messages[0]
+            .otx_relation
+            .unwrap()
+            .input_type_in_base
+    );
     match plan.related_messages[0].message.origin {
         MessageOrigin::Otx {
             witness_index,

@@ -75,6 +75,66 @@ mod tests {
 
     use super::*;
 
+    fn hash(byte: u8) -> [u8; 32] {
+        [byte; 32]
+    }
+
+    fn test_context(input_locks: Vec<[u8; 32]>) -> CobuildContext {
+        CobuildContext {
+            tx: SyscallTxReader::default(),
+            script_hashes: TxScriptHashes {
+                input_locks,
+                input_types: Vec::new(),
+                output_types: Vec::new(),
+            },
+            witnesses: WitnessScan::with_capacity(0),
+            layout_scan: OtxLayoutScan::None,
+        }
+    }
+
+    fn test_otx(
+        message_bytes: &[u8],
+        base_start: usize,
+        append_start: usize,
+    ) -> crate::layout::OtxLayoutEntry {
+        crate::layout::OtxLayoutEntry {
+            layout: crate::layout::OtxLayout {
+                witness_index: 7,
+                base_inputs: crate::layout::Range {
+                    start: base_start,
+                    count: 1,
+                },
+                append_inputs: crate::layout::Range {
+                    start: append_start,
+                    count: 1,
+                },
+                base_outputs: crate::layout::Range { start: 0, count: 1 },
+                append_outputs: crate::layout::Range { start: 1, count: 0 },
+                base_cell_deps: crate::layout::Range { start: 0, count: 0 },
+                append_cell_deps: crate::layout::Range { start: 0, count: 0 },
+                base_header_deps: crate::layout::Range { start: 0, count: 0 },
+                append_header_deps: crate::layout::Range { start: 0, count: 0 },
+            },
+            witness: crate::view::OtxView {
+                message: crate::reader::cursor_from_slice(message_bytes),
+                append_permissions: 0,
+                base_input_cells: 1,
+                base_input_masks: crate::view::MaskView::new(vec![0]),
+                base_output_cells: 0,
+                base_output_masks: crate::view::MaskView::new(Vec::new()),
+                base_cell_deps: 0,
+                base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
+                base_header_deps: 0,
+                base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
+                append_input_cells: 0,
+                append_output_cells: 0,
+                append_cell_deps: 0,
+                append_header_deps: 0,
+                seals: Vec::new(),
+            },
+        }
+    }
+
     #[test]
     fn lock_related_tx_message_preserves_origin_and_message_cursor() {
         let message_bytes = [4u8, 0, 0, 0];
@@ -96,36 +156,7 @@ mod tests {
     #[test]
     fn lock_related_otx_message_preserves_origin_layout_and_message_cursor() {
         let message_bytes = [4u8, 0, 0, 0];
-        let otx = crate::layout::OtxLayoutEntry {
-            layout: crate::layout::OtxLayout {
-                witness_index: 7,
-                base_inputs: crate::layout::Range { start: 1, count: 2 },
-                append_inputs: crate::layout::Range { start: 3, count: 1 },
-                base_outputs: crate::layout::Range { start: 0, count: 1 },
-                append_outputs: crate::layout::Range { start: 1, count: 0 },
-                base_cell_deps: crate::layout::Range { start: 0, count: 0 },
-                append_cell_deps: crate::layout::Range { start: 0, count: 0 },
-                base_header_deps: crate::layout::Range { start: 0, count: 0 },
-                append_header_deps: crate::layout::Range { start: 0, count: 0 },
-            },
-            witness: crate::view::OtxView {
-                message: crate::reader::cursor_from_slice(&message_bytes),
-                append_permissions: 0,
-                base_input_cells: 1,
-                base_input_masks: crate::view::MaskView::new(vec![0]),
-                base_output_cells: 0,
-                base_output_masks: crate::view::MaskView::new(Vec::new()),
-                base_cell_deps: 0,
-                base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
-                base_header_deps: 0,
-                base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
-                append_input_cells: 0,
-                append_output_cells: 0,
-                append_cell_deps: 0,
-                append_header_deps: 0,
-                seals: Vec::new(),
-            },
-        };
+        let otx = test_otx(&message_bytes, 1, 3);
 
         let related = related_otx_message(3, &otx);
 
@@ -146,6 +177,69 @@ mod tests {
             crate::reader::cursor_bytes(related.message.cursor()).unwrap(),
             message_bytes.to_vec()
         );
+    }
+
+    #[test]
+    fn lock_builder_collects_tx_related_message_only_when_present() {
+        let lock_hash = hash(1);
+        let context = test_context(vec![lock_hash]);
+        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let message_bytes = [4u8, 0, 0, 0];
+
+        builder.collect_tx_related_message(2, None);
+        assert!(builder.related_messages.is_empty());
+
+        builder
+            .collect_tx_related_message(2, Some(crate::reader::cursor_from_slice(&message_bytes)));
+
+        assert_eq!(builder.related_messages.len(), 1);
+        assert!(matches!(
+            builder.related_messages[0].origin,
+            MessageOrigin::TxLevel {
+                carrier_witness_index: 2
+            }
+        ));
+        assert_eq!(
+            crate::reader::cursor_bytes(builder.related_messages[0].message.cursor()).unwrap(),
+            message_bytes.to_vec()
+        );
+    }
+
+    #[test]
+    fn lock_builder_collects_one_otx_related_message_for_base_and_append_relevance() {
+        let lock_hash = hash(1);
+        let other_hash = hash(2);
+        let context = test_context(vec![lock_hash, other_hash, lock_hash]);
+        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let message_bytes = [4u8, 0, 0, 0];
+        let otx = test_otx(&message_bytes, 0, 2);
+
+        let (base_relevant, append_relevant) = builder
+            .collect_otx_related_message_if_relevant(5, &otx)
+            .unwrap();
+
+        assert!(base_relevant);
+        assert!(append_relevant);
+        assert_eq!(builder.related_messages.len(), 1);
+        match builder.related_messages[0].origin {
+            MessageOrigin::Otx { otx_index, .. } => assert_eq!(otx_index, 5),
+            MessageOrigin::TxLevel { .. } => panic!("expected OTX message origin"),
+        }
+    }
+
+    #[test]
+    fn lock_builder_skips_irrelevant_otx_related_message() {
+        let lock_hash = hash(1);
+        let other_hash = hash(2);
+        let context = test_context(vec![other_hash, other_hash]);
+        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let message_bytes = [4u8, 0, 0, 0];
+        let otx = test_otx(&message_bytes, 0, 1);
+
+        assert!(builder
+            .collect_otx_related_message_if_relevant(0, &otx)
+            .is_none());
+        assert!(builder.related_messages.is_empty());
     }
 }
 
@@ -235,10 +329,7 @@ impl<'a> LockPlanBuilder<'a> {
             signing_message_hash,
         });
 
-        if let Some(message) = related_message {
-            self.related_messages
-                .push(related_tx_message(carrier_witness_index, message));
-        }
+        self.collect_tx_related_message(carrier_witness_index, related_message);
 
         Ok(())
     }
@@ -265,26 +356,15 @@ impl<'a> LockPlanBuilder<'a> {
             }
             OtxLayoutScan::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
-                    let base_relevant = self
-                        .context
-                        .script_hashes
-                        .lock_in_input_range(otx.layout.base_inputs, self.lock_script_hash);
-                    let append_relevant = self
-                        .context
-                        .script_hashes
-                        .lock_in_input_range(otx.layout.append_inputs, self.lock_script_hash);
-                    if !base_relevant && !append_relevant {
+                    let Some((base_relevant, append_relevant)) =
+                        self.collect_otx_related_message_if_relevant(otx_index, otx)
+                    else {
                         continue;
-                    }
+                    };
 
                     self.context
                         .script_hashes
                         .validate_message_targets(&otx.witness.message)?;
-                    let related_message = related_otx_message(otx_index, otx);
-                    self.related_messages.push(RelatedMessage {
-                        origin: related_message.origin,
-                        message: related_message.message,
-                    });
                     let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.context.tx)?;
                     if base_relevant {
                         let seal = crate::seal::unique_otx_seal_by_scope(
@@ -322,6 +402,39 @@ impl<'a> LockPlanBuilder<'a> {
         }
 
         Ok(())
+    }
+
+    fn collect_tx_related_message(
+        &mut self,
+        carrier_witness_index: usize,
+        message: Option<Cursor>,
+    ) {
+        if let Some(message) = message {
+            self.related_messages
+                .push(related_tx_message(carrier_witness_index, message));
+        }
+    }
+
+    fn collect_otx_related_message_if_relevant(
+        &mut self,
+        otx_index: usize,
+        otx: &crate::layout::OtxLayoutEntry,
+    ) -> Option<(bool, bool)> {
+        let base_relevant = self
+            .context
+            .script_hashes
+            .lock_in_input_range(otx.layout.base_inputs, self.lock_script_hash);
+        let append_relevant = self
+            .context
+            .script_hashes
+            .lock_in_input_range(otx.layout.append_inputs, self.lock_script_hash);
+        if !base_relevant && !append_relevant {
+            return None;
+        }
+
+        self.related_messages
+            .push(related_otx_message(otx_index, otx));
+        Some((base_relevant, append_relevant))
     }
 
     fn ensure_otx_lock_group_coverage(&self) -> Result<(), CoreError> {

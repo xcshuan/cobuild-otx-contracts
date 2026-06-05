@@ -631,8 +631,10 @@ fn cobuild_core_lock_plan_exposes_related_messages() {
         "LockPlanBuilder should collect lock related messages"
     );
     assert!(
-        engine_rs.contains("self.related_messages.push(RelatedMessage"),
-        "lock planning should push tx-level or OTX related messages"
+        engine_rs.contains("collect_tx_related_message")
+            && engine_rs.contains("collect_otx_related_message_if_relevant")
+            && engine_rs.contains("related_otx_message"),
+        "lock planning should collect tx-level and OTX related messages through explicit helpers"
     );
 }
 
