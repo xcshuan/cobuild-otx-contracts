@@ -86,6 +86,33 @@ impl From<ResolvedInputDataReader> for Cursor {
     }
 }
 
+struct GroupInputWitnessReader {
+    total_size: usize,
+    index: usize,
+}
+
+impl GroupInputWitnessReader {
+    fn new(index: usize) -> Result<Self, SysError> {
+        let total_size =
+            read_syscall_size(|buf| syscalls::load_witness(buf, 0, index, Source::GroupInput))?;
+        Ok(Self { total_size, index })
+    }
+}
+
+impl Read for GroupInputWitnessReader {
+    fn read(&self, buf: &mut [u8], offset: usize) -> Result<usize, MoleculeError> {
+        read_syscall_data(self.total_size, buf, offset, |buf, offset| {
+            syscalls::load_witness(buf, offset, self.index, Source::GroupInput)
+        })
+    }
+}
+
+impl From<GroupInputWitnessReader> for Cursor {
+    fn from(reader: GroupInputWitnessReader) -> Self {
+        Cursor::new(reader.total_size, Box::new(reader))
+    }
+}
+
 fn read_syscall_size<F>(load: F) -> Result<usize, SysError>
 where
     F: FnOnce(&mut [u8]) -> Result<usize, SysError>,
@@ -146,6 +173,22 @@ fn resolved_input_data_cursor(index: usize) -> Result<Cursor, CoreError> {
     Ok(reader.into())
 }
 
+fn group_input_exists(index: usize) -> Result<bool, CoreError> {
+    match read_syscall_size(|buf| syscalls::load_input(buf, 0, index, Source::GroupInput)) {
+        Ok(_) => Ok(true),
+        Err(SysError::IndexOutOfBound) => Ok(false),
+        Err(_) => Err(CoreError::InvalidContextInput),
+    }
+}
+
+fn group_input_witness_cursor(index: usize) -> Result<Option<Cursor>, CoreError> {
+    match GroupInputWitnessReader::new(index) {
+        Ok(reader) => Ok(Some(reader.into())),
+        Err(SysError::IndexOutOfBound) => Ok(None),
+        Err(_) => Err(CoreError::MissingHashInput),
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct TxCounts {
     pub inputs: usize,
@@ -192,6 +235,20 @@ impl SyscallTxReader {
 
     pub(super) fn tx_hash(&self) -> [u8; 32] {
         self.tx_hash
+    }
+
+    pub(super) fn current_lock_group_has_input(
+        &self,
+        group_index: usize,
+    ) -> Result<bool, CoreError> {
+        group_input_exists(group_index)
+    }
+
+    pub(super) fn current_lock_group_witness_cursor(
+        &self,
+        group_index: usize,
+    ) -> Result<Option<Cursor>, CoreError> {
+        group_input_witness_cursor(group_index)
     }
 
     #[cfg(test)]

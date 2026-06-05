@@ -57,6 +57,17 @@ impl WitnessScan {
         }
     }
 
+    pub(crate) fn witness_has_sighash_all_layout(witness: &[u8]) -> Result<bool, CoreError> {
+        match Self::summarize_sighash_all_witness(witness)? {
+            SighashAllWitnessSummary::SighashAll { .. }
+            | SighashAllWitnessSummary::SighashAllOnly => Ok(true),
+            SighashAllWitnessSummary::Malformed(error) => Err(error),
+            SighashAllWitnessSummary::Empty
+            | SighashAllWitnessSummary::Legacy
+            | SighashAllWitnessSummary::OtherWitnessLayout => Ok(false),
+        }
+    }
+
     pub(crate) fn unique_sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
         let mut message = None;
         for summary in &self.sighash_all_summaries {

@@ -607,19 +607,24 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
 
     let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("context.rs");
     for expected in [
+        "pub(crate) struct CurrentLockGroup",
+        "impl CurrentLockGroup",
+        "carrier_witness_index",
+        "carrier_has_sighash_all_layout",
+        "ensure_non_carrier_witnesses_empty",
         "pub struct TxScriptHashes",
         "impl TxScriptHashes",
         "from_reader",
+        "lock_input_indices",
         "SyscallTxReader",
-        "lock_group_carrier_witness_index",
-        "lock_in_input_range",
+        "input_range_contains_lock",
         "type_relation_for_otx",
-        "lock_group_fully_covered_by_otx",
+        "all_inputs_with_lock_covered_by_otx",
         "validate_message_targets",
     ] {
         assert!(
             context_rs.contains(expected),
-            "TxScriptHashes should own script-hash flow method {expected}"
+            "context.rs should own flow method {expected}"
         );
     }
 

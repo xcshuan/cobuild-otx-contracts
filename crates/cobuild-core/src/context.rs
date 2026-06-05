@@ -7,15 +7,132 @@ use crate::{
     layout::{OtxLayoutEntry, Range},
     plan::OtxTypeRelation,
     protocol::ScriptRole,
+    reader::cursor_bytes_with_error,
     syscalls::SyscallTxReader,
     view::MessageView,
+    witness::WitnessScan,
 };
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct CurrentLockGroup {
+    input_indices: Option<Vec<usize>>,
+}
+
+impl CurrentLockGroup {
+    pub(crate) fn from_source() -> Self {
+        Self {
+            input_indices: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_input_indices(input_indices: Vec<usize>) -> Self {
+        Self {
+            input_indices: Some(input_indices),
+        }
+    }
+
+    pub(crate) fn carrier_witness_index(
+        &self,
+        tx: &SyscallTxReader,
+    ) -> Result<Option<usize>, CoreError> {
+        match &self.input_indices {
+            Some(input_indices) => Ok(input_indices.first().copied()),
+            None => tx
+                .current_lock_group_has_input(0)
+                .map(|has_input| has_input.then_some(0)),
+        }
+    }
+
+    pub(crate) fn carrier_has_sighash_all_layout(
+        &self,
+        tx: &SyscallTxReader,
+        witnesses: &WitnessScan,
+    ) -> Result<bool, CoreError> {
+        match &self.input_indices {
+            Some(input_indices) => {
+                let Some(index) = input_indices.first().copied() else {
+                    return Ok(false);
+                };
+                witnesses.tx_level_carrier_has_sighash_all_layout(index)
+            }
+            None => {
+                let Some(witness) = tx.current_lock_group_witness_cursor(0)? else {
+                    return Ok(false);
+                };
+                let witness = cursor_bytes_with_error(&witness, CoreError::MissingHashInput)?;
+                WitnessScan::witness_has_sighash_all_layout(&witness)
+            }
+        }
+    }
+
+    pub(crate) fn ensure_non_carrier_witnesses_empty(
+        &self,
+        tx: &SyscallTxReader,
+        witnesses: &WitnessScan,
+        carrier_witness_index: usize,
+    ) -> Result<(), CoreError> {
+        match &self.input_indices {
+            Some(input_indices) => witnesses.ensure_non_carrier_witnesses_empty(
+                input_indices.iter().copied(),
+                carrier_witness_index,
+            ),
+            None => {
+                let mut group_index = 1;
+                while tx.current_lock_group_has_input(group_index)? {
+                    if let Some(witness) = tx.current_lock_group_witness_cursor(group_index)? {
+                        let witness =
+                            cursor_bytes_with_error(&witness, CoreError::MissingHashInput)?;
+                        if !witness.is_empty() {
+                            return Err(CoreError::InvalidLockGroupWitness);
+                        }
+                    }
+                    group_index += 1;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) fn carrier_witness_bytes(
+        &self,
+        tx: &SyscallTxReader,
+    ) -> Result<Option<Vec<u8>>, CoreError> {
+        match &self.input_indices {
+            Some(input_indices) => {
+                let Some(index) = input_indices.first().copied() else {
+                    return Ok(None);
+                };
+                let witness = tx.witness_cursor(index)?;
+                cursor_bytes_with_error(&witness, CoreError::MissingHashInput).map(Some)
+            }
+            None => {
+                let Some(witness) = tx.current_lock_group_witness_cursor(0)? else {
+                    return Ok(None);
+                };
+                cursor_bytes_with_error(&witness, CoreError::MissingHashInput).map(Some)
+            }
+        }
+    }
+
+    pub(crate) fn is_empty(&self, tx: &SyscallTxReader) -> Result<bool, CoreError> {
+        self.carrier_witness_index(tx)
+            .map(|carrier_witness_index| carrier_witness_index.is_none())
+    }
+}
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TxScriptHashes {
     pub input_locks: Vec<[u8; 32]>,
     pub input_types: Vec<Option<[u8; 32]>>,
     pub output_types: Vec<Option<[u8; 32]>>,
+    lock_input_indices: Vec<LockInputIndices>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct LockInputIndices {
+    lock_hash: [u8; 32],
+    indices: Vec<usize>,
 }
 
 impl TxScriptHashes {
@@ -33,33 +150,30 @@ impl TxScriptHashes {
             output_types.push(reader.output_type_hash(index)?);
         }
 
-        Ok(Self {
+        Ok(Self::from_parts(input_locks, input_types, output_types))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_parts_for_tests(
+        input_locks: Vec<[u8; 32]>,
+        input_types: Vec<Option<[u8; 32]>>,
+        output_types: Vec<Option<[u8; 32]>>,
+    ) -> Self {
+        Self::from_parts(input_locks, input_types, output_types)
+    }
+
+    fn from_parts(
+        input_locks: Vec<[u8; 32]>,
+        input_types: Vec<Option<[u8; 32]>>,
+        output_types: Vec<Option<[u8; 32]>>,
+    ) -> Self {
+        let lock_input_indices = index_input_locks(&input_locks);
+        Self {
             input_locks,
             input_types,
             output_types,
-        })
-    }
-
-    pub(crate) fn lock_group_carrier_witness_index(&self, lock_hash: [u8; 32]) -> Option<usize> {
-        self.input_locks.iter().position(|hash| *hash == lock_hash)
-    }
-
-    pub(crate) fn lock_group_input_indices(
-        &self,
-        lock_hash: [u8; 32],
-    ) -> impl Iterator<Item = usize> + '_ {
-        self.input_locks
-            .iter()
-            .enumerate()
-            .filter_map(move |(index, hash)| (*hash == lock_hash).then_some(index))
-    }
-
-    pub(crate) fn lock_in_input_range(&self, range: Range, lock_hash: [u8; 32]) -> bool {
-        self.input_locks
-            .iter()
-            .skip(range.start)
-            .take(range.count)
-            .any(|hash| *hash == lock_hash)
+            lock_input_indices,
+        }
     }
 
     pub(crate) fn type_in_input_range(&self, range: Range, type_hash: [u8; 32]) -> bool {
@@ -68,6 +182,12 @@ impl TxScriptHashes {
             .skip(range.start)
             .take(range.count)
             .any(|hash| *hash == Some(type_hash))
+    }
+
+    pub(crate) fn input_range_contains_lock(&self, range: Range, lock_hash: [u8; 32]) -> bool {
+        self.input_indices_for_lock(lock_hash)
+            .iter()
+            .any(|index| range_contains(range, *index))
     }
 
     pub(crate) fn type_in_output_range(&self, range: Range, type_hash: [u8; 32]) -> bool {
@@ -119,34 +239,38 @@ impl TxScriptHashes {
         })
     }
 
-    pub(crate) fn lock_group_fully_covered_by_otx(
+    pub(crate) fn lock_hash_outside_otx_ranges(
         &self,
         lock_hash: [u8; 32],
         otxs: &[OtxLayoutEntry],
     ) -> bool {
-        self.input_locks.iter().enumerate().all(|(index, hash)| {
-            if *hash != lock_hash {
-                return true;
-            }
-            otxs.iter().any(|entry| {
-                range_contains(entry.layout.base_inputs, index)
-                    || range_contains(entry.layout.append_inputs, index)
+        self.input_indices_for_lock(lock_hash).iter().any(|index| {
+            !otxs.iter().any(|entry| {
+                range_contains(entry.layout.base_inputs, *index)
+                    || range_contains(entry.layout.append_inputs, *index)
             })
         })
     }
 
-    pub(crate) fn lock_group_has_input_outside_otx_ranges(
+    pub(crate) fn all_inputs_with_lock_covered_by_otx(
         &self,
         lock_hash: [u8; 32],
         otxs: &[OtxLayoutEntry],
     ) -> bool {
-        self.input_locks.iter().enumerate().any(|(index, hash)| {
-            *hash == lock_hash
-                && !otxs.iter().any(|entry| {
-                    range_contains(entry.layout.base_inputs, index)
-                        || range_contains(entry.layout.append_inputs, index)
-                })
+        self.input_indices_for_lock(lock_hash).iter().all(|index| {
+            otxs.iter().any(|entry| {
+                range_contains(entry.layout.base_inputs, *index)
+                    || range_contains(entry.layout.append_inputs, *index)
+            })
         })
+    }
+
+    fn input_indices_for_lock(&self, lock_hash: [u8; 32]) -> &[usize] {
+        self.lock_input_indices
+            .iter()
+            .find(|entry| entry.lock_hash == lock_hash)
+            .map(|entry| entry.indices.as_slice())
+            .unwrap_or(&[])
     }
 
     pub(crate) fn validate_message_targets(&self, message: &Cursor) -> Result<(), CoreError> {
@@ -196,6 +320,23 @@ impl TxScriptHashes {
 
 fn range_contains(range: Range, index: usize) -> bool {
     index >= range.start && index < range.start.saturating_add(range.count)
+}
+
+fn index_input_locks(input_locks: &[[u8; 32]]) -> Vec<LockInputIndices> {
+    let mut entries: Vec<LockInputIndices> = Vec::new();
+    for (index, lock_hash) in input_locks.iter().copied().enumerate() {
+        match entries
+            .iter_mut()
+            .find(|entry| entry.lock_hash == lock_hash)
+        {
+            Some(entry) => entry.indices.push(index),
+            None => entries.push(LockInputIndices {
+                lock_hash,
+                indices: alloc::vec![index],
+            }),
+        }
+    }
+    entries
 }
 
 #[cfg(test)]
@@ -297,27 +438,24 @@ mod tests {
         let lock_a = hash(1);
         let lock_b = hash(2);
         let type_a = hash(3);
-        let hashes = TxScriptHashes {
-            input_locks: alloc::vec![lock_a, lock_b],
-            input_types: alloc::vec![Some(type_a), None],
-            output_types: alloc::vec![None, Some(type_a)],
-        };
+        let hashes = TxScriptHashes::from_parts_for_tests(
+            alloc::vec![lock_a, lock_b],
+            alloc::vec![Some(type_a), None],
+            alloc::vec![None, Some(type_a)],
+        );
 
-        assert_eq!(hashes.lock_group_carrier_witness_index(lock_a), Some(0));
-        assert!(hashes.lock_in_input_range(range(0, 1), lock_a));
-        assert!(!hashes.lock_in_input_range(range(1, 1), lock_a));
         assert!(hashes.type_hash_present(type_a));
     }
 
     #[test]
-    fn lock_group_coverage_requires_every_matching_input_to_be_in_otx_ranges() {
+    fn lock_coverage_uses_cached_lock_input_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
-        let hashes = TxScriptHashes {
-            input_locks: alloc::vec![lock_a, lock_b, lock_a],
-            input_types: alloc::vec![None, None, None],
-            output_types: alloc::vec![],
-        };
+        let hashes = TxScriptHashes::from_parts_for_tests(
+            alloc::vec![lock_a, lock_b, lock_a],
+            alloc::vec![None, None, None],
+            alloc::vec![],
+        );
         let layout_covering_lock_a = otx_entry(crate::layout::OtxLayout {
             witness_index: 0,
             base_inputs: range(0, 1),
@@ -330,8 +468,8 @@ mod tests {
             append_header_deps: range(0, 0),
         });
 
-        assert!(hashes.lock_group_fully_covered_by_otx(lock_a, &[layout_covering_lock_a]));
-        assert!(!hashes.lock_group_fully_covered_by_otx(lock_a, &[]));
+        assert!(hashes.all_inputs_with_lock_covered_by_otx(lock_a, &[layout_covering_lock_a]));
+        assert!(!hashes.all_inputs_with_lock_covered_by_otx(lock_a, &[]));
     }
 
     #[test]
@@ -339,11 +477,11 @@ mod tests {
         let lock_hash = hash(1);
         let input_type_hash = hash(2);
         let output_type_hash = hash(3);
-        let hashes = TxScriptHashes {
-            input_locks: alloc::vec![lock_hash],
-            input_types: alloc::vec![Some(input_type_hash)],
-            output_types: alloc::vec![Some(output_type_hash)],
-        };
+        let hashes = TxScriptHashes::from_parts_for_tests(
+            alloc::vec![lock_hash],
+            alloc::vec![Some(input_type_hash)],
+            alloc::vec![Some(output_type_hash)],
+        );
 
         assert!(hashes
             .validate_message_targets(&message_with_action(0, lock_hash))
