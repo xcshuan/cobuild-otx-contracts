@@ -37,7 +37,7 @@ fn tx_signing_hash(
     if let Some(message) = message {
         writer::write_cursor_with_error(&mut hasher, message, CoreError::MalformedCobuild)?;
     }
-    hasher.update(&reader.tx_hash()?);
+    hasher.update(&reader.tx_hash());
     let counts = reader.counts();
     for index in 0..counts.inputs {
         let output = reader.resolved_input_output_cursor(index)?;

@@ -27,8 +27,7 @@ pub struct CobuildContext {
 
 impl CobuildContext {
     pub fn from_syscalls() -> Result<Self, CoreError> {
-        let mut tx = SyscallTxReader::default();
-        tx.preload_counts_from_syscalls()?;
+        let tx = SyscallTxReader::from_syscalls()?;
         let script_hashes = TxScriptHashes::from_reader(&tx)?;
         let counts = tx.counts();
         let mut witnesses = WitnessScan::with_capacity(counts.witnesses);
@@ -81,7 +80,11 @@ mod tests {
 
     fn test_context(input_locks: Vec<[u8; 32]>) -> CobuildContext {
         CobuildContext {
-            tx: SyscallTxReader::default(),
+            tx: SyscallTxReader::from_cached_parts_for_tests(
+                crate::syscalls::TxCounts::default(),
+                crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
+                [0u8; 32],
+            ),
             script_hashes: TxScriptHashes {
                 input_locks,
                 input_types: Vec::new(),
@@ -536,23 +539,7 @@ impl<'a> TypePlanBuilder<'a> {
                         .script_hashes
                         .validate_message_targets(&otx.witness.message)?;
                     self.related_messages.push(TypeRelatedMessage {
-                        message: RelatedMessage {
-                            origin: MessageOrigin::Otx {
-                                witness_index: otx.layout.witness_index,
-                                otx_index,
-                                layout: OtxMessageLayout {
-                                    base_inputs: otx.layout.base_inputs,
-                                    append_inputs: otx.layout.append_inputs,
-                                    base_outputs: otx.layout.base_outputs,
-                                    append_outputs: otx.layout.append_outputs,
-                                    base_cell_deps: otx.layout.base_cell_deps,
-                                    append_cell_deps: otx.layout.append_cell_deps,
-                                    base_header_deps: otx.layout.base_header_deps,
-                                    append_header_deps: otx.layout.append_header_deps,
-                                },
-                            },
-                            message: otx.witness.message.clone().into(),
-                        },
+                        message: related_otx_message(otx_index, otx),
                         otx_relation: Some(relation),
                     });
                 }
@@ -617,12 +604,7 @@ impl<'a> TypePlanBuilder<'a> {
                     .script_hashes
                     .validate_message_targets(&message)?;
                 self.related_messages.push(TypeRelatedMessage {
-                    message: RelatedMessage {
-                        origin: MessageOrigin::TxLevel {
-                            carrier_witness_index,
-                        },
-                        message: message.into(),
-                    },
+                    message: related_tx_message(carrier_witness_index, message),
                     otx_relation: None,
                 });
             }

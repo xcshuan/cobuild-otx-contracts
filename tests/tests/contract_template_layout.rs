@@ -156,7 +156,7 @@ fn cobuild_core_owns_syscall_streaming_without_full_transaction_load() {
         "impl SyscallTxReader",
         "struct SyscallBackedReader",
         "fn syscall_cursor(",
-        "fn hash_transaction_cursor(",
+        "fn transaction_cursor_from_syscalls(",
         "fn map_syscall_read_error(",
         "high_level::load_tx_hash()",
         "high_level::load_cell_lock_hash(",
@@ -476,13 +476,45 @@ fn cobuild_core_uses_concrete_syscall_reader_without_source_traits() {
         "fn counts(",
         "fn witness_cursor(",
         "fn raw_input_cursor(",
-        "fn hash_transaction_cursor(",
+        "fn transaction_cursor_from_syscalls(",
         "fn resolved_input_output_cursor(",
         "fn input_lock_hash(",
     ] {
         assert!(
             syscalls_rs.contains(expected),
             "syscalls.rs should contain concrete reader implementation {expected}"
+        );
+    }
+}
+
+#[test]
+fn cobuild_core_syscall_reader_caches_transaction_inputs() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+    let syscalls_rs = fs::read_to_string(core_src.join("syscalls.rs")).expect("syscalls.rs");
+
+    for expected in [
+        "transaction: Cursor",
+        "tx_hash: [u8; 32]",
+        "fn from_syscalls() -> Result<Self, CoreError>",
+        "fn transaction_view(&self)",
+        "fn raw_transaction_view(&self)",
+    ] {
+        assert!(
+            syscalls_rs.contains(expected),
+            "SyscallTxReader should own cached transaction data via {expected}"
+        );
+    }
+
+    for forbidden in [
+        "hash_transaction_cursor",
+        "transaction_view_for_hash",
+        "raw_transaction_for_hash",
+        "preload_counts_from_syscalls",
+    ] {
+        assert!(
+            !syscalls_rs.contains(forbidden),
+            "syscalls.rs should not keep unclear repeated transaction helper {forbidden}"
         );
     }
 }
@@ -586,8 +618,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "pub struct CobuildContext",
         "impl CobuildContext",
         "from_syscalls()",
-        "let mut tx = SyscallTxReader::default();",
-        "tx.preload_counts_from_syscalls()?;",
+        "let tx = SyscallTxReader::from_syscalls()?;",
         "let counts = tx.counts();",
         "struct LockPlanBuilder",
         "LockPlanBuilder",

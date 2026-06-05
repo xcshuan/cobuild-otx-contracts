@@ -80,7 +80,7 @@ fn syscall_cursor(target: SyscallReadTarget, error: CoreError) -> Result<Cursor,
     Ok(Cursor::new(total_size, Box::new(reader)))
 }
 
-fn hash_transaction_cursor() -> Result<Cursor, CoreError> {
+fn transaction_cursor_from_syscalls() -> Result<Cursor, CoreError> {
     syscall_cursor(SyscallReadTarget::Transaction, CoreError::MissingHashInput)
 }
 
@@ -107,47 +107,96 @@ pub(crate) struct TxCounts {
     pub witnesses: usize,
 }
 
-#[derive(Default)]
 pub(crate) struct SyscallTxReader {
     counts: TxCounts,
+    transaction: Cursor,
+    tx_hash: [u8; 32],
 }
 
 impl SyscallTxReader {
-    pub(super) fn preload_counts_from_syscalls(&mut self) -> Result<(), CoreError> {
-        self.counts = read_counts_from_transaction()?;
-        Ok(())
+    pub(super) fn from_syscalls() -> Result<Self, CoreError> {
+        let transaction = transaction_cursor_from_syscalls()?;
+        let counts = read_counts_from_transaction(&transaction)?;
+        let tx_hash = tx_hash_from_syscalls()?;
+        Ok(Self {
+            counts,
+            transaction,
+            tx_hash,
+        })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_cached_parts_for_tests(
+        counts: TxCounts,
+        transaction: Cursor,
+        tx_hash: [u8; 32],
+    ) -> Self {
+        Self {
+            counts,
+            transaction,
+            tx_hash,
+        }
     }
 
     pub(super) fn counts(&self) -> TxCounts {
         self.counts
     }
 
-    pub(super) fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
-        tx_hash()
+    pub(super) fn tx_hash(&self) -> [u8; 32] {
+        self.tx_hash
+    }
+
+    #[cfg(test)]
+    fn transaction_cursor(&self) -> Cursor {
+        self.transaction.clone()
     }
 
     pub(super) fn witness_cursor(&self, absolute_index: usize) -> Result<Cursor, CoreError> {
-        witness_cursor(absolute_index)
+        self.transaction_view()
+            .witnesses()
+            .and_then(|witnesses| witnesses.get(absolute_index))
+            .map_err(|_| CoreError::MissingHashInput)
     }
 
     pub(super) fn raw_input_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
-        raw_input_cursor(index)
+        Ok(self
+            .raw_transaction_view()?
+            .inputs()
+            .and_then(|inputs| inputs.get(index))
+            .map_err(|_| CoreError::MissingHashInput)?
+            .cursor)
     }
 
     pub(super) fn raw_output_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
-        raw_output_cursor(index)
+        Ok(self
+            .raw_transaction_view()?
+            .outputs()
+            .and_then(|outputs| outputs.get(index))
+            .map_err(|_| CoreError::MissingHashInput)?
+            .cursor)
     }
 
     pub(super) fn raw_output_data_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
-        raw_output_data_cursor(index)
+        self.raw_transaction_view()?
+            .outputs_data()
+            .and_then(|outputs_data| outputs_data.get(index))
+            .map_err(|_| CoreError::MissingHashInput)
     }
 
     pub(super) fn raw_cell_dep_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
-        raw_cell_dep_cursor(index)
+        Ok(self
+            .raw_transaction_view()?
+            .cell_deps()
+            .and_then(|cell_deps| cell_deps.get(index))
+            .map_err(|_| CoreError::MissingHashInput)?
+            .cursor)
     }
 
     pub(super) fn raw_header_dep_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
-        raw_header_dep_hash(index)
+        self.raw_transaction_view()?
+            .header_deps()
+            .and_then(|header_deps| header_deps.get(index))
+            .map_err(|_| CoreError::MissingHashInput)
     }
 
     pub(super) fn resolved_input_output_cursor(&self, index: usize) -> Result<Cursor, CoreError> {
@@ -169,20 +218,20 @@ impl SyscallTxReader {
     pub(super) fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
         output_type_hash(index)
     }
+
+    fn transaction_view(&self) -> Transaction {
+        Transaction::from(self.transaction.clone())
+    }
+
+    fn raw_transaction_view(&self) -> Result<RawTransaction, CoreError> {
+        self.transaction_view()
+            .raw()
+            .map_err(|_| CoreError::MissingHashInput)
+    }
 }
 
-fn transaction_view_for_hash() -> Result<Transaction, CoreError> {
-    hash_transaction_cursor().map(Transaction::from)
-}
-
-fn raw_transaction_for_hash() -> Result<RawTransaction, CoreError> {
-    transaction_view_for_hash()?
-        .raw()
-        .map_err(|_| CoreError::MissingHashInput)
-}
-
-fn read_counts_from_transaction() -> Result<TxCounts, CoreError> {
-    let tx = transaction_view_for_hash()?;
+fn read_counts_from_transaction(transaction: &Cursor) -> Result<TxCounts, CoreError> {
+    let tx = Transaction::from(transaction.clone());
     let raw = tx.raw().map_err(|_| CoreError::MissingHashInput)?;
     Ok(TxCounts {
         inputs: raw
@@ -208,52 +257,7 @@ fn read_counts_from_transaction() -> Result<TxCounts, CoreError> {
     })
 }
 
-fn witness_cursor(absolute_index: usize) -> Result<Cursor, CoreError> {
-    transaction_view_for_hash()?
-        .witnesses()
-        .and_then(|witnesses| witnesses.get(absolute_index))
-        .map_err(|_| CoreError::MissingHashInput)
-}
-
-fn raw_input_cursor(index: usize) -> Result<Cursor, CoreError> {
-    Ok(raw_transaction_for_hash()?
-        .inputs()
-        .and_then(|inputs| inputs.get(index))
-        .map_err(|_| CoreError::MissingHashInput)?
-        .cursor)
-}
-
-fn raw_output_cursor(index: usize) -> Result<Cursor, CoreError> {
-    Ok(raw_transaction_for_hash()?
-        .outputs()
-        .and_then(|outputs| outputs.get(index))
-        .map_err(|_| CoreError::MissingHashInput)?
-        .cursor)
-}
-
-fn raw_output_data_cursor(index: usize) -> Result<Cursor, CoreError> {
-    raw_transaction_for_hash()?
-        .outputs_data()
-        .and_then(|outputs_data| outputs_data.get(index))
-        .map_err(|_| CoreError::MissingHashInput)
-}
-
-fn raw_cell_dep_cursor(index: usize) -> Result<Cursor, CoreError> {
-    Ok(raw_transaction_for_hash()?
-        .cell_deps()
-        .and_then(|cell_deps| cell_deps.get(index))
-        .map_err(|_| CoreError::MissingHashInput)?
-        .cursor)
-}
-
-fn raw_header_dep_hash(index: usize) -> Result<[u8; 32], CoreError> {
-    raw_transaction_for_hash()?
-        .header_deps()
-        .and_then(|header_deps| header_deps.get(index))
-        .map_err(|_| CoreError::MissingHashInput)
-}
-
-fn tx_hash() -> Result<[u8; 32], CoreError> {
+fn tx_hash_from_syscalls() -> Result<[u8; 32], CoreError> {
     high_level::load_tx_hash().map_err(|_| CoreError::InvalidContextInput)
 }
 
@@ -274,8 +278,12 @@ fn output_type_hash(index: usize) -> Result<Option<[u8; 32]>, CoreError> {
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+
+    use crate::{error::CoreError, reader};
+
     #[test]
-    fn reader_returns_explicit_counts() {
+    fn reader_returns_cached_counts_transaction_and_tx_hash() {
         let counts = super::TxCounts {
             inputs: 1,
             outputs: 2,
@@ -283,8 +291,23 @@ mod tests {
             header_deps: 4,
             witnesses: 5,
         };
-        let reader = super::SyscallTxReader { counts };
+        let transaction = reader::cursor_from_slice(&[4, 0, 0, 0]);
+        let tx_hash = [9u8; 32];
+        let reader = super::SyscallTxReader::from_cached_parts_for_tests(
+            counts,
+            transaction.clone(),
+            tx_hash,
+        );
 
         assert_eq!(reader.counts(), counts);
+        assert_eq!(reader.tx_hash(), tx_hash);
+        assert_eq!(
+            reader::cursor_bytes_with_error(
+                &reader.transaction_cursor(),
+                CoreError::MissingHashInput
+            )
+            .unwrap(),
+            vec![4, 0, 0, 0]
+        );
     }
 }
