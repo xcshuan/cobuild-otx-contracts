@@ -292,6 +292,33 @@ fn non_zero_base_header_dep_mask_padding_bits_are_invalid() {
 }
 
 #[test]
+fn legacy_witness_after_otx_sequence_is_allowed() {
+    let layout = build_layout(&LayoutTx {
+        witnesses: vec![otx_start_witness(), otx_witness(), vec![0, 1, 2, 3]],
+        input_count: 1,
+        output_count: 0,
+        cell_dep_count: 0,
+        header_dep_count: 0,
+    })
+    .unwrap();
+
+    assert_eq!(layout.otxs.len(), 1);
+}
+
+#[test]
+fn invalid_seal_scope_is_invalid() {
+    let result = build_layout(&LayoutTx {
+        witnesses: vec![otx_start_witness(), otx_witness_with_seal_scope(9)],
+        input_count: 1,
+        output_count: 0,
+        cell_dep_count: 0,
+        header_dep_count: 0,
+    });
+
+    assert_invalid(result, CoreError::InvalidSealScope);
+}
+
+#[test]
 fn direct_witness_layout_matches_owned_layout() {
     let witnesses = vec![otx_start_witness(), otx_witness()];
     let tx = LayoutTx {
@@ -406,6 +433,15 @@ fn otx_witness_with_base_header_dep_mask(base_header_deps: u32, mask: &[u8]) -> 
     })
 }
 
+fn otx_witness_with_seal_scope(scope: u8) -> Vec<u8> {
+    let seal_pair = table(&[vec![0u8; 32], vec![scope], molecule_bytes(&[0x11, 0x22])]);
+    let seals = dynvec(&[seal_pair]);
+    otx_witness_custom(OtxWitnessCustom {
+        seals: Some(&seals),
+        ..OtxWitnessCustom::default()
+    })
+}
+
 fn otx_witness_with_counts(
     base_inputs: u32,
     append_inputs: u32,
@@ -447,6 +483,7 @@ struct OtxWitnessCustom<'a> {
     append_outputs: u32,
     append_cell_deps: u32,
     append_header_deps: u32,
+    seals: Option<&'a [u8]>,
 }
 
 impl Default for OtxWitnessCustom<'_> {
@@ -465,6 +502,7 @@ impl Default for OtxWitnessCustom<'_> {
             append_outputs: 0,
             append_cell_deps: 0,
             append_header_deps: 0,
+            seals: None,
         }
     }
 }
@@ -487,7 +525,9 @@ fn otx_witness_custom(params: OtxWitnessCustom<'_>) -> Vec<u8> {
             params.append_outputs.to_le_bytes().to_vec(),
             params.append_cell_deps.to_le_bytes().to_vec(),
             params.append_header_deps.to_le_bytes().to_vec(),
-            empty_dynvec(),
+            params
+                .seals
+                .map_or_else(empty_dynvec, |seals| seals.to_vec()),
         ]),
     )
 }
@@ -521,6 +561,26 @@ fn table(fields: &[Vec<u8>]) -> Vec<u8> {
 
 fn empty_dynvec() -> Vec<u8> {
     4u32.to_le_bytes().to_vec()
+}
+
+fn dynvec(items: &[Vec<u8>]) -> Vec<u8> {
+    if items.is_empty() {
+        return empty_dynvec();
+    }
+
+    let header_size = 4 + items.len() * 4;
+    let total_size = header_size + items.iter().map(Vec::len).sum::<usize>();
+    let mut out = Vec::with_capacity(total_size);
+    out.extend_from_slice(&(total_size as u32).to_le_bytes());
+    let mut offset = header_size;
+    for item in items {
+        out.extend_from_slice(&(offset as u32).to_le_bytes());
+        offset += item.len();
+    }
+    for item in items {
+        out.extend_from_slice(item);
+    }
+    out
 }
 
 fn molecule_bytes(bytes: &[u8]) -> Vec<u8> {

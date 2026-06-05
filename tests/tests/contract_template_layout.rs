@@ -355,12 +355,31 @@ fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
         "SealPairView",
         "MessageActionView",
         "MaskView",
+        "bytes: Vec<u8>",
     ] {
         assert!(
             view_rs.contains(expected),
             "view.rs should expose cursor-backed view {expected}"
         );
     }
+    assert!(
+        !view_rs.contains("pub struct MaskView {\n    cursor: Cursor"),
+        "MaskView should store compact mask bytes directly, not a cursor"
+    );
+    for expected in [
+        "pub fn validate(&self, bit_count: usize)",
+        "pub fn get(&self, index: usize)",
+    ] {
+        assert!(
+            view_rs.contains(expected),
+            "MaskView should own mask behavior via {expected}"
+        );
+    }
+    let layout_rs = fs::read_to_string(core_src.join("layout.rs")).expect("layout.rs");
+    assert!(
+        !layout_rs.contains("fn validate_mask"),
+        "layout.rs should delegate mask validation to MaskView"
+    );
 }
 
 #[test]
@@ -547,6 +566,9 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "pub struct CobuildContext",
         "impl CobuildContext",
         "from_syscalls()",
+        "let mut tx = SyscallTxReader::default();",
+        "tx.preload_counts_from_syscalls()?;",
+        "let counts = tx.counts();",
         "struct LockPlanBuilder",
         "LockPlanBuilder",
         "struct TypePlanBuilder",
@@ -574,6 +596,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "ScriptHashIndex",
         "crate::flow::",
         "TxCountsCache",
+        "SyscallTxReader::with_counts",
     ] {
         assert!(
             !engine_rs.contains(forbidden),

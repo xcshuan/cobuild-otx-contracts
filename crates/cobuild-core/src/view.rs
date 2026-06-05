@@ -32,7 +32,7 @@ pub struct OtxStartView {
 
 #[derive(Clone)]
 pub struct MaskView {
-    cursor: Cursor,
+    bytes: Vec<u8>,
 }
 
 #[derive(Clone)]
@@ -89,45 +89,44 @@ impl From<Cursor> for MessageView {
 }
 
 impl MaskView {
-    pub fn new(cursor: Cursor) -> Self {
-        Self { cursor }
+    pub fn new(bytes: Vec<u8>) -> Self {
+        Self { bytes }
     }
 
-    pub fn bit(&self, index: usize) -> Result<bool, CoreError> {
-        let byte = self.byte(index / 8)?;
+    pub fn get(&self, index: usize) -> Result<bool, CoreError> {
+        let byte = *self
+            .bytes
+            .get(index / 8)
+            .ok_or(CoreError::InvalidOtxLayout)?;
         Ok(byte & (1 << (index % 8)) != 0)
     }
 
     pub fn len(&self) -> usize {
-        self.cursor.size
+        self.bytes.len()
     }
 
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
     }
 
-    pub fn cursor(&self) -> &Cursor {
-        &self.cursor
-    }
-
-    fn byte(&self, index: usize) -> Result<u8, CoreError> {
-        if index >= self.cursor.size {
+    pub fn validate(&self, bit_count: usize) -> Result<(), CoreError> {
+        let expected_len = bit_count.div_ceil(8);
+        if self.len() != expected_len {
             return Err(CoreError::InvalidOtxLayout);
         }
-        let mut byte_cursor = self.cursor.clone();
-        byte_cursor
-            .add_offset(index)
-            .map_err(|_| CoreError::InvalidOtxLayout)?;
-        byte_cursor.size = 1;
-
-        let mut out = [0u8; 1];
-        let read = byte_cursor
-            .read_at(&mut out)
-            .map_err(|_| CoreError::InvalidOtxLayout)?;
-        if read != out.len() {
-            return Err(CoreError::InvalidOtxLayout);
+        if bit_count == 0 {
+            return Ok(());
         }
-        Ok(out[0])
+        let used_bits = bit_count % 8;
+        if used_bits == 0 {
+            return Ok(());
+        }
+        for index in bit_count..(expected_len * 8) {
+            if self.get(index)? {
+                return Err(CoreError::InvalidOtxLayout);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -273,34 +272,34 @@ fn otx_view(otx: &Otx) -> Result<OtxView, CoreError> {
             otx.base_input_cells()
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?,
-        base_input_masks: MaskView::new(
-            otx.base_input_masks()
+        base_input_masks: MaskView::new(cursor_bytes(
+            &otx.base_input_masks()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        ),
+        )?),
         base_output_cells: usize_from_u32(
             otx.base_output_cells()
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?,
-        base_output_masks: MaskView::new(
-            otx.base_output_masks()
+        base_output_masks: MaskView::new(cursor_bytes(
+            &otx.base_output_masks()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        ),
+        )?),
         base_cell_deps: usize_from_u32(
             otx.base_cell_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?,
-        base_cell_dep_masks: MaskView::new(
-            otx.base_cell_dep_masks()
+        base_cell_dep_masks: MaskView::new(cursor_bytes(
+            &otx.base_cell_dep_masks()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        ),
+        )?),
         base_header_deps: usize_from_u32(
             otx.base_header_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?,
-        base_header_dep_masks: MaskView::new(
-            otx.base_header_dep_masks()
+        base_header_dep_masks: MaskView::new(cursor_bytes(
+            &otx.base_header_dep_masks()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        ),
+        )?),
         append_input_cells: usize_from_u32(
             otx.append_input_cells()
                 .map_err(|_| CoreError::MalformedCobuild)?,

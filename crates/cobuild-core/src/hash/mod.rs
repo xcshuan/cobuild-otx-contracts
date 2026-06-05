@@ -10,7 +10,7 @@ use crate::{
     error::CoreError,
     layout::{OtxLayout, Range},
     syscalls,
-    view::{MaskView, OtxView},
+    view::OtxView,
 };
 
 pub(crate) fn tx_without_message_hash(
@@ -38,7 +38,7 @@ fn tx_signing_hash(
         writer::write_cursor_with_error(&mut hasher, message, CoreError::MalformedCobuild)?;
     }
     hasher.update(&reader.tx_hash()?);
-    let counts = reader.counts()?;
+    let counts = reader.counts();
     for index in 0..counts.inputs {
         let output = reader.resolved_input_output_cursor(index)?;
         writer::write_cursor_with_error(&mut hasher, &output, CoreError::MissingHashInput)?;
@@ -80,18 +80,14 @@ pub(crate) fn otx_base_hash(
     writer::write_cursor_with_error(&mut hasher, &otx.message, CoreError::MalformedCobuild)?;
     hasher.update(&[otx.append_permissions]);
     writer::write_count(&mut hasher, otx.base_input_cells)?;
-    writer::write_len_prefixed_cursor_with_error(
-        &mut hasher,
-        otx.base_input_masks.cursor(),
-        CoreError::MalformedCobuild,
-    )?;
+    writer::write_len_prefixed_bytes(&mut hasher, otx.base_input_masks.bytes())?;
     for local_index in 0..otx.base_input_cells {
         let tx_index = checked_index(layout.base_inputs, local_index)?;
         let input = reader.raw_input_cursor(tx_index)?;
         let input_view = CellInput::from(input.clone());
 
         writer::write_count(&mut hasher, local_index)?;
-        if mask_bit(&otx.base_input_masks, local_index * 2)? {
+        if otx.base_input_masks.get(local_index * 2)? {
             hasher.update(
                 &input_view
                     .since()
@@ -99,7 +95,7 @@ pub(crate) fn otx_base_hash(
                     .to_le_bytes(),
             );
         }
-        if mask_bit(&otx.base_input_masks, local_index * 2 + 1)? {
+        if otx.base_input_masks.get(local_index * 2 + 1)? {
             let previous_output = input_view
                 .previous_output()
                 .map_err(|_| CoreError::MissingHashInput)?;
@@ -124,18 +120,14 @@ pub(crate) fn otx_base_hash(
     }
 
     writer::write_count(&mut hasher, otx.base_output_cells)?;
-    writer::write_len_prefixed_cursor_with_error(
-        &mut hasher,
-        otx.base_output_masks.cursor(),
-        CoreError::MalformedCobuild,
-    )?;
+    writer::write_len_prefixed_bytes(&mut hasher, otx.base_output_masks.bytes())?;
     for local_index in 0..otx.base_output_cells {
         let tx_index = checked_index(layout.base_outputs, local_index)?;
         let output = reader.raw_output_cursor(tx_index)?;
         let output_view = CellOutput::from(output.clone());
 
         writer::write_count(&mut hasher, local_index)?;
-        if mask_bit(&otx.base_output_masks, local_index * 4)? {
+        if otx.base_output_masks.get(local_index * 4)? {
             hasher.update(
                 &output_view
                     .capacity()
@@ -143,7 +135,7 @@ pub(crate) fn otx_base_hash(
                     .to_le_bytes(),
             );
         }
-        if mask_bit(&otx.base_output_masks, local_index * 4 + 1)? {
+        if otx.base_output_masks.get(local_index * 4 + 1)? {
             let lock = output_view
                 .lock()
                 .map_err(|_| CoreError::MissingHashInput)?;
@@ -153,7 +145,7 @@ pub(crate) fn otx_base_hash(
                 CoreError::MissingHashInput,
             )?;
         }
-        if mask_bit(&otx.base_output_masks, local_index * 4 + 2)? {
+        if otx.base_output_masks.get(local_index * 4 + 2)? {
             let type_cursor = output_view
                 .cursor
                 .table_slice_by_index(2)
@@ -164,7 +156,7 @@ pub(crate) fn otx_base_hash(
                 CoreError::MissingHashInput,
             )?;
         }
-        if mask_bit(&otx.base_output_masks, local_index * 4 + 3)? {
+        if otx.base_output_masks.get(local_index * 4 + 3)? {
             let output_data = reader.raw_output_data_cursor(tx_index)?;
             writer::write_len_prefixed_cursor_with_error(
                 &mut hasher,
@@ -175,13 +167,9 @@ pub(crate) fn otx_base_hash(
     }
 
     writer::write_count(&mut hasher, otx.base_cell_deps)?;
-    writer::write_len_prefixed_cursor_with_error(
-        &mut hasher,
-        otx.base_cell_dep_masks.cursor(),
-        CoreError::MalformedCobuild,
-    )?;
+    writer::write_len_prefixed_bytes(&mut hasher, otx.base_cell_dep_masks.bytes())?;
     for local_index in 0..otx.base_cell_deps {
-        if mask_bit(&otx.base_cell_dep_masks, local_index)? {
+        if otx.base_cell_dep_masks.get(local_index)? {
             let tx_index = checked_index(layout.base_cell_deps, local_index)?;
             let cell_dep = reader.raw_cell_dep_cursor(tx_index)?;
             writer::write_count(&mut hasher, local_index)?;
@@ -190,13 +178,9 @@ pub(crate) fn otx_base_hash(
     }
 
     writer::write_count(&mut hasher, otx.base_header_deps)?;
-    writer::write_len_prefixed_cursor_with_error(
-        &mut hasher,
-        otx.base_header_dep_masks.cursor(),
-        CoreError::MalformedCobuild,
-    )?;
+    writer::write_len_prefixed_bytes(&mut hasher, otx.base_header_dep_masks.bytes())?;
     for local_index in 0..otx.base_header_deps {
-        if mask_bit(&otx.base_header_dep_masks, local_index)? {
+        if otx.base_header_dep_masks.get(local_index)? {
             let tx_index = checked_index(layout.base_header_deps, local_index)?;
             writer::write_count(&mut hasher, local_index)?;
             hasher.update(&reader.raw_header_dep_hash(tx_index)?);
@@ -281,8 +265,4 @@ fn checked_index(range: Range, local_index: usize) -> Result<usize, CoreError> {
         .start
         .checked_add(local_index)
         .ok_or(CoreError::InvalidOtxLayout)
-}
-
-fn mask_bit(mask: &MaskView, index: usize) -> Result<bool, CoreError> {
-    mask.bit(index)
 }

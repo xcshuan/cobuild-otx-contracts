@@ -2,8 +2,8 @@ use alloc::vec::Vec;
 
 use crate::{
     error::CoreError,
-    protocol::AppendPermissions,
-    view::{MaskView, OtxStartView, OtxView, WitnessLayoutView},
+    protocol::{AppendPermissions, SealScope},
+    view::{OtxStartView, OtxView, WitnessLayoutView},
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -35,7 +35,7 @@ pub struct OtxLayout {
 }
 
 #[derive(Clone)]
-pub struct OtxLayoutData {
+pub struct OtxLayoutEntry {
     pub layout: OtxLayout,
     pub witness: OtxView,
 }
@@ -43,7 +43,7 @@ pub struct OtxLayoutData {
 #[derive(Clone)]
 pub struct BuiltLayout {
     pub otxs: Vec<OtxLayout>,
-    pub otx_data: Vec<OtxLayoutData>,
+    pub otx_entries: Vec<OtxLayoutEntry>,
 }
 
 #[derive(Clone)]
@@ -60,14 +60,8 @@ pub(crate) struct OtxLayoutCollector {
     witness_count: usize,
     start: Option<(usize, OtxStartView)>,
     last_otx_or_start: Option<usize>,
-    otx_data: Vec<(usize, OtxView)>,
-    first_segment_stop: Option<LayoutSegmentStop>,
+    otx_entries: Vec<(usize, OtxView)>,
     invalid: Option<OtxLayoutScan>,
-}
-
-enum LayoutSegmentStop {
-    Break,
-    Invalid(CoreError),
 }
 
 pub fn build_layout(tx: &LayoutTx) -> Result<BuiltLayout, CoreError> {
@@ -141,8 +135,7 @@ impl OtxLayoutCollector {
             witness_count: 0,
             start: None,
             last_otx_or_start: None,
-            otx_data: Vec::new(),
-            first_segment_stop: None,
+            otx_entries: Vec::new(),
             invalid: None,
         }
     }
@@ -156,14 +149,15 @@ impl OtxLayoutCollector {
         }
 
         if witness.is_empty() {
-            self.mark_segment_break();
             return;
         }
 
         let view = match WitnessLayoutView::from_slice(witness) {
             Ok(view) => view,
             Err(error) => {
-                self.mark_segment_invalid(error);
+                if has_otx_witness_id(witness) {
+                    self.set_invalid(self.start.as_ref().map(|(_, data)| data.clone()), error);
+                }
                 return;
             }
         };
@@ -196,7 +190,6 @@ impl OtxLayoutCollector {
             }
         };
         let Some(data) = otx else {
-            self.mark_segment_break();
             return;
         };
 
@@ -210,7 +203,7 @@ impl OtxLayoutCollector {
         }
 
         self.last_otx_or_start = Some(index);
-        self.otx_data.push((index, data));
+        self.otx_entries.push((index, data));
     }
 
     pub(crate) fn finish(
@@ -236,46 +229,49 @@ impl OtxLayoutCollector {
         let mut next_cell_dep = start_data.start_cell_deps;
         let mut next_header_dep = start_data.start_header_deps;
         let mut otxs = Vec::new();
-        let mut otx_data = Vec::new();
+        let mut otx_entries = Vec::new();
 
-        for (witness_index, data) in self.otx_data {
-            if let Err(error) = validate_otx_data(&data) {
+        for (witness_index, otx_witness) in self.otx_entries {
+            if let Err(error) = validate_otx_view(&otx_witness) {
                 return invalid_layout(Some(&start_data), error);
             }
 
-            let base_inputs = match take_range(&mut next_input, data.base_input_cells) {
+            let base_inputs = match take_range(&mut next_input, otx_witness.base_input_cells) {
                 Ok(range) => range,
                 Err(error) => return invalid_layout(Some(&start_data), error),
             };
-            let append_inputs = match take_range(&mut next_input, data.append_input_cells) {
+            let append_inputs = match take_range(&mut next_input, otx_witness.append_input_cells) {
                 Ok(range) => range,
                 Err(error) => return invalid_layout(Some(&start_data), error),
             };
-            let base_outputs = match take_range(&mut next_output, data.base_output_cells) {
+            let base_outputs = match take_range(&mut next_output, otx_witness.base_output_cells) {
                 Ok(range) => range,
                 Err(error) => return invalid_layout(Some(&start_data), error),
             };
-            let append_outputs = match take_range(&mut next_output, data.append_output_cells) {
-                Ok(range) => range,
-                Err(error) => return invalid_layout(Some(&start_data), error),
-            };
-            let base_cell_deps = match take_range(&mut next_cell_dep, data.base_cell_deps) {
-                Ok(range) => range,
-                Err(error) => return invalid_layout(Some(&start_data), error),
-            };
-            let append_cell_deps = match take_range(&mut next_cell_dep, data.append_cell_deps) {
-                Ok(range) => range,
-                Err(error) => return invalid_layout(Some(&start_data), error),
-            };
-            let base_header_deps = match take_range(&mut next_header_dep, data.base_header_deps) {
-                Ok(range) => range,
-                Err(error) => return invalid_layout(Some(&start_data), error),
-            };
-            let append_header_deps = match take_range(&mut next_header_dep, data.append_header_deps)
+            let append_outputs = match take_range(&mut next_output, otx_witness.append_output_cells)
             {
                 Ok(range) => range,
                 Err(error) => return invalid_layout(Some(&start_data), error),
             };
+            let base_cell_deps = match take_range(&mut next_cell_dep, otx_witness.base_cell_deps) {
+                Ok(range) => range,
+                Err(error) => return invalid_layout(Some(&start_data), error),
+            };
+            let append_cell_deps =
+                match take_range(&mut next_cell_dep, otx_witness.append_cell_deps) {
+                    Ok(range) => range,
+                    Err(error) => return invalid_layout(Some(&start_data), error),
+                };
+            let base_header_deps =
+                match take_range(&mut next_header_dep, otx_witness.base_header_deps) {
+                    Ok(range) => range,
+                    Err(error) => return invalid_layout(Some(&start_data), error),
+                };
+            let append_header_deps =
+                match take_range(&mut next_header_dep, otx_witness.append_header_deps) {
+                    Ok(range) => range,
+                    Err(error) => return invalid_layout(Some(&start_data), error),
+                };
 
             let layout = OtxLayout {
                 witness_index,
@@ -289,14 +285,10 @@ impl OtxLayoutCollector {
                 append_header_deps,
             };
             otxs.push(layout.clone());
-            otx_data.push(OtxLayoutData {
+            otx_entries.push(OtxLayoutEntry {
                 layout,
-                witness: data,
+                witness: otx_witness,
             });
-        }
-
-        if let Some(LayoutSegmentStop::Invalid(error)) = self.first_segment_stop {
-            return invalid_layout(Some(&start_data), error);
         }
 
         if otxs.is_empty() {
@@ -315,23 +307,11 @@ impl OtxLayoutCollector {
             return invalid_layout(Some(&start_data), error);
         }
 
-        OtxLayoutScan::Complete(BuiltLayout { otxs, otx_data })
+        OtxLayoutScan::Complete(BuiltLayout { otxs, otx_entries })
     }
 
     fn has_invalid(&self) -> bool {
         self.invalid.is_some()
-    }
-
-    fn mark_segment_break(&mut self) {
-        if self.start.is_some() && !self.otx_data.is_empty() && self.first_segment_stop.is_none() {
-            self.first_segment_stop = Some(LayoutSegmentStop::Break);
-        }
-    }
-
-    fn mark_segment_invalid(&mut self, error: CoreError) {
-        if self.start.is_some() && !self.otx_data.is_empty() && self.first_segment_stop.is_none() {
-            self.first_segment_stop = Some(LayoutSegmentStop::Invalid(error));
-        }
     }
 
     fn set_invalid(&mut self, anchor: Option<OtxStartView>, error: CoreError) {
@@ -356,7 +336,7 @@ fn invalid_layout(anchor: Option<&OtxStartView>, error: CoreError) -> OtxLayoutS
 fn empty_layout() -> BuiltLayout {
     BuiltLayout {
         otxs: Vec::new(),
-        otx_data: Vec::new(),
+        otx_entries: Vec::new(),
     }
 }
 
@@ -379,7 +359,7 @@ fn ensure_within(value: usize, max: usize) -> Result<(), CoreError> {
     }
 }
 
-fn validate_otx_data(data: &OtxView) -> Result<(), CoreError> {
+fn validate_otx_view(data: &OtxView) -> Result<(), CoreError> {
     if data.base_input_cells == 0 {
         return Err(CoreError::InvalidOtxLayout);
     }
@@ -388,29 +368,21 @@ fn validate_otx_data(data: &OtxView) -> Result<(), CoreError> {
     append_permissions.require_allowed(1, data.append_output_cells)?;
     append_permissions.require_allowed(2, data.append_cell_deps)?;
     append_permissions.require_allowed(3, data.append_header_deps)?;
-    validate_mask(&data.base_input_masks, data.base_input_cells * 2)?;
-    validate_mask(&data.base_output_masks, data.base_output_cells * 4)?;
-    validate_mask(&data.base_cell_dep_masks, data.base_cell_deps)?;
-    validate_mask(&data.base_header_dep_masks, data.base_header_deps)?;
+    data.base_input_masks.validate(data.base_input_cells * 2)?;
+    data.base_output_masks
+        .validate(data.base_output_cells * 4)?;
+    data.base_cell_dep_masks.validate(data.base_cell_deps)?;
+    data.base_header_dep_masks.validate(data.base_header_deps)?;
+    for seal in &data.seals {
+        SealScope::try_from(seal.scope)?;
+    }
     Ok(())
 }
 
-fn validate_mask(mask: &MaskView, bit_count: usize) -> Result<(), CoreError> {
-    let expected_len = bit_count.div_ceil(8);
-    if mask.len() != expected_len {
-        return Err(CoreError::InvalidOtxLayout);
+fn has_otx_witness_id(witness: &[u8]) -> bool {
+    if witness.len() < 4 {
+        return false;
     }
-    if bit_count == 0 {
-        return Ok(());
-    }
-    let used_bits = bit_count % 8;
-    if used_bits == 0 {
-        return Ok(());
-    }
-    for index in bit_count..(expected_len * 8) {
-        if mask.bit(index)? {
-            return Err(CoreError::InvalidOtxLayout);
-        }
-    }
-    Ok(())
+    let item_id = u32::from_le_bytes([witness[0], witness[1], witness[2], witness[3]]);
+    matches!(item_id, 0xff00_0003 | 0xff00_0004)
 }

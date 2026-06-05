@@ -24,3 +24,12 @@ pub(crate) fn write_len_prefixed_cursor_with_error(
     hasher.update(&checked_len_prefix(cursor.size)?);
     update_cursor_with_error(hasher, cursor, error)
 }
+
+pub(crate) fn write_len_prefixed_bytes(
+    hasher: &mut Blake2b,
+    bytes: &[u8],
+) -> Result<(), CoreError> {
+    hasher.update(&checked_len_prefix(bytes.len())?);
+    hasher.update(bytes);
+    Ok(())
+}

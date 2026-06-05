@@ -12,8 +12,4 @@ pub mod reader;
 mod seal;
 mod syscalls;
 pub mod view;
-pub mod witness;
-
-pub fn bootstrap_marker() -> bool {
-    true
-}
+mod witness;

@@ -131,7 +131,7 @@ pub mod fixtures {
     };
     use cobuild_core::{
         layout::{OtxLayout, Range},
-        reader::{cursor_bytes_with_error, cursor_from_slice, update_cursor_with_error},
+        reader::{cursor_from_slice, update_cursor_with_error},
         view::{MaskView, OtxView},
     };
     use cobuild_types::entity::{
@@ -467,7 +467,7 @@ pub mod fixtures {
         .expect("message cursor");
         hasher.update(&[otx.append_permissions]);
         write_count(&mut hasher, otx.base_input_cells);
-        write_len_prefixed_cursor(&mut hasher, otx.base_input_masks.cursor());
+        write_len_prefixed_bytes(&mut hasher, otx.base_input_masks.bytes());
         for local_index in 0..otx.base_input_cells {
             let tx_index = layout.base_inputs.start + local_index;
             let input = cursor_from_slice(&fixture.raw_inputs[tx_index]);
@@ -476,14 +476,14 @@ pub mod fixtures {
             write_count(&mut hasher, local_index);
             if otx
                 .base_input_masks
-                .bit(local_index * 2)
+                .get(local_index * 2)
                 .expect("input mask")
             {
                 hasher.update(&input_view.since().expect("since").to_le_bytes());
             }
             if otx
                 .base_input_masks
-                .bit(local_index * 2 + 1)
+                .get(local_index * 2 + 1)
                 .expect("input mask")
             {
                 update_cursor_with_error(
@@ -502,11 +502,11 @@ pub mod fixtures {
         }
 
         write_count(&mut hasher, 0);
-        write_len_prefixed_cursor(&mut hasher, otx.base_output_masks.cursor());
+        write_len_prefixed_bytes(&mut hasher, otx.base_output_masks.bytes());
         write_count(&mut hasher, 0);
-        write_len_prefixed_cursor(&mut hasher, otx.base_cell_dep_masks.cursor());
+        write_len_prefixed_bytes(&mut hasher, otx.base_cell_dep_masks.bytes());
         write_count(&mut hasher, 0);
-        write_len_prefixed_cursor(&mut hasher, otx.base_header_dep_masks.cursor());
+        write_len_prefixed_bytes(&mut hasher, otx.base_header_dep_masks.bytes());
 
         hasher.finalize(&mut out);
         out
@@ -601,7 +601,7 @@ pub mod fixtures {
     }
 
     fn mask_view(bytes: &[u8]) -> MaskView {
-        MaskView::new(cursor_from_slice(bytes))
+        MaskView::new(bytes.to_vec())
     }
 
     fn range(start: usize, count: usize) -> Range {
@@ -709,15 +709,9 @@ pub mod fixtures {
         hasher.update(&checked_len_prefix(count));
     }
 
-    fn write_len_prefixed_cursor(
-        hasher: &mut blake2b_ref::Blake2b,
-        cursor: &cobuild_types::lazy_reader::support::Cursor,
-    ) {
-        let bytes =
-            cursor_bytes_with_error(cursor, cobuild_core::error::CoreError::MalformedCobuild)
-                .expect("fixture cursor bytes");
+    fn write_len_prefixed_bytes(hasher: &mut blake2b_ref::Blake2b, bytes: &[u8]) {
         hasher.update(&checked_len_prefix(bytes.len()));
-        hasher.update(&bytes);
+        hasher.update(bytes);
     }
 
     fn sign_recoverable(

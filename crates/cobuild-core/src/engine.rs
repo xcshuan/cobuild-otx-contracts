@@ -25,9 +25,10 @@ pub struct CobuildContext {
 
 impl CobuildContext {
     pub fn from_syscalls() -> Result<Self, CoreError> {
-        let tx = SyscallTxReader::default();
-        let counts = tx.counts()?;
+        let mut tx = SyscallTxReader::default();
+        tx.preload_counts_from_syscalls()?;
         let script_hashes = TxScriptHashes::from_reader(&tx)?;
+        let counts = tx.counts();
         let mut witnesses = WitnessScan::with_capacity(counts.witnesses);
         let mut layout_collector = OtxLayoutCollector::new();
         for index in 0..counts.witnesses {
@@ -170,7 +171,7 @@ impl<'a> LockPlanBuilder<'a> {
                 }
             }
             OtxLayoutScan::Complete(layout) => {
-                for otx in &layout.otx_data {
+                for otx in &layout.otx_entries {
                     let base_relevant = self
                         .context
                         .script_hashes
@@ -279,7 +280,7 @@ impl<'a> TypePlanBuilder<'a> {
     fn add_otx_related_messages(&mut self) -> Result<bool, CoreError> {
         match &self.context.layout_scan {
             OtxLayoutScan::Complete(layout) => {
-                for (otx_index, otx) in layout.otx_data.iter().enumerate() {
+                for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
                     let relation = self
                         .context
                         .script_hashes

@@ -4,7 +4,7 @@ use cobuild_types::lazy_reader::support::Cursor;
 
 use crate::{
     error::CoreError,
-    layout::{OtxLayout, OtxLayoutData, Range},
+    layout::{OtxLayout, OtxLayoutEntry, Range},
     plan::OtxTypeRelation,
     protocol::ScriptRole,
     syscalls::SyscallTxReader,
@@ -20,7 +20,7 @@ pub struct TxScriptHashes {
 
 impl TxScriptHashes {
     pub(crate) fn from_reader(reader: &SyscallTxReader) -> Result<Self, CoreError> {
-        let counts = reader.counts()?;
+        let counts = reader.counts();
         let mut input_locks = Vec::with_capacity(counts.inputs);
         let mut input_types = Vec::with_capacity(counts.inputs);
         for index in 0..counts.inputs {
@@ -70,7 +70,7 @@ impl TxScriptHashes {
 
     pub(crate) fn type_relation_for_otx(
         &self,
-        otx: &OtxLayoutData,
+        otx: &OtxLayoutEntry,
         type_hash: [u8; 32],
     ) -> Result<OtxTypeRelation, CoreError> {
         Ok(OtxTypeRelation {
@@ -149,7 +149,7 @@ impl TxScriptHashes {
 
     fn covered_type_in_base_outputs(
         &self,
-        otx: &OtxLayoutData,
+        otx: &OtxLayoutEntry,
         type_hash: [u8; 32],
     ) -> Result<bool, CoreError> {
         for local_index in 0..otx.layout.base_outputs.count {
@@ -162,7 +162,7 @@ impl TxScriptHashes {
             if self.output_types.get(tx_index).copied().flatten() != Some(type_hash) {
                 continue;
             }
-            if otx.witness.base_output_masks.bit(local_index * 4 + 2)? {
+            if otx.witness.base_output_masks.get(local_index * 4 + 2)? {
                 return Ok(true);
             }
         }

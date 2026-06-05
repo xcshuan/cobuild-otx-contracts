@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use core::{cell::Cell, cmp::min};
+use core::cmp::min;
 
 use ckb_std::{ckb_constants::Source, error::SysError, high_level, syscalls};
 use cobuild_types::lazy_reader::{
@@ -108,28 +108,18 @@ pub(crate) struct TxCounts {
 }
 
 #[derive(Default)]
-struct TxCountsCache {
-    counts: Cell<Option<TxCounts>>,
-}
-
-impl TxCountsCache {
-    fn counts(&self) -> Option<TxCounts> {
-        self.counts.get()
-    }
-
-    fn set_counts(&self, counts: TxCounts) {
-        self.counts.set(Some(counts));
-    }
-}
-
-#[derive(Default)]
 pub(crate) struct SyscallTxReader {
-    counts_cache: TxCountsCache,
+    counts: TxCounts,
 }
 
 impl SyscallTxReader {
-    pub(super) fn counts(&self) -> Result<TxCounts, CoreError> {
-        counts(&self.counts_cache)
+    pub(super) fn preload_counts_from_syscalls(&mut self) -> Result<(), CoreError> {
+        self.counts = read_counts_from_transaction()?;
+        Ok(())
+    }
+
+    pub(super) fn counts(&self) -> TxCounts {
+        self.counts
     }
 
     pub(super) fn tx_hash(&self) -> Result<[u8; 32], CoreError> {
@@ -191,14 +181,10 @@ fn raw_transaction_for_hash() -> Result<RawTransaction, CoreError> {
         .map_err(|_| CoreError::MissingHashInput)
 }
 
-fn counts(cache: &TxCountsCache) -> Result<TxCounts, CoreError> {
-    if let Some(counts) = cache.counts() {
-        return Ok(counts);
-    }
-
+fn read_counts_from_transaction() -> Result<TxCounts, CoreError> {
     let tx = transaction_view_for_hash()?;
     let raw = tx.raw().map_err(|_| CoreError::MissingHashInput)?;
-    let counts = TxCounts {
+    Ok(TxCounts {
         inputs: raw
             .inputs()
             .and_then(|inputs| inputs.len())
@@ -219,9 +205,7 @@ fn counts(cache: &TxCountsCache) -> Result<TxCounts, CoreError> {
             .witnesses()
             .and_then(|witnesses| witnesses.len())
             .map_err(|_| CoreError::MissingHashInput)?,
-    };
-    cache.set_counts(counts);
-    Ok(counts)
+    })
 }
 
 fn witness_cursor(absolute_index: usize) -> Result<Cursor, CoreError> {
@@ -291,7 +275,7 @@ fn output_type_hash(index: usize) -> Result<Option<[u8; 32]>, CoreError> {
 #[cfg(test)]
 mod tests {
     #[test]
-    fn cached_counts_are_returned_without_recomputing() {
+    fn reader_returns_explicit_counts() {
         let counts = super::TxCounts {
             inputs: 1,
             outputs: 2,
@@ -299,10 +283,8 @@ mod tests {
             header_deps: 4,
             witnesses: 5,
         };
-        let cache = super::TxCountsCache::default();
+        let reader = super::SyscallTxReader { counts };
 
-        cache.set_counts(counts);
-
-        assert_eq!(cache.counts(), Some(counts));
+        assert_eq!(reader.counts(), counts);
     }
 }
