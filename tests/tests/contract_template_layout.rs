@@ -611,7 +611,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "impl TxScriptHashes",
         "from_reader",
         "SyscallTxReader",
-        "first_input_with_lock",
+        "lock_group_carrier_witness_index",
         "lock_in_input_range",
         "type_relation_for_otx",
         "lock_group_fully_covered_by_otx",

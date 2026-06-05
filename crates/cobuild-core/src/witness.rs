@@ -6,12 +6,14 @@ use crate::{error::CoreError, view::WitnessLayoutView};
 
 pub(crate) struct WitnessScan {
     sighash_all_summaries: Vec<SighashAllWitnessSummary>,
+    has_witness_layout: bool,
 }
 
 #[derive(Clone)]
 enum SighashAllWitnessSummary {
     Empty,
-    Other,
+    Legacy,
+    OtherWitnessLayout,
     Malformed(CoreError),
     SighashAll { message: Cursor },
     SighashAllOnly,
@@ -21,13 +23,21 @@ impl WitnessScan {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             sighash_all_summaries: Vec::with_capacity(capacity),
+            has_witness_layout: false,
         }
     }
 
     pub(crate) fn push_witness(&mut self, witness: &[u8]) -> Result<(), CoreError> {
-        self.sighash_all_summaries
-            .push(Self::summarize_sighash_all_witness(witness)?);
+        let summary = Self::summarize_sighash_all_witness(witness)?;
+        if summary.is_witness_layout() {
+            self.has_witness_layout = true;
+        }
+        self.sighash_all_summaries.push(summary);
         Ok(())
+    }
+
+    pub(crate) fn has_witness_layout(&self) -> bool {
+        self.has_witness_layout
     }
 
     pub(crate) fn tx_level_carrier_has_sighash_all_layout(
@@ -38,9 +48,12 @@ impl WitnessScan {
             Some(SighashAllWitnessSummary::SighashAll { .. })
             | Some(SighashAllWitnessSummary::SighashAllOnly) => Ok(true),
             Some(SighashAllWitnessSummary::Malformed(error)) => Err(error.clone()),
-            Some(SighashAllWitnessSummary::Empty | SighashAllWitnessSummary::Other) | None => {
-                Ok(false)
-            }
+            Some(
+                SighashAllWitnessSummary::Empty
+                | SighashAllWitnessSummary::Legacy
+                | SighashAllWitnessSummary::OtherWitnessLayout,
+            )
+            | None => Ok(false),
         }
     }
 
@@ -80,6 +93,26 @@ impl WitnessScan {
         Ok(message)
     }
 
+    pub(crate) fn ensure_non_carrier_witnesses_empty<I>(
+        &self,
+        indices: I,
+        carrier_index: usize,
+    ) -> Result<(), CoreError>
+    where
+        I: IntoIterator<Item = usize>,
+    {
+        for index in indices {
+            if index == carrier_index {
+                continue;
+            }
+            match self.sighash_all_summaries.get(index) {
+                Some(SighashAllWitnessSummary::Empty) | None => {}
+                Some(_) => return Err(CoreError::InvalidLockGroupWitness),
+            }
+        }
+        Ok(())
+    }
+
     fn summarize_sighash_all_witness(
         witness: &[u8],
     ) -> Result<SighashAllWitnessSummary, CoreError> {
@@ -93,7 +126,7 @@ impl WitnessScan {
                 return if has_tx_level_witness_id(witness) {
                     Ok(SighashAllWitnessSummary::Malformed(error))
                 } else {
-                    Ok(SighashAllWitnessSummary::Other)
+                    Ok(SighashAllWitnessSummary::Legacy)
                 };
             }
         };
@@ -103,7 +136,13 @@ impl WitnessScan {
         if view.is_sighash_all_only() {
             return Ok(SighashAllWitnessSummary::SighashAllOnly);
         }
-        Ok(SighashAllWitnessSummary::Other)
+        Ok(SighashAllWitnessSummary::OtherWitnessLayout)
+    }
+}
+
+impl SighashAllWitnessSummary {
+    fn is_witness_layout(&self) -> bool {
+        !matches!(self, Self::Empty | Self::Legacy)
     }
 }
 

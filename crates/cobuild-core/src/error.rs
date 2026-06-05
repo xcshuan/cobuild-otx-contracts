@@ -12,4 +12,5 @@ pub enum CoreError {
     DuplicateSealPair,
     InvalidSealScope,
     DuplicateMatchingAction,
+    InvalidLockGroupWitness,
 }

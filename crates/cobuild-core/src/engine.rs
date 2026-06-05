@@ -118,6 +118,14 @@ mod tests {
         table_bytes(&[dynvec_bytes(&[])])
     }
 
+    fn sighash_all_witness_bytes(seal: &[u8], message: &[u8]) -> Vec<u8> {
+        let item = table_bytes(&[molecule_bytes(seal), message.to_vec()]);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0xff00_0001u32.to_le_bytes());
+        bytes.extend_from_slice(&item);
+        bytes
+    }
+
     fn molecule_bytes(raw: &[u8]) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(4 + raw.len());
         bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
@@ -279,6 +287,49 @@ mod tests {
     }
 
     #[test]
+    fn lock_builder_rejects_missing_tx_level_carrier_when_cobuild_is_activated() {
+        let lock_hash = hash(1);
+        let other_hash = hash(2);
+        let mut context = test_context(vec![lock_hash, other_hash]);
+        context.witnesses = WitnessScan::with_capacity(2);
+        context.witnesses.push_witness(&[]).unwrap();
+        context
+            .witnesses
+            .push_witness(&sighash_all_witness_bytes(
+                &[0x11],
+                &message_without_actions(),
+            ))
+            .unwrap();
+        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+
+        assert_eq!(
+            builder.add_tx_level_requirement(),
+            Err(CoreError::InvalidLockGroupWitness)
+        );
+    }
+
+    #[test]
+    fn lock_builder_rejects_non_empty_non_carrier_lock_group_witness() {
+        let lock_hash = hash(1);
+        let mut context = test_context(vec![lock_hash, lock_hash]);
+        context.witnesses = WitnessScan::with_capacity(2);
+        context
+            .witnesses
+            .push_witness(&sighash_all_witness_bytes(
+                &[0x11],
+                &message_without_actions(),
+            ))
+            .unwrap();
+        context.witnesses.push_witness(&[0, 1, 2, 3]).unwrap();
+        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+
+        assert_eq!(
+            builder.add_tx_level_requirement(),
+            Err(CoreError::InvalidLockGroupWitness)
+        );
+    }
+
+    #[test]
     fn lock_builder_collects_one_otx_related_message_for_base_and_append_relevance() {
         let lock_hash = hash(1);
         let other_hash = hash(2);
@@ -413,18 +464,30 @@ impl<'a> LockPlanBuilder<'a> {
         let Some(carrier_witness_index) = self
             .context
             .script_hashes
-            .first_input_with_lock(self.lock_script_hash)
+            .lock_group_carrier_witness_index(self.lock_script_hash)
         else {
             return Ok(());
         };
 
+        if !self.context.witnesses.has_witness_layout() {
+            return Ok(());
+        }
+        if !self.tx_level_remainder_exists() {
+            return Ok(());
+        }
         if !self
             .context
             .witnesses
             .tx_level_carrier_has_sighash_all_layout(carrier_witness_index)?
         {
-            return Ok(());
+            return Err(CoreError::InvalidLockGroupWitness);
         }
+        self.context.witnesses.ensure_non_carrier_witnesses_empty(
+            self.context
+                .script_hashes
+                .lock_group_input_indices(self.lock_script_hash),
+            carrier_witness_index,
+        )?;
 
         let carrier = self.context.tx.witness_cursor(carrier_witness_index)?;
         let carrier_bytes = cursor_bytes_with_error(&carrier, CoreError::MissingHashInput)?;
@@ -470,6 +533,23 @@ impl<'a> LockPlanBuilder<'a> {
         self.collect_tx_related_message(carrier_witness_index, related_message);
 
         Ok(())
+    }
+
+    fn tx_level_remainder_exists(&self) -> bool {
+        match &self.context.layout_scan {
+            OtxLayoutScan::None => self
+                .context
+                .script_hashes
+                .lock_group_carrier_witness_index(self.lock_script_hash)
+                .is_some(),
+            OtxLayoutScan::Complete(layout) => self
+                .context
+                .script_hashes
+                .lock_group_has_input_outside_otx_ranges(
+                    self.lock_script_hash,
+                    &layout.otx_entries,
+                ),
+        }
     }
 
     fn add_otx_requirements(&mut self) -> Result<(), CoreError> {

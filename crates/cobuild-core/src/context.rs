@@ -40,8 +40,18 @@ impl TxScriptHashes {
         })
     }
 
-    pub(crate) fn first_input_with_lock(&self, lock_hash: [u8; 32]) -> Option<usize> {
+    pub(crate) fn lock_group_carrier_witness_index(&self, lock_hash: [u8; 32]) -> Option<usize> {
         self.input_locks.iter().position(|hash| *hash == lock_hash)
+    }
+
+    pub(crate) fn lock_group_input_indices(
+        &self,
+        lock_hash: [u8; 32],
+    ) -> impl Iterator<Item = usize> + '_ {
+        self.input_locks
+            .iter()
+            .enumerate()
+            .filter_map(move |(index, hash)| (*hash == lock_hash).then_some(index))
     }
 
     pub(crate) fn lock_in_input_range(&self, range: Range, lock_hash: [u8; 32]) -> bool {
@@ -122,6 +132,20 @@ impl TxScriptHashes {
                 range_contains(entry.layout.base_inputs, index)
                     || range_contains(entry.layout.append_inputs, index)
             })
+        })
+    }
+
+    pub(crate) fn lock_group_has_input_outside_otx_ranges(
+        &self,
+        lock_hash: [u8; 32],
+        otxs: &[OtxLayoutEntry],
+    ) -> bool {
+        self.input_locks.iter().enumerate().any(|(index, hash)| {
+            *hash == lock_hash
+                && !otxs.iter().any(|entry| {
+                    range_contains(entry.layout.base_inputs, index)
+                        || range_contains(entry.layout.append_inputs, index)
+                })
         })
     }
 
@@ -279,7 +303,7 @@ mod tests {
             output_types: alloc::vec![None, Some(type_a)],
         };
 
-        assert_eq!(hashes.first_input_with_lock(lock_a), Some(0));
+        assert_eq!(hashes.lock_group_carrier_witness_index(lock_a), Some(0));
         assert!(hashes.lock_in_input_range(range(0, 1), lock_a));
         assert!(!hashes.lock_in_input_range(range(1, 1), lock_a));
         assert!(hashes.type_hash_present(type_a));
