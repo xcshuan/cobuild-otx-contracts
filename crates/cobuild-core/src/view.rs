@@ -86,7 +86,7 @@ impl MessageView {
     }
 
     pub fn actions(&self) -> Result<Vec<ActionView>, CoreError> {
-        message_actions(&self.cursor)
+        parse_actions(&self.cursor)
     }
 
     pub fn actions_for(
@@ -232,7 +232,7 @@ impl WitnessLayoutView {
     }
 }
 
-pub(crate) fn message_actions(message: &Cursor) -> Result<Vec<ActionView>, CoreError> {
+fn parse_actions(message: &Cursor) -> Result<Vec<ActionView>, CoreError> {
     let message = Message::from(message.clone());
     message
         .verify(false)
