@@ -106,6 +106,19 @@ impl MessageView {
             .filter(|action| action.script_role == role && action.script_hash == script_hash)
             .collect())
     }
+
+    pub fn unique_action_for(
+        &self,
+        role: ScriptRole,
+        script_hash: [u8; 32],
+    ) -> Result<Option<ActionView>, CoreError> {
+        let mut matches = self.actions_for(role, script_hash)?;
+        match matches.len() {
+            0 => Ok(None),
+            1 => Ok(matches.pop()),
+            _ => Err(CoreError::DuplicateMatchingAction),
+        }
+    }
 }
 
 impl From<Cursor> for MessageView {

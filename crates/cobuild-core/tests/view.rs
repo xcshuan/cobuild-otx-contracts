@@ -1,3 +1,4 @@
+use cobuild_core::error::CoreError;
 use cobuild_core::protocol::ScriptRole;
 use cobuild_core::reader::{cursor_bytes, OwnedReader};
 use cobuild_core::view::{MessageView, SighashAllWitnessView, WitnessLayoutView};
@@ -112,6 +113,40 @@ fn message_view_returns_empty_actions_for_role_mismatch() {
         .unwrap();
 
     assert!(actions.is_empty());
+}
+
+#[test]
+fn unique_action_for_distinguishes_zero_one_and_many_matches() {
+    let target_hash = [0x66u8; 32];
+    let empty_view = MessageView::new(cobuild_core::reader::cursor_from_slice(
+        &message_with_actions(&[]),
+    ));
+    assert!(empty_view
+        .unique_action_for(ScriptRole::InputLock, target_hash)
+        .unwrap()
+        .is_none());
+
+    let one_view = MessageView::new(cobuild_core::reader::cursor_from_slice(
+        &message_with_actions(&[action_bytes([0x01u8; 32], 0, target_hash, &[0x10])]),
+    ));
+    let one = one_view
+        .unique_action_for(ScriptRole::InputLock, target_hash)
+        .unwrap()
+        .unwrap();
+    assert_eq!(one.index, 0);
+
+    let many_view = MessageView::new(cobuild_core::reader::cursor_from_slice(
+        &message_with_actions(&[
+            action_bytes([0x01u8; 32], 0, target_hash, &[0x10]),
+            action_bytes([0x02u8; 32], 0, target_hash, &[0x20]),
+        ]),
+    ));
+    assert_eq!(
+        many_view
+            .unique_action_for(ScriptRole::InputLock, target_hash)
+            .err(),
+        Some(CoreError::DuplicateMatchingAction)
+    );
 }
 
 fn sighash_all_witness_bytes(seal: &[u8], message: &[u8]) -> Vec<u8> {

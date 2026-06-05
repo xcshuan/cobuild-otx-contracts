@@ -11,4 +11,5 @@ pub enum CoreError {
     MissingSealPair,
     DuplicateSealPair,
     InvalidSealScope,
+    DuplicateMatchingAction,
 }
