@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use cobuild_types::lazy_reader::{
     core::{Message, Otx, OtxStart, SealPair},
     support::Cursor,
-    witness::WitnessLayout,
+    witness::WitnessLayout as CobuildWitnessLayout,
 };
 
 use crate::{
@@ -12,9 +12,9 @@ use crate::{
     reader::{cursor_bytes, cursor_from_slice},
 };
 
-pub struct WitnessLayoutView {
+pub struct CobuildWitnessLayoutView {
     #[allow(dead_code)]
-    pub(crate) inner: WitnessLayout,
+    pub(crate) inner: CobuildWitnessLayout,
 }
 
 #[derive(Clone)]
@@ -162,10 +162,11 @@ impl MaskView {
     }
 }
 
-impl WitnessLayoutView {
+impl CobuildWitnessLayoutView {
     pub fn from_slice(data: &[u8]) -> Result<Self, CoreError> {
         let cursor = cursor_from_slice(data);
-        let inner = WitnessLayout::try_from(cursor).map_err(|_| CoreError::MalformedCobuild)?;
+        let inner =
+            CobuildWitnessLayout::try_from(cursor).map_err(|_| CoreError::MalformedCobuild)?;
 
         inner
             .verify(false)
@@ -176,7 +177,7 @@ impl WitnessLayoutView {
 
     pub fn sighash_all_only_seal(&self) -> Result<Option<Vec<u8>>, CoreError> {
         match &self.inner {
-            WitnessLayout::SighashAllOnly(witness) => {
+            CobuildWitnessLayout::SighashAllOnly(witness) => {
                 let seal = witness.seal().map_err(|_| CoreError::MalformedCobuild)?;
                 cursor_bytes(&seal).map(Some)
             }
@@ -186,7 +187,7 @@ impl WitnessLayoutView {
 
     pub fn sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
         match &self.inner {
-            WitnessLayout::SighashAll(witness) => {
+            CobuildWitnessLayout::SighashAll(witness) => {
                 let message = witness.message().map_err(|_| CoreError::MalformedCobuild)?;
                 Ok(Some(message.cursor))
             }
@@ -194,13 +195,11 @@ impl WitnessLayoutView {
         }
     }
 
-    pub(crate) fn is_sighash_all_only(&self) -> bool {
-        matches!(&self.inner, WitnessLayout::SighashAllOnly(_))
-    }
-
-    pub fn sighash_all_witness_layout(&self) -> Result<Option<SighashAllWitnessView>, CoreError> {
+    pub fn sighash_all_cobuild_witness_layout(
+        &self,
+    ) -> Result<Option<SighashAllWitnessView>, CoreError> {
         match &self.inner {
-            WitnessLayout::SighashAll(witness) => {
+            CobuildWitnessLayout::SighashAll(witness) => {
                 let seal = witness.seal().map_err(|_| CoreError::MalformedCobuild)?;
                 let message = witness.message().map_err(|_| CoreError::MalformedCobuild)?;
                 Ok(Some(SighashAllWitnessView::WithMessage {
@@ -208,7 +207,7 @@ impl WitnessLayoutView {
                     message: message.cursor,
                 }))
             }
-            WitnessLayout::SighashAllOnly(witness) => witness
+            CobuildWitnessLayout::SighashAllOnly(witness) => witness
                 .seal()
                 .map(|seal| Some(SighashAllWitnessView::SealOnly { seal }))
                 .map_err(|_| CoreError::MalformedCobuild),
@@ -218,14 +217,14 @@ impl WitnessLayoutView {
 
     pub fn otx_start(&self) -> Result<Option<OtxStartView>, CoreError> {
         match &self.inner {
-            WitnessLayout::OtxStart(start) => otx_start_view(start).map(Some),
+            CobuildWitnessLayout::OtxStart(start) => otx_start_view(start).map(Some),
             _ => Ok(None),
         }
     }
 
     pub fn otx(&self) -> Result<Option<OtxView>, CoreError> {
         match &self.inner {
-            WitnessLayout::Otx(otx) => otx_view(otx).map(Some),
+            CobuildWitnessLayout::Otx(otx) => otx_view(otx).map(Some),
             _ => Ok(None),
         }
     }

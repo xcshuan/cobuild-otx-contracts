@@ -101,8 +101,9 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         "load_script()?",
         "AuthContext::try_from",
         "load_script_hash()?",
+        "CurrentScript::InputLock",
         "CobuildContext::from_syscalls",
-        "plan_lock_validation(current_script_hash)",
+        "plan_lock_validation()",
         "required_signatures",
         "LocalVerifier",
     ] {
@@ -195,13 +196,14 @@ fn cobuild_core_uses_explicit_signature_request_names() {
     );
     for expected in [
         "SighashAllWitnessView",
+        "CobuildWitnessLayoutView",
         "WithMessage",
         "SealOnly",
-        "sighash_all_witness_layout",
+        "sighash_all_cobuild_witness_layout",
     ] {
         assert!(
             view_rs.contains(expected),
-            "core view layer should expose explicit witness layout name {expected}"
+            "core view layer should expose explicit cobuild witness layout name {expected}"
         );
     }
 
@@ -259,11 +261,11 @@ fn cobuild_core_uses_explicit_signature_request_names() {
     assert!(core_src.join("seal.rs").is_file(), "missing seal.rs");
     assert!(
         !lib_rs.contains("mod message"),
-        "message target validation should move onto TxScriptHashes"
+        "message target validation should move onto CurrentScriptContext"
     );
     assert!(
         !core_src.join("message.rs").exists(),
-        "message.rs should be deleted after validation moves onto TxScriptHashes"
+        "message.rs should be deleted after validation moves onto CurrentScriptContext"
     );
 
     let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("core context.rs");
@@ -279,7 +281,7 @@ fn cobuild_core_uses_explicit_signature_request_names() {
     }
     assert!(
         context_rs.contains("validate_message_targets"),
-        "TxScriptHashes should own message target validation"
+        "CurrentScriptContext should own message target validation"
     );
 }
 
@@ -571,8 +573,8 @@ fn cobuild_core_context_preparation_is_owned_by_engine_context() {
 
     let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("core context.rs");
     assert!(
-        context_rs.contains("pub struct TxScriptHashes"),
-        "context.rs should expose TxScriptHashes"
+        context_rs.contains("pub struct CurrentScriptContext"),
+        "context.rs should expose CurrentScriptContext"
     );
     assert!(
         !context_rs.contains("ScriptHashIndex"),
@@ -585,8 +587,8 @@ fn cobuild_core_context_preparation_is_owned_by_engine_context() {
         "engine.rs should expose CobuildContext"
     );
     assert!(
-        engine_rs.contains("pub fn from_syscalls()"),
-        "CobuildContext should own syscall preparation"
+        engine_rs.contains("pub fn from_syscalls(current_script: CurrentScript)"),
+        "CobuildContext should prepare from the current script"
     );
 }
 
@@ -614,29 +616,31 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "let mut input_locks",
         "let mut input_types",
         "let mut output_types",
-    ] {
-        assert!(
-            !context_rs.contains(forbidden),
-            "TxScriptHashes should not expose or duplicate raw script hash storage {forbidden}"
-        );
-    }
-    for expected in [
-        "pub(crate) struct CurrentLockGroup",
-        "impl CurrentLockGroup",
-        "carrier_witness_index",
-        "carrier_has_sighash_all_layout",
-        "ensure_non_carrier_witnesses_empty",
-        "pub struct TxScriptHashes",
-        "impl TxScriptHashes",
-        "from_reader",
+        "CurrentLockGroup",
+        "current_lock_group",
         "ScriptHashIndices",
         "input_lock_indices",
         "input_type_indices",
         "output_type_indices",
+    ] {
+        assert!(
+            !context_rs.contains(forbidden),
+            "CurrentScriptContext should not keep full transaction indices {forbidden}"
+        );
+    }
+    for expected in [
+        "pub enum CurrentScript",
+        "pub struct CurrentScriptContext",
+        "enum CurrentScriptIndices",
+        "impl CurrentScriptContext",
+        "from_reader",
         "SyscallTxReader",
-        "input_range_contains_lock",
+        "current_lock_inputs",
+        "type_input_indices",
+        "type_output_indices",
+        "input_range_contains_current_lock",
         "type_relation_for_otx",
-        "all_inputs_with_lock_covered_by_otx",
+        "all_current_lock_inputs_covered_by_otx",
         "validate_message_targets",
     ] {
         assert!(
@@ -662,10 +666,16 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
     }
 
     let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs");
+    for forbidden in ["CurrentLockGroup", "current_lock_group"] {
+        assert!(
+            !engine_rs.contains(forbidden),
+            "engine.rs should use CurrentScriptContext, not {forbidden}"
+        );
+    }
     for expected in [
         "pub struct CobuildContext",
         "impl CobuildContext",
-        "from_syscalls()",
+        "from_syscalls(current_script: CurrentScript)",
         "let tx = SyscallTxReader::from_syscalls()?;",
         "let counts = tx.counts();",
         "struct LockPlanBuilder",
@@ -682,7 +692,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
     let lib_rs = fs::read_to_string(core_src.join("lib.rs")).expect("lib.rs");
     assert!(
         !core_src.join("flow.rs").exists(),
-        "flow.rs should be deleted after its logic moves onto TxScriptHashes"
+        "flow.rs should be deleted after its logic moves onto CurrentScriptContext"
     );
     assert!(
         !lib_rs.contains("mod flow"),
@@ -739,6 +749,33 @@ fn cobuild_core_lock_plan_exposes_related_messages() {
             && engine_rs.contains("collect_otx_related_message_if_relevant")
             && engine_rs.contains("related_otx_message"),
         "lock planning should collect tx-level and OTX related messages through explicit helpers"
+    );
+}
+
+#[test]
+fn cobuild_core_scans_cobuild_witness_layout_once() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+
+    let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("core engine.rs");
+    let witness_rs = fs::read_to_string(core_src.join("witness.rs")).expect("core witness.rs");
+    let layout_rs = fs::read_to_string(core_src.join("layout.rs")).expect("core layout.rs");
+
+    assert!(
+        witness_rs.contains("pub(crate) struct CobuildWitnessScanner"),
+        "witness.rs should expose one physical scanner for cobuild witness layout parsing"
+    );
+    assert!(
+        engine_rs.contains("CobuildWitnessScanner::with_capacity"),
+        "engine preparation should scan witnesses through CobuildWitnessScanner"
+    );
+    assert!(
+        !engine_rs.contains("OtxLayoutCollector::new"),
+        "engine preparation should not manually coordinate a separate OTX layout collector"
+    );
+    assert!(
+        !layout_rs.contains("CobuildWitnessLayoutView::from_slice"),
+        "layout collector should consume parsed cobuild witness layouts instead of reparsing witness bytes"
     );
 }
 

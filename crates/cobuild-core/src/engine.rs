@@ -3,10 +3,10 @@ use alloc::vec::Vec;
 use cobuild_types::lazy_reader::support::Cursor;
 
 use crate::{
-    context::{CurrentLockGroup, TxScriptHashes},
+    context::{CurrentScript, CurrentScriptContext},
     error::CoreError,
     hash::{otx_append_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash},
-    layout::{OtxLayoutCollector, OtxLayoutScan},
+    layout::OtxLayoutScan,
     plan::{
         LockValidationPlan, MessageOrigin, OtxMessageLayout, RelatedMessage, SignatureOrigin,
         SigningRequirement, TypeRelatedMessage, TypeValidationPlan,
@@ -14,32 +14,29 @@ use crate::{
     protocol::{ScriptRole, SealScope},
     reader::{cursor_bytes, cursor_bytes_with_error},
     syscalls::SyscallTxReader,
-    view::{MessageView, SighashAllWitnessView, WitnessLayoutView},
-    witness::WitnessScan,
+    view::MessageView,
+    witness::{CobuildWitnessScanner, TxLevelCarrierView, WitnessScan},
 };
 
 pub struct CobuildContext {
     pub(crate) tx: SyscallTxReader,
-    pub(crate) script_hashes: TxScriptHashes,
-    pub(crate) current_lock_group: CurrentLockGroup,
+    pub(crate) script_context: CurrentScriptContext,
     witnesses: WitnessScan,
     pub(crate) layout_scan: OtxLayoutScan,
 }
 
 impl CobuildContext {
-    pub fn from_syscalls() -> Result<Self, CoreError> {
+    pub fn from_syscalls(current_script: CurrentScript) -> Result<Self, CoreError> {
         let tx = SyscallTxReader::from_syscalls()?;
-        let script_hashes = TxScriptHashes::from_reader(&tx)?;
+        let script_context = CurrentScriptContext::from_reader(&tx, current_script)?;
         let counts = tx.counts();
-        let mut witnesses = WitnessScan::with_capacity(counts.witnesses);
-        let mut layout_collector = OtxLayoutCollector::new();
+        let mut scanner = CobuildWitnessScanner::with_capacity(counts.witnesses);
         for index in 0..counts.witnesses {
             let witness = tx.witness_cursor(index)?;
             let witness = cursor_bytes_with_error(&witness, CoreError::MissingHashInput)?;
-            witnesses.push_witness(&witness)?;
-            layout_collector.push_witness(&witness)?;
+            scanner.push_witness(&witness)?;
         }
-        let layout_scan = layout_collector.finish(
+        let scanned = scanner.finish(
             counts.inputs,
             counts.outputs,
             counts.cell_deps,
@@ -48,25 +45,18 @@ impl CobuildContext {
 
         Ok(Self {
             tx,
-            script_hashes,
-            current_lock_group: CurrentLockGroup::from_source(),
-            witnesses,
-            layout_scan,
+            script_context,
+            witnesses: scanned.tx_level,
+            layout_scan: scanned.otx_layout,
         })
     }
 
-    pub fn plan_lock_validation(
-        &self,
-        lock_script_hash: [u8; 32],
-    ) -> Result<LockValidationPlan, CoreError> {
-        LockPlanBuilder::new(self, lock_script_hash).build()
+    pub fn plan_lock_validation(&self) -> Result<LockValidationPlan, CoreError> {
+        LockPlanBuilder::new(self)?.build()
     }
 
-    pub fn plan_type_validation(
-        &self,
-        type_script_hash: [u8; 32],
-    ) -> Result<TypeValidationPlan, CoreError> {
-        TypePlanBuilder::new(self, type_script_hash).build()
+    pub fn plan_type_validation(&self) -> Result<TypeValidationPlan, CoreError> {
+        TypePlanBuilder::new(self)?.build()
     }
 }
 
@@ -75,43 +65,40 @@ mod tests {
     use alloc::vec;
 
     use super::*;
+    use crate::witness::ScannedCobuildWitnesses;
 
     fn hash(byte: u8) -> [u8; 32] {
         [byte; 32]
     }
 
-    fn test_context(input_locks: Vec<[u8; 32]>) -> CobuildContext {
-        let current_lock_hash = input_locks.first().copied();
-        let current_lock_group_indices_for_tests = current_lock_hash
-            .map(|hash| {
-                input_locks
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, lock_hash)| (*lock_hash == hash).then_some(index))
-                    .collect()
-            })
-            .unwrap_or_default();
-        test_context_with_lock_group(
+    fn test_lock_context(lock_hash: [u8; 32], input_locks: Vec<[u8; 32]>) -> CobuildContext {
+        test_context_with_scripts(
+            CurrentScript::InputLock(lock_hash),
             input_locks,
             Vec::new(),
             Vec::new(),
-            current_lock_group_indices_for_tests,
         )
     }
 
-    fn test_context_with_scripts(
+    fn test_type_context(
+        type_hash: [u8; 32],
         input_locks: Vec<[u8; 32]>,
         input_types: Vec<Option<[u8; 32]>>,
         output_types: Vec<Option<[u8; 32]>>,
     ) -> CobuildContext {
-        test_context_with_lock_group(input_locks, input_types, output_types, Vec::new())
+        test_context_with_scripts(
+            CurrentScript::Type(type_hash),
+            input_locks,
+            input_types,
+            output_types,
+        )
     }
 
-    fn test_context_with_lock_group(
+    fn test_context_with_scripts(
+        current_script: CurrentScript,
         input_locks: Vec<[u8; 32]>,
         input_types: Vec<Option<[u8; 32]>>,
         output_types: Vec<Option<[u8; 32]>>,
-        current_lock_group_indices_for_tests: Vec<usize>,
     ) -> CobuildContext {
         CobuildContext {
             tx: SyscallTxReader::from_cached_parts_for_tests(
@@ -119,17 +106,23 @@ mod tests {
                 crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
                 [0u8; 32],
             ),
-            script_hashes: TxScriptHashes::from_parts_for_tests(
+            script_context: CurrentScriptContext::from_parts_for_tests(
+                current_script,
                 input_locks,
                 input_types,
                 output_types,
             ),
-            current_lock_group: CurrentLockGroup::from_input_indices(
-                current_lock_group_indices_for_tests,
-            ),
             witnesses: WitnessScan::with_capacity(0),
             layout_scan: OtxLayoutScan::None,
         }
+    }
+
+    fn scan_witnesses_for_tests<const N: usize>(witnesses: [&[u8]; N]) -> ScannedCobuildWitnesses {
+        let mut scanner = CobuildWitnessScanner::with_capacity(N);
+        for witness in witnesses {
+            scanner.push_witness(witness).unwrap();
+        }
+        scanner.finish(0, 0, 0, 0).unwrap()
     }
 
     fn message_with_action(script_role: u8, script_hash: [u8; 32]) -> Vec<u8> {
@@ -292,8 +285,8 @@ mod tests {
     #[test]
     fn lock_builder_collects_tx_related_message_only_when_present() {
         let lock_hash = hash(1);
-        let context = test_context(vec![lock_hash]);
-        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let context = test_lock_context(lock_hash, vec![lock_hash]);
+        let mut builder = LockPlanBuilder::new(&context).unwrap();
         let message_bytes = [4u8, 0, 0, 0];
 
         builder.collect_tx_related_message(2, None);
@@ -319,22 +312,12 @@ mod tests {
     fn lock_builder_rejects_missing_tx_level_carrier_when_cobuild_is_activated() {
         let lock_hash = hash(1);
         let other_hash = hash(2);
-        let mut context = test_context_with_lock_group(
-            vec![lock_hash, other_hash],
-            Vec::new(),
-            Vec::new(),
-            vec![0],
-        );
-        context.witnesses = WitnessScan::with_capacity(2);
-        context.witnesses.push_witness(&[]).unwrap();
-        context
-            .witnesses
-            .push_witness(&sighash_all_witness_bytes(
-                &[0x11],
-                &message_without_actions(),
-            ))
-            .unwrap();
-        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let mut context = test_lock_context(lock_hash, vec![lock_hash, other_hash]);
+        let empty = Vec::new();
+        let sighash = sighash_all_witness_bytes(&[0x11], &message_without_actions());
+        context.witnesses =
+            scan_witnesses_for_tests([empty.as_slice(), sighash.as_slice()]).tx_level;
+        let mut builder = LockPlanBuilder::new(&context).unwrap();
 
         assert_eq!(
             builder.add_tx_level_requirement(),
@@ -345,22 +328,12 @@ mod tests {
     #[test]
     fn lock_builder_rejects_non_empty_non_carrier_lock_group_witness() {
         let lock_hash = hash(1);
-        let mut context = test_context_with_lock_group(
-            vec![lock_hash, lock_hash],
-            Vec::new(),
-            Vec::new(),
-            vec![0, 1],
-        );
-        context.witnesses = WitnessScan::with_capacity(2);
-        context
-            .witnesses
-            .push_witness(&sighash_all_witness_bytes(
-                &[0x11],
-                &message_without_actions(),
-            ))
-            .unwrap();
-        context.witnesses.push_witness(&[0, 1, 2, 3]).unwrap();
-        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let mut context = test_lock_context(lock_hash, vec![lock_hash, lock_hash]);
+        let sighash = sighash_all_witness_bytes(&[0x11], &message_without_actions());
+        let legacy = [0, 1, 2, 3];
+        context.witnesses =
+            scan_witnesses_for_tests([sighash.as_slice(), legacy.as_slice()]).tx_level;
+        let mut builder = LockPlanBuilder::new(&context).unwrap();
 
         assert_eq!(
             builder.add_tx_level_requirement(),
@@ -371,22 +344,13 @@ mod tests {
     #[test]
     fn lock_builder_checks_non_carrier_witnesses_from_current_group_only() {
         let lock_hash = hash(1);
-        let mut context = test_context_with_lock_group(
-            vec![lock_hash, lock_hash],
-            Vec::new(),
-            Vec::new(),
-            vec![0],
-        );
-        context.witnesses = WitnessScan::with_capacity(2);
-        context
-            .witnesses
-            .push_witness(&sighash_all_witness_bytes(
-                &[0x11],
-                &message_without_actions(),
-            ))
-            .unwrap();
-        context.witnesses.push_witness(&[0, 1, 2, 3]).unwrap();
-        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let other_hash = hash(2);
+        let mut context = test_lock_context(lock_hash, vec![lock_hash, other_hash]);
+        let sighash = sighash_all_witness_bytes(&[0x11], &message_without_actions());
+        let legacy = [0, 1, 2, 3];
+        context.witnesses =
+            scan_witnesses_for_tests([sighash.as_slice(), legacy.as_slice()]).tx_level;
+        let mut builder = LockPlanBuilder::new(&context).unwrap();
 
         assert_ne!(
             builder.add_tx_level_requirement(),
@@ -398,8 +362,8 @@ mod tests {
     fn lock_builder_collects_one_otx_related_message_for_base_and_append_relevance() {
         let lock_hash = hash(1);
         let other_hash = hash(2);
-        let context = test_context(vec![lock_hash, other_hash, lock_hash]);
-        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let context = test_lock_context(lock_hash, vec![lock_hash, other_hash, lock_hash]);
+        let mut builder = LockPlanBuilder::new(&context).unwrap();
         let message_bytes = [4u8, 0, 0, 0];
         let otx = test_otx(&message_bytes, 0, 2);
 
@@ -421,13 +385,8 @@ mod tests {
     fn lock_builder_skips_irrelevant_otx_related_message() {
         let lock_hash = hash(1);
         let other_hash = hash(2);
-        let context = test_context_with_lock_group(
-            vec![other_hash, other_hash],
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-        );
-        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let context = test_lock_context(lock_hash, vec![other_hash, other_hash]);
+        let mut builder = LockPlanBuilder::new(&context).unwrap();
         let message_bytes = message_without_actions();
         let otx = test_otx(&message_bytes, 0, 1);
 
@@ -442,13 +401,8 @@ mod tests {
     fn lock_builder_collects_otx_message_when_action_targets_lock_outside_otx_ranges() {
         let lock_hash = hash(1);
         let other_hash = hash(2);
-        let context = test_context_with_lock_group(
-            vec![other_hash, other_hash, lock_hash],
-            Vec::new(),
-            Vec::new(),
-            vec![2],
-        );
-        let mut builder = LockPlanBuilder::new(&context, lock_hash);
+        let context = test_lock_context(lock_hash, vec![other_hash, other_hash, lock_hash]);
+        let mut builder = LockPlanBuilder::new(&context).unwrap();
         let message_bytes = message_with_action(0, lock_hash);
         let otx = test_otx(&message_bytes, 0, 1);
 
@@ -472,7 +426,8 @@ mod tests {
         let other_type_hash = hash(8);
         let message_bytes = message_with_action(2, type_hash);
         let otx = test_otx(&message_bytes, 0, 1);
-        let mut context = test_context_with_scripts(
+        let mut context = test_type_context(
+            type_hash,
             Vec::new(),
             alloc::vec![Some(other_type_hash), Some(other_type_hash)],
             alloc::vec![Some(other_type_hash), Some(type_hash)],
@@ -481,7 +436,7 @@ mod tests {
             otx_entries: alloc::vec![otx],
         });
 
-        let plan = TypePlanBuilder::new(&context, type_hash).build().unwrap();
+        let plan = TypePlanBuilder::new(&context).unwrap().build().unwrap();
 
         assert_eq!(plan.related_messages.len(), 1);
         assert!(matches!(
@@ -515,13 +470,13 @@ impl LockOtxRelevance {
 }
 
 impl<'a> LockPlanBuilder<'a> {
-    fn new(context: &'a CobuildContext, lock_script_hash: [u8; 32]) -> Self {
-        Self {
+    fn new(context: &'a CobuildContext) -> Result<Self, CoreError> {
+        Ok(Self {
             context,
-            lock_script_hash,
+            lock_script_hash: context.script_context.current_lock_hash()?,
             required_signatures: Vec::new(),
             related_messages: Vec::new(),
-        }
+        })
     }
 
     fn build(mut self) -> Result<LockValidationPlan, CoreError> {
@@ -536,15 +491,12 @@ impl<'a> LockPlanBuilder<'a> {
     }
 
     fn add_tx_level_requirement(&mut self) -> Result<(), CoreError> {
-        let Some(carrier_witness_index) = self
-            .context
-            .current_lock_group
-            .carrier_witness_index(&self.context.tx)?
-        else {
+        let current_lock_inputs = self.current_lock_inputs()?;
+        let Some(carrier_witness_index) = current_lock_inputs.first().copied() else {
             return Ok(());
         };
 
-        if !self.context.witnesses.has_witness_layout() {
+        if !self.context.witnesses.has_cobuild_witness_layout() {
             return Ok(());
         }
         if !self.tx_level_remainder_exists()? {
@@ -552,49 +504,42 @@ impl<'a> LockPlanBuilder<'a> {
         }
         if !self
             .context
-            .current_lock_group
-            .carrier_has_sighash_all_layout(&self.context.tx, &self.context.witnesses)?
+            .witnesses
+            .tx_level_carrier_has_sighash_all_layout(carrier_witness_index)?
         {
             return Err(CoreError::InvalidLockGroupWitness);
         }
-        self.context
-            .current_lock_group
-            .ensure_non_carrier_witnesses_empty(
-                &self.context.tx,
-                &self.context.witnesses,
-                carrier_witness_index,
-            )?;
+        self.context.witnesses.ensure_non_carrier_witnesses_empty(
+            current_lock_inputs.iter().copied(),
+            carrier_witness_index,
+        )?;
 
-        let Some(carrier_bytes) = self
+        let Some(carrier) = self
             .context
-            .current_lock_group
-            .carrier_witness_bytes(&self.context.tx)?
+            .witnesses
+            .tx_level_carrier_view(carrier_witness_index)?
         else {
             return Err(CoreError::InvalidLockGroupWitness);
-        };
-        let view = WitnessLayoutView::from_slice(&carrier_bytes)?;
-        let Some(sighash_all_witness_layout) = view.sighash_all_witness_layout()? else {
-            return Ok(());
         };
 
         let tx_message = self.context.witnesses.unique_sighash_all_message()?;
         let mut related_message = None;
-        let (seal, signing_message_hash) = match sighash_all_witness_layout {
-            SighashAllWitnessView::WithMessage { seal, message } => {
+        let (seal, signing_message_hash) = match carrier {
+            TxLevelCarrierView::WithMessage { seal, message } => {
                 let message = tx_message.as_ref().unwrap_or(&message);
                 self.context
-                    .script_hashes
-                    .validate_message_targets(message)?;
+                    .script_context
+                    .validate_message_targets(&self.context.tx, message)?;
                 related_message = Some(message.clone());
                 let signing_message_hash = tx_with_message_hash(message, &self.context.tx)?;
                 (cursor_bytes(&seal)?, signing_message_hash)
             }
-            SighashAllWitnessView::SealOnly { seal } => {
+            TxLevelCarrierView::SealOnly { seal } => {
                 let signing_message_hash = match tx_message {
                     Some(message) => {
                         self.context
-                            .script_hashes
-                            .validate_message_targets(&message)?;
+                            .script_context
+                            .validate_message_targets(&self.context.tx, &message)?;
                         related_message = Some(message.clone());
                         tx_with_message_hash(&message, &self.context.tx)?
                     }
@@ -618,16 +563,16 @@ impl<'a> LockPlanBuilder<'a> {
 
     fn tx_level_remainder_exists(&self) -> Result<bool, CoreError> {
         match &self.context.layout_scan {
-            OtxLayoutScan::None => self
+            OtxLayoutScan::None => Ok(!self.current_lock_inputs()?.is_empty()),
+            OtxLayoutScan::Complete(layout) => self
                 .context
-                .current_lock_group
-                .is_empty(&self.context.tx)
-                .map(|is_empty| !is_empty),
-            OtxLayoutScan::Complete(layout) => Ok(self
-                .context
-                .script_hashes
-                .lock_hash_outside_otx_ranges(self.lock_script_hash, &layout.otx_entries)),
+                .script_context
+                .current_lock_outside_otx_ranges(&layout.otx_entries),
         }
+    }
+
+    fn current_lock_inputs(&self) -> Result<&[usize], CoreError> {
+        self.context.script_context.current_lock_inputs()
     }
 
     fn add_otx_requirements(&mut self) -> Result<(), CoreError> {
@@ -642,8 +587,8 @@ impl<'a> LockPlanBuilder<'a> {
                     };
 
                     self.context
-                        .script_hashes
-                        .validate_message_targets(&otx.witness.message)?;
+                        .script_context
+                        .validate_message_targets(&self.context.tx, &otx.witness.message)?;
                     if !relevance.needs_signature() {
                         continue;
                     }
@@ -705,12 +650,12 @@ impl<'a> LockPlanBuilder<'a> {
     ) -> Result<Option<LockOtxRelevance>, CoreError> {
         let base_signature = self
             .context
-            .script_hashes
-            .input_range_contains_lock(otx.layout.base_inputs, self.lock_script_hash);
+            .script_context
+            .input_range_contains_current_lock(otx.layout.base_inputs)?;
         let append_signature = self
             .context
-            .script_hashes
-            .input_range_contains_lock(otx.layout.append_inputs, self.lock_script_hash);
+            .script_context
+            .input_range_contains_current_lock(otx.layout.append_inputs)?;
         let scope_related = base_signature || append_signature;
         let action_related = if scope_related {
             false
@@ -744,8 +689,8 @@ impl<'a> LockPlanBuilder<'a> {
             if let OtxLayoutScan::Complete(layout) = &self.context.layout_scan {
                 if !self
                     .context
-                    .script_hashes
-                    .all_inputs_with_lock_covered_by_otx(self.lock_script_hash, &layout.otx_entries)
+                    .script_context
+                    .all_current_lock_inputs_covered_by_otx(&layout.otx_entries)?
                 {
                     return Err(CoreError::MissingLockGroupCoverage);
                 }
@@ -792,12 +737,12 @@ struct TypePlanBuilder<'a> {
 }
 
 impl<'a> TypePlanBuilder<'a> {
-    fn new(context: &'a CobuildContext, type_script_hash: [u8; 32]) -> Self {
-        Self {
+    fn new(context: &'a CobuildContext) -> Result<Self, CoreError> {
+        Ok(Self {
             context,
-            type_script_hash,
+            type_script_hash: context.script_context.current_type_hash()?,
             related_messages: Vec::new(),
-        }
+        })
     }
 
     fn build(mut self) -> Result<TypeValidationPlan, CoreError> {
@@ -813,10 +758,7 @@ impl<'a> TypePlanBuilder<'a> {
         match &self.context.layout_scan {
             OtxLayoutScan::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
-                    let relation = self
-                        .context
-                        .script_hashes
-                        .type_relation_for_otx(otx, self.type_script_hash)?;
+                    let relation = self.context.script_context.type_relation_for_otx(otx)?;
                     let range_related = otx_type_relation_mentions_type(&relation);
                     let action_related = if range_related {
                         false
@@ -827,8 +769,8 @@ impl<'a> TypePlanBuilder<'a> {
                         continue;
                     }
                     self.context
-                        .script_hashes
-                        .validate_message_targets(&otx.witness.message)?;
+                        .script_context
+                        .validate_message_targets(&self.context.tx, &otx.witness.message)?;
                     self.related_messages.push(TypeRelatedMessage {
                         message: related_otx_message(otx_index, otx),
                         otx_relation: Some(relation),
@@ -849,7 +791,7 @@ impl<'a> TypePlanBuilder<'a> {
             return Ok(());
         };
 
-        let scope_related = self.tx_level_scope_mentions_type();
+        let scope_related = self.tx_level_scope_mentions_type()?;
         let action_related = if scope_related {
             false
         } else {
@@ -860,8 +802,8 @@ impl<'a> TypePlanBuilder<'a> {
         }
 
         self.context
-            .script_hashes
-            .validate_message_targets(&message)?;
+            .script_context
+            .validate_message_targets(&self.context.tx, &message)?;
         self.related_messages.push(TypeRelatedMessage {
             message: related_tx_message(carrier_witness_index, message),
             otx_relation: None,
@@ -869,16 +811,13 @@ impl<'a> TypePlanBuilder<'a> {
         Ok(())
     }
 
-    fn tx_level_scope_mentions_type(&self) -> bool {
+    fn tx_level_scope_mentions_type(&self) -> Result<bool, CoreError> {
         match &self.context.layout_scan {
             OtxLayoutScan::Complete(layout) => self
                 .context
-                .script_hashes
-                .type_hash_outside_otx_ranges(self.type_script_hash, &layout.otx_entries),
-            OtxLayoutScan::None => self
-                .context
-                .script_hashes
-                .type_hash_present(self.type_script_hash),
+                .script_context
+                .current_type_outside_otx_ranges(&layout.otx_entries),
+            OtxLayoutScan::None => self.context.script_context.current_type_present(),
         }
     }
 }

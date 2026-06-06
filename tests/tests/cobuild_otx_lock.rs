@@ -19,6 +19,12 @@ fn contract_accepts_sighash_all_cobuild_signature() {
 }
 
 #[test]
+fn contract_accepts_sighash_all_when_current_lock_starts_after_input_zero() {
+    let result = fixtures::signed_sighash_all_offset_lock_case().verify();
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
 fn contract_accepts_otx_base_and_append_signatures() {
     let result = fixtures::signed_otx_dual_scope_case().verify();
     assert!(result.is_ok(), "{result:?}");

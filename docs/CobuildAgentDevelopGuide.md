@@ -37,9 +37,9 @@ from them without checking the current architecture in this guide:
 Historical specs and plans may mention removed names such as `CobuildEngine`,
 `PreparedCobuild`, `ScriptHashIndex`, `ChainSource`, `prepare.rs`, `flow.rs`,
 or `message.rs`. The current production entry point is
-`CobuildContext::from_syscalls()`, and the current concrete flow objects are
-`SyscallTxReader`, `TxScriptHashes`, `WitnessScan`, `LockPlanBuilder`, and
-`TypePlanBuilder`.
+`CobuildContext::from_syscalls(CurrentScript::...)`, and the current concrete
+flow objects are `SyscallTxReader`, `CurrentScriptContext`, `WitnessScan`,
+`LockPlanBuilder`, and `TypePlanBuilder`.
 
 Completed implementation plans should stay as records. New work should be
 handled as a new focused task, not by silently rewriting completed plan history.
@@ -49,13 +49,13 @@ handled as a new focused task, not by silently rewriting completed plan history.
 - `contracts/cobuild-otx-lock/src/entry.rs` is the production lock entry:
   - parse `AuthContext` from lock args;
   - load current script hash;
-  - call `CobuildContext::from_syscalls()`;
-  - call `plan_lock_validation(current_script_hash)`;
+  - call `CobuildContext::from_syscalls(CurrentScript::InputLock(current_script_hash))`;
+  - call `plan_lock_validation()`;
   - verify each signature request through `LockVerifier`.
 - `crates/cobuild-core/src/engine.rs` owns prepared validation state:
-  - `CobuildContext::from_syscalls()`;
-  - `CobuildContext::plan_lock_validation(...)`;
-  - `CobuildContext::plan_type_validation(...)`;
+  - `CobuildContext::from_syscalls(current_script)`;
+  - `CobuildContext::plan_lock_validation()`;
+  - `CobuildContext::plan_type_validation()`;
   - crate-private `LockPlanBuilder` and `TypePlanBuilder`.
 - `crates/cobuild-core/src/syscalls.rs` owns CKB syscall-backed transaction reading:
   - `SyscallTxReader`;
@@ -63,10 +63,10 @@ handled as a new focused task, not by silently rewriting completed plan history.
   - script hash reads;
   - witness cursors;
   - raw transaction fields and resolved input data used by signing hash construction.
-- `crates/cobuild-core/src/context.rs` owns transaction script-hash queries:
-  - `TxScriptHashes`;
-  - lock/type range checks;
-  - message action target validation.
+- `crates/cobuild-core/src/context.rs` owns current-script context:
+  - `CurrentScript` and `CurrentScriptContext`;
+  - current lock/type range checks from current script indices;
+  - message action target validation against the full transaction.
 - `crates/cobuild-core/src/witness.rs` owns witness classification:
   - `WitnessScan`;
   - unique sighash-all message selection;
@@ -94,7 +94,7 @@ Do not reintroduce `CobuildEngine`, `PreparedCobuild`, `ScriptHashIndex`,
   - message action target validation.
 - `cobuild-otx-lock` stays thin:
   - load current script args and script hash;
-  - call `CobuildContext::from_syscalls()`;
+  - call `CobuildContext::from_syscalls(CurrentScript::InputLock(...))`;
   - invoke verifier;
   - map errors to stable exit codes.
 - The lock contract must not parse Cobuild protocol details, scan OTX layouts, construct Cobuild hash preimages, or depend on `cobuild_types::entity`.
@@ -128,7 +128,7 @@ The lock path must not load the whole transaction into a `Vec`. Use
 `ckb_std::high_level` in the lock for owned or fixed-size reads such as current
 script args and script hash. Keep transaction-range, resolved-input, and hash
 preimage reads inside `cobuild-core` syscall helpers, then prepare validation
-state with `CobuildContext::from_syscalls()`.
+state with `CobuildContext::from_syscalls(CurrentScript::...)`.
 
 This depends on the repository's Rust 1.92 toolchain plus `ckb-std`
 `dummy-atomic`; do not move the contract target back to a newer toolchain or
@@ -251,11 +251,12 @@ through final verification. Current architecture highlights:
 - core reader helpers live in `crates/cobuild-core/src/reader.rs`;
 - concrete syscall transaction helpers live in `crates/cobuild-core/src/syscalls.rs`;
 - `SyscallTxReader` owns syscall-backed transaction metadata and hash input reads;
-- `TxScriptHashes` owns lock/type script hash queries and message target validation;
+- `CurrentScriptContext` owns current script indices and message target validation;
 - `WitnessScan` owns witness summaries and sighash-all message selection;
 - `LockPlanBuilder` and `TypePlanBuilder` own validation plan construction;
 - context preparation lives in `crates/cobuild-core/src/engine.rs`;
-- the lock delegates Cobuild preparation to `CobuildContext::from_syscalls()`;
+- the lock delegates Cobuild preparation to
+  `CobuildContext::from_syscalls(CurrentScript::InputLock(...))`;
 - hash/query flow uses concrete syscall helpers;
 - view DTOs are cursor-backed.
 

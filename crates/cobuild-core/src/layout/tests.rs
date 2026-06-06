@@ -1,6 +1,7 @@
 use alloc::{vec, vec::Vec};
 
 use super::*;
+use crate::witness::CobuildWitnessScanner;
 
 #[test]
 fn empty_tx_has_no_otx_layouts() {
@@ -204,11 +205,14 @@ fn build_layout(
     cell_dep_count: usize,
     header_dep_count: usize,
 ) -> Result<BuiltLayout, CoreError> {
-    let mut collector = OtxLayoutCollector::new();
+    let mut scanner = CobuildWitnessScanner::with_capacity(witnesses.len());
     for witness in witnesses {
-        collector.push_witness(&witness)?;
+        scanner.push_witness(&witness)?;
     }
-    match collector.finish(input_count, output_count, cell_dep_count, header_dep_count)? {
+    match scanner
+        .finish(input_count, output_count, cell_dep_count, header_dep_count)?
+        .otx_layout
+    {
         OtxLayoutScan::None => Ok(BuiltLayout {
             otx_entries: Vec::new(),
         }),

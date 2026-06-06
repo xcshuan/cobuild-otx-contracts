@@ -7,308 +7,260 @@ use crate::{
     layout::{OtxLayoutEntry, Range},
     plan::OtxTypeRelation,
     protocol::ScriptRole,
-    reader::cursor_bytes_with_error,
     syscalls::SyscallTxReader,
     view::MessageView,
-    witness::WitnessScan,
 };
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub(crate) struct CurrentLockGroup {
-    input_indices: Option<Vec<usize>>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CurrentScript {
+    InputLock([u8; 32]),
+    Type([u8; 32]),
 }
 
-impl CurrentLockGroup {
-    pub(crate) fn from_source() -> Self {
-        Self {
-            input_indices: None,
-        }
-    }
-
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CurrentScriptContext {
+    current_script: CurrentScript,
+    indices: CurrentScriptIndices,
     #[cfg(test)]
-    pub(crate) fn from_input_indices(input_indices: Vec<usize>) -> Self {
-        Self {
-            input_indices: Some(input_indices),
-        }
-    }
-
-    pub(crate) fn carrier_witness_index(
-        &self,
-        tx: &SyscallTxReader,
-    ) -> Result<Option<usize>, CoreError> {
-        match &self.input_indices {
-            Some(input_indices) => Ok(input_indices.first().copied()),
-            None => tx
-                .current_lock_group_has_input(0)
-                .map(|has_input| has_input.then_some(0)),
-        }
-    }
-
-    pub(crate) fn carrier_has_sighash_all_layout(
-        &self,
-        tx: &SyscallTxReader,
-        witnesses: &WitnessScan,
-    ) -> Result<bool, CoreError> {
-        match &self.input_indices {
-            Some(input_indices) => {
-                let Some(index) = input_indices.first().copied() else {
-                    return Ok(false);
-                };
-                witnesses.tx_level_carrier_has_sighash_all_layout(index)
-            }
-            None => {
-                let Some(witness) = tx.current_lock_group_witness_cursor(0)? else {
-                    return Ok(false);
-                };
-                let witness = cursor_bytes_with_error(&witness, CoreError::MissingHashInput)?;
-                WitnessScan::witness_has_sighash_all_layout(&witness)
-            }
-        }
-    }
-
-    pub(crate) fn ensure_non_carrier_witnesses_empty(
-        &self,
-        tx: &SyscallTxReader,
-        witnesses: &WitnessScan,
-        carrier_witness_index: usize,
-    ) -> Result<(), CoreError> {
-        match &self.input_indices {
-            Some(input_indices) => witnesses.ensure_non_carrier_witnesses_empty(
-                input_indices.iter().copied(),
-                carrier_witness_index,
-            ),
-            None => {
-                let mut group_index = 1;
-                while tx.current_lock_group_has_input(group_index)? {
-                    if let Some(witness) = tx.current_lock_group_witness_cursor(group_index)? {
-                        let witness =
-                            cursor_bytes_with_error(&witness, CoreError::MissingHashInput)?;
-                        if !witness.is_empty() {
-                            return Err(CoreError::InvalidLockGroupWitness);
-                        }
-                    }
-                    group_index += 1;
-                }
-                Ok(())
-            }
-        }
-    }
-
-    pub(crate) fn carrier_witness_bytes(
-        &self,
-        tx: &SyscallTxReader,
-    ) -> Result<Option<Vec<u8>>, CoreError> {
-        match &self.input_indices {
-            Some(input_indices) => {
-                let Some(index) = input_indices.first().copied() else {
-                    return Ok(None);
-                };
-                let witness = tx.witness_cursor(index)?;
-                cursor_bytes_with_error(&witness, CoreError::MissingHashInput).map(Some)
-            }
-            None => {
-                let Some(witness) = tx.current_lock_group_witness_cursor(0)? else {
-                    return Ok(None);
-                };
-                cursor_bytes_with_error(&witness, CoreError::MissingHashInput).map(Some)
-            }
-        }
-    }
-
-    pub(crate) fn is_empty(&self, tx: &SyscallTxReader) -> Result<bool, CoreError> {
-        self.carrier_witness_index(tx)
-            .map(|carrier_witness_index| carrier_witness_index.is_none())
-    }
+    target_hashes_for_tests: Option<TargetHashesForTests>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub struct TxScriptHashes {
-    input_lock_indices: Vec<ScriptHashIndices>,
-    input_type_indices: Vec<ScriptHashIndices>,
-    output_type_indices: Vec<ScriptHashIndices>,
+enum CurrentScriptIndices {
+    #[default]
+    Empty,
+    Lock {
+        input_indices: Vec<usize>,
+    },
+    Type {
+        input_indices: Vec<usize>,
+        output_indices: Vec<usize>,
+    },
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct ScriptHashIndices {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TargetPresence {
+    role: ScriptRole,
     script_hash: [u8; 32],
-    indices: Vec<usize>,
+    exists: bool,
 }
 
-impl TxScriptHashes {
-    pub(crate) fn from_reader(reader: &SyscallTxReader) -> Result<Self, CoreError> {
-        let counts = reader.counts();
-        let mut input_lock_indices = Vec::new();
-        let mut input_type_indices = Vec::new();
-        for index in 0..counts.inputs {
-            push_script_hash_index(
-                &mut input_lock_indices,
-                reader.input_lock_hash(index)?,
-                index,
-            );
-            push_optional_script_hash_index(
-                &mut input_type_indices,
-                reader.input_type_hash(index)?,
-                index,
-            );
-        }
+#[cfg(test)]
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct TargetHashesForTests {
+    input_lock_hashes: Vec<[u8; 32]>,
+    input_type_hashes: Vec<[u8; 32]>,
+    output_type_hashes: Vec<[u8; 32]>,
+}
 
-        let mut output_type_indices = Vec::new();
-        for index in 0..counts.outputs {
-            push_optional_script_hash_index(
-                &mut output_type_indices,
-                reader.output_type_hash(index)?,
-                index,
-            );
-        }
+impl CurrentScriptContext {
+    pub(crate) fn from_reader(
+        reader: &SyscallTxReader,
+        current_script: CurrentScript,
+    ) -> Result<Self, CoreError> {
+        let counts = reader.counts();
+        let indices = match current_script {
+            CurrentScript::InputLock(lock_hash) => {
+                let mut input_indices = Vec::new();
+                for index in 0..counts.inputs {
+                    if reader.input_lock_hash(index)? == lock_hash {
+                        input_indices.push(index);
+                    }
+                }
+                CurrentScriptIndices::Lock { input_indices }
+            }
+            CurrentScript::Type(type_hash) => {
+                let mut input_indices = Vec::new();
+                for index in 0..counts.inputs {
+                    if reader.input_type_hash(index)? == Some(type_hash) {
+                        input_indices.push(index);
+                    }
+                }
+
+                let mut output_indices = Vec::new();
+                for index in 0..counts.outputs {
+                    if reader.output_type_hash(index)? == Some(type_hash) {
+                        output_indices.push(index);
+                    }
+                }
+                CurrentScriptIndices::Type {
+                    input_indices,
+                    output_indices,
+                }
+            }
+        };
 
         Ok(Self {
-            input_lock_indices,
-            input_type_indices,
-            output_type_indices,
+            current_script,
+            indices,
+            #[cfg(test)]
+            target_hashes_for_tests: None,
         })
     }
 
     #[cfg(test)]
     pub(crate) fn from_parts_for_tests(
+        current_script: CurrentScript,
         input_locks: Vec<[u8; 32]>,
         input_types: Vec<Option<[u8; 32]>>,
         output_types: Vec<Option<[u8; 32]>>,
     ) -> Self {
-        Self::from_parts(input_locks, input_types, output_types)
-    }
+        let indices = match current_script {
+            CurrentScript::InputLock(lock_hash) => CurrentScriptIndices::Lock {
+                input_indices: input_locks
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, candidate)| (*candidate == lock_hash).then_some(index))
+                    .collect(),
+            },
+            CurrentScript::Type(type_hash) => CurrentScriptIndices::Type {
+                input_indices: input_types
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, candidate)| {
+                        (*candidate == Some(type_hash)).then_some(index)
+                    })
+                    .collect(),
+                output_indices: output_types
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(index, candidate)| {
+                        (*candidate == Some(type_hash)).then_some(index)
+                    })
+                    .collect(),
+            },
+        };
+        let target_hashes_for_tests = TargetHashesForTests {
+            input_lock_hashes: input_locks,
+            input_type_hashes: input_types.into_iter().flatten().collect(),
+            output_type_hashes: output_types.into_iter().flatten().collect(),
+        };
 
-    #[cfg(test)]
-    fn from_parts(
-        input_locks: Vec<[u8; 32]>,
-        input_types: Vec<Option<[u8; 32]>>,
-        output_types: Vec<Option<[u8; 32]>>,
-    ) -> Self {
         Self {
-            input_lock_indices: index_script_hashes(input_locks.into_iter().map(Some)),
-            input_type_indices: index_script_hashes(input_types),
-            output_type_indices: index_script_hashes(output_types),
+            current_script,
+            indices,
+            target_hashes_for_tests: Some(target_hashes_for_tests),
         }
     }
 
-    pub(crate) fn type_in_input_range(&self, range: Range, type_hash: [u8; 32]) -> bool {
-        Self::indices_contain_range(&self.input_type_indices, type_hash, range)
+    pub(crate) fn current_lock_hash(&self) -> Result<[u8; 32], CoreError> {
+        match self.current_script {
+            CurrentScript::InputLock(lock_hash) => Ok(lock_hash),
+            CurrentScript::Type(_) => Err(CoreError::InvalidContextInput),
+        }
     }
 
-    pub(crate) fn input_range_contains_lock(&self, range: Range, lock_hash: [u8; 32]) -> bool {
-        Self::indices_contain_range(&self.input_lock_indices, lock_hash, range)
+    pub(crate) fn current_type_hash(&self) -> Result<[u8; 32], CoreError> {
+        match self.current_script {
+            CurrentScript::Type(type_hash) => Ok(type_hash),
+            CurrentScript::InputLock(_) => Err(CoreError::InvalidContextInput),
+        }
     }
 
-    pub(crate) fn type_in_output_range(&self, range: Range, type_hash: [u8; 32]) -> bool {
-        Self::indices_contain_range(&self.output_type_indices, type_hash, range)
+    pub(crate) fn current_lock_inputs(&self) -> Result<&[usize], CoreError> {
+        match &self.indices {
+            CurrentScriptIndices::Lock { input_indices } => Ok(input_indices),
+            CurrentScriptIndices::Empty | CurrentScriptIndices::Type { .. } => {
+                Err(CoreError::InvalidContextInput)
+            }
+        }
+    }
+
+    pub(crate) fn type_input_indices(&self) -> Result<&[usize], CoreError> {
+        match &self.indices {
+            CurrentScriptIndices::Type { input_indices, .. } => Ok(input_indices),
+            CurrentScriptIndices::Empty | CurrentScriptIndices::Lock { .. } => {
+                Err(CoreError::InvalidContextInput)
+            }
+        }
+    }
+
+    pub(crate) fn type_output_indices(&self) -> Result<&[usize], CoreError> {
+        match &self.indices {
+            CurrentScriptIndices::Type { output_indices, .. } => Ok(output_indices),
+            CurrentScriptIndices::Empty | CurrentScriptIndices::Lock { .. } => {
+                Err(CoreError::InvalidContextInput)
+            }
+        }
+    }
+
+    pub(crate) fn input_range_contains_current_lock(
+        &self,
+        range: Range,
+    ) -> Result<bool, CoreError> {
+        Ok(self
+            .current_lock_inputs()?
+            .iter()
+            .any(|index| range_contains(range, *index)))
     }
 
     pub(crate) fn type_relation_for_otx(
         &self,
         otx: &OtxLayoutEntry,
-        type_hash: [u8; 32],
     ) -> Result<OtxTypeRelation, CoreError> {
         Ok(OtxTypeRelation {
-            input_type_in_base: self.type_in_input_range(otx.layout.base_inputs, type_hash),
-            input_type_in_append: self.type_in_input_range(otx.layout.append_inputs, type_hash),
-            output_type_in_base: self.type_in_output_range(otx.layout.base_outputs, type_hash),
-            output_type_in_base_covered: self.covered_type_in_base_outputs(otx, type_hash)?,
-            output_type_in_append: self.type_in_output_range(otx.layout.append_outputs, type_hash),
+            input_type_in_base: self.type_in_input_range(otx.layout.base_inputs)?,
+            input_type_in_append: self.type_in_input_range(otx.layout.append_inputs)?,
+            output_type_in_base: self.type_in_output_range(otx.layout.base_outputs)?,
+            output_type_in_base_covered: self.covered_current_type_in_base_outputs(otx)?,
+            output_type_in_append: self.type_in_output_range(otx.layout.append_outputs)?,
         })
     }
 
-    pub(crate) fn type_hash_present(&self, type_hash: [u8; 32]) -> bool {
-        Self::has_script_hash(&self.input_type_indices, type_hash)
-            || Self::has_script_hash(&self.output_type_indices, type_hash)
+    pub(crate) fn current_type_present(&self) -> Result<bool, CoreError> {
+        Ok(!self.type_input_indices()?.is_empty() || !self.type_output_indices()?.is_empty())
     }
 
-    pub(crate) fn type_hash_outside_otx_ranges(
+    pub(crate) fn current_type_outside_otx_ranges(
         &self,
-        type_hash: [u8; 32],
         otxs: &[OtxLayoutEntry],
-    ) -> bool {
-        Self::indices_for_hash(&self.input_type_indices, type_hash)
-            .iter()
-            .any(|index| {
-                !otxs.iter().any(|entry| {
-                    range_contains(entry.layout.base_inputs, *index)
-                        || range_contains(entry.layout.append_inputs, *index)
-                })
+    ) -> Result<bool, CoreError> {
+        Ok(self.type_input_indices()?.iter().any(|index| {
+            !otxs.iter().any(|entry| {
+                range_contains(entry.layout.base_inputs, *index)
+                    || range_contains(entry.layout.append_inputs, *index)
             })
-            || Self::indices_for_hash(&self.output_type_indices, type_hash)
-                .iter()
-                .any(|index| {
-                    !otxs.iter().any(|entry| {
-                        range_contains(entry.layout.base_outputs, *index)
-                            || range_contains(entry.layout.append_outputs, *index)
-                    })
-                })
+        }) || self.type_output_indices()?.iter().any(|index| {
+            !otxs.iter().any(|entry| {
+                range_contains(entry.layout.base_outputs, *index)
+                    || range_contains(entry.layout.append_outputs, *index)
+            })
+        }))
     }
 
-    pub(crate) fn lock_hash_outside_otx_ranges(
+    pub(crate) fn current_lock_outside_otx_ranges(
         &self,
-        lock_hash: [u8; 32],
         otxs: &[OtxLayoutEntry],
-    ) -> bool {
-        Self::indices_for_hash(&self.input_lock_indices, lock_hash)
-            .iter()
-            .any(|index| {
-                !otxs.iter().any(|entry| {
-                    range_contains(entry.layout.base_inputs, *index)
-                        || range_contains(entry.layout.append_inputs, *index)
-                })
+    ) -> Result<bool, CoreError> {
+        Ok(self.current_lock_inputs()?.iter().any(|index| {
+            !otxs.iter().any(|entry| {
+                range_contains(entry.layout.base_inputs, *index)
+                    || range_contains(entry.layout.append_inputs, *index)
             })
+        }))
     }
 
-    pub(crate) fn all_inputs_with_lock_covered_by_otx(
+    pub(crate) fn all_current_lock_inputs_covered_by_otx(
         &self,
-        lock_hash: [u8; 32],
         otxs: &[OtxLayoutEntry],
-    ) -> bool {
-        Self::indices_for_hash(&self.input_lock_indices, lock_hash)
-            .iter()
-            .all(|index| {
-                otxs.iter().any(|entry| {
-                    range_contains(entry.layout.base_inputs, *index)
-                        || range_contains(entry.layout.append_inputs, *index)
-                })
+    ) -> Result<bool, CoreError> {
+        Ok(self.current_lock_inputs()?.iter().all(|index| {
+            otxs.iter().any(|entry| {
+                range_contains(entry.layout.base_inputs, *index)
+                    || range_contains(entry.layout.append_inputs, *index)
             })
+        }))
     }
 
-    fn indices_for_hash(entries: &[ScriptHashIndices], script_hash: [u8; 32]) -> &[usize] {
-        entries
-            .iter()
-            .find(|entry| entry.script_hash == script_hash)
-            .map(|entry| entry.indices.as_slice())
-            .unwrap_or(&[])
-    }
-
-    fn indices_contain_range(
-        entries: &[ScriptHashIndices],
-        script_hash: [u8; 32],
-        range: Range,
-    ) -> bool {
-        Self::indices_for_hash(entries, script_hash)
-            .iter()
-            .any(|index| range_contains(range, *index))
-    }
-
-    fn has_script_hash(entries: &[ScriptHashIndices], script_hash: [u8; 32]) -> bool {
-        entries.iter().any(|entry| entry.script_hash == script_hash)
-    }
-
-    pub(crate) fn validate_message_targets(&self, message: &Cursor) -> Result<(), CoreError> {
+    pub(crate) fn validate_message_targets(
+        &self,
+        tx: &SyscallTxReader,
+        message: &Cursor,
+    ) -> Result<(), CoreError> {
+        let mut cache = Vec::new();
         for action in MessageView::new(message.clone()).actions()? {
-            let target_exists = match action.script_role {
-                ScriptRole::InputLock => {
-                    Self::has_script_hash(&self.input_lock_indices, action.script_hash)
-                }
-                ScriptRole::InputType => {
-                    Self::has_script_hash(&self.input_type_indices, action.script_hash)
-                }
-                ScriptRole::OutputType => {
-                    Self::has_script_hash(&self.output_type_indices, action.script_hash)
-                }
-            };
+            let target_exists =
+                self.target_exists(tx, action.script_role, action.script_hash, &mut cache)?;
             if !target_exists {
                 return Err(CoreError::InvalidMessageTarget);
             }
@@ -316,10 +268,23 @@ impl TxScriptHashes {
         Ok(())
     }
 
-    fn covered_type_in_base_outputs(
+    fn type_in_input_range(&self, range: Range) -> Result<bool, CoreError> {
+        Ok(self
+            .type_input_indices()?
+            .iter()
+            .any(|index| range_contains(range, *index)))
+    }
+
+    fn type_in_output_range(&self, range: Range) -> Result<bool, CoreError> {
+        Ok(self
+            .type_output_indices()?
+            .iter()
+            .any(|index| range_contains(range, *index)))
+    }
+
+    fn covered_current_type_in_base_outputs(
         &self,
         otx: &OtxLayoutEntry,
-        type_hash: [u8; 32],
     ) -> Result<bool, CoreError> {
         for local_index in 0..otx.layout.base_outputs.count {
             let tx_index = otx
@@ -328,7 +293,7 @@ impl TxScriptHashes {
                 .start
                 .checked_add(local_index)
                 .ok_or(CoreError::InvalidOtxLayout)?;
-            if !Self::indices_for_hash(&self.output_type_indices, type_hash).contains(&tx_index) {
+            if !self.type_output_indices()?.contains(&tx_index) {
                 continue;
             }
             if otx.witness.base_output_masks.get(local_index * 4 + 2)? {
@@ -337,48 +302,82 @@ impl TxScriptHashes {
         }
         Ok(false)
     }
+
+    fn target_exists(
+        &self,
+        tx: &SyscallTxReader,
+        role: ScriptRole,
+        script_hash: [u8; 32],
+        cache: &mut Vec<TargetPresence>,
+    ) -> Result<bool, CoreError> {
+        if let Some(cached) = cache
+            .iter()
+            .find(|entry| entry.role == role && entry.script_hash == script_hash)
+        {
+            return Ok(cached.exists);
+        }
+
+        let exists = self.find_target(tx, role, script_hash)?;
+        cache.push(TargetPresence {
+            role,
+            script_hash,
+            exists,
+        });
+        Ok(exists)
+    }
+
+    fn find_target(
+        &self,
+        tx: &SyscallTxReader,
+        role: ScriptRole,
+        script_hash: [u8; 32],
+    ) -> Result<bool, CoreError> {
+        #[cfg(test)]
+        if let Some(targets) = &self.target_hashes_for_tests {
+            return Ok(targets.contains(role, script_hash));
+        }
+
+        let counts = tx.counts();
+        match role {
+            ScriptRole::InputLock => {
+                for index in 0..counts.inputs {
+                    if tx.input_lock_hash(index)? == script_hash {
+                        return Ok(true);
+                    }
+                }
+            }
+            ScriptRole::InputType => {
+                for index in 0..counts.inputs {
+                    if tx.input_type_hash(index)? == Some(script_hash) {
+                        return Ok(true);
+                    }
+                }
+            }
+            ScriptRole::OutputType => {
+                for index in 0..counts.outputs {
+                    if tx.output_type_hash(index)? == Some(script_hash) {
+                        return Ok(true);
+                    }
+                }
+            }
+        }
+        Ok(false)
+    }
+}
+
+#[cfg(test)]
+impl TargetHashesForTests {
+    fn contains(&self, role: ScriptRole, script_hash: [u8; 32]) -> bool {
+        match role {
+            ScriptRole::InputLock => self.input_lock_hashes.contains(&script_hash),
+            ScriptRole::InputType => self.input_type_hashes.contains(&script_hash),
+            ScriptRole::OutputType => self.output_type_hashes.contains(&script_hash),
+        }
+    }
 }
 
 fn range_contains(range: Range, index: usize) -> bool {
     index >= range.start && index < range.start.saturating_add(range.count)
-}
-
-#[cfg(test)]
-fn index_script_hashes(
-    hashes: impl IntoIterator<Item = Option<[u8; 32]>>,
-) -> Vec<ScriptHashIndices> {
-    let mut entries: Vec<ScriptHashIndices> = Vec::new();
-    for (index, script_hash) in hashes.into_iter().enumerate() {
-        push_optional_script_hash_index(&mut entries, script_hash, index);
-    }
-    entries
-}
-
-fn push_optional_script_hash_index(
-    entries: &mut Vec<ScriptHashIndices>,
-    script_hash: Option<[u8; 32]>,
-    index: usize,
-) {
-    if let Some(script_hash) = script_hash {
-        push_script_hash_index(entries, script_hash, index);
-    }
-}
-
-fn push_script_hash_index(
-    entries: &mut Vec<ScriptHashIndices>,
-    script_hash: [u8; 32],
-    index: usize,
-) {
-    match entries
-        .iter_mut()
-        .find(|entry| entry.script_hash == script_hash)
-    {
-        Some(entry) => entry.indices.push(index),
-        None => entries.push(ScriptHashIndices {
-            script_hash,
-            indices: alloc::vec![index],
-        }),
-    }
 }
 
 #[cfg(test)]
@@ -476,24 +475,49 @@ mod tests {
     }
 
     #[test]
-    fn range_queries_find_locks_and_types() {
+    fn current_lock_context_tracks_only_current_lock_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
-        let type_a = hash(3);
-        let hashes = TxScriptHashes::from_parts_for_tests(
-            alloc::vec![lock_a, lock_b],
-            alloc::vec![Some(type_a), None],
-            alloc::vec![None, Some(type_a)],
+        let context = CurrentScriptContext::from_parts_for_tests(
+            CurrentScript::InputLock(lock_a),
+            alloc::vec![lock_a, lock_b, lock_a],
+            alloc::vec![None, None, None],
+            alloc::vec![],
         );
 
-        assert!(hashes.type_hash_present(type_a));
+        assert_eq!(context.current_lock_inputs(), Ok([0, 2].as_slice()));
+        assert_eq!(
+            context.input_range_contains_current_lock(range(1, 1)),
+            Ok(false)
+        );
+        assert_eq!(
+            context.input_range_contains_current_lock(range(2, 1)),
+            Ok(true)
+        );
     }
 
     #[test]
-    fn lock_coverage_uses_cached_input_lock_indices() {
+    fn current_type_context_tracks_current_type_inputs_and_outputs() {
+        let type_a = hash(1);
+        let type_b = hash(2);
+        let context = CurrentScriptContext::from_parts_for_tests(
+            CurrentScript::Type(type_a),
+            alloc::vec![],
+            alloc::vec![Some(type_a), Some(type_b)],
+            alloc::vec![None, Some(type_a)],
+        );
+
+        assert_eq!(context.type_input_indices(), Ok([0].as_slice()));
+        assert_eq!(context.type_output_indices(), Ok([1].as_slice()));
+        assert_eq!(context.current_type_present(), Ok(true));
+    }
+
+    #[test]
+    fn lock_coverage_uses_current_lock_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
-        let hashes = TxScriptHashes::from_parts_for_tests(
+        let context = CurrentScriptContext::from_parts_for_tests(
+            CurrentScript::InputLock(lock_a),
             alloc::vec![lock_a, lock_b, lock_a],
             alloc::vec![None, None, None],
             alloc::vec![],
@@ -510,8 +534,14 @@ mod tests {
             append_header_deps: range(0, 0),
         });
 
-        assert!(hashes.all_inputs_with_lock_covered_by_otx(lock_a, &[layout_covering_lock_a]));
-        assert!(!hashes.all_inputs_with_lock_covered_by_otx(lock_a, &[]));
+        assert_eq!(
+            context.all_current_lock_inputs_covered_by_otx(&[layout_covering_lock_a]),
+            Ok(true)
+        );
+        assert_eq!(
+            context.all_current_lock_inputs_covered_by_otx(&[]),
+            Ok(false)
+        );
     }
 
     #[test]
@@ -519,30 +549,46 @@ mod tests {
         let lock_hash = hash(1);
         let input_type_hash = hash(2);
         let output_type_hash = hash(3);
-        let hashes = TxScriptHashes::from_parts_for_tests(
+        let context = CurrentScriptContext::from_parts_for_tests(
+            CurrentScript::InputLock(lock_hash),
             alloc::vec![lock_hash],
             alloc::vec![Some(input_type_hash)],
             alloc::vec![Some(output_type_hash)],
         );
+        let tx = SyscallTxReader::from_cached_parts_for_tests(
+            crate::syscalls::TxCounts::default(),
+            crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
+            [0; 32],
+        );
 
-        assert!(hashes
-            .validate_message_targets(&message_with_action(0, lock_hash))
+        assert!(context
+            .validate_message_targets(&tx, &message_with_action(0, lock_hash))
             .is_ok());
-        assert!(hashes
-            .validate_message_targets(&message_with_action(1, input_type_hash))
+        assert!(context
+            .validate_message_targets(&tx, &message_with_action(1, input_type_hash))
             .is_ok());
-        assert!(hashes
-            .validate_message_targets(&message_with_action(2, output_type_hash))
+        assert!(context
+            .validate_message_targets(&tx, &message_with_action(2, output_type_hash))
             .is_ok());
     }
 
     #[test]
     fn validate_message_targets_rejects_missing_or_unknown_targets() {
-        let hashes = TxScriptHashes::default();
+        let context = CurrentScriptContext::from_parts_for_tests(
+            CurrentScript::InputLock(hash(1)),
+            alloc::vec![hash(1)],
+            alloc::vec![],
+            alloc::vec![],
+        );
+        let tx = SyscallTxReader::from_cached_parts_for_tests(
+            crate::syscalls::TxCounts::default(),
+            crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
+            [0; 32],
+        );
 
         for script_role in [0, 1, 2, 9] {
             assert_eq!(
-                hashes.validate_message_targets(&message_with_action(script_role, hash(7))),
+                context.validate_message_targets(&tx, &message_with_action(script_role, hash(7))),
                 Err(CoreError::InvalidMessageTarget)
             );
         }

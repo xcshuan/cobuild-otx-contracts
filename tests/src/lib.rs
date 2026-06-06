@@ -218,6 +218,91 @@ pub mod fixtures {
         Case { context, tx }
     }
 
+    pub fn signed_sighash_all_offset_lock_case() -> Case {
+        let secp = Secp256k1::new();
+        let secret_key = SecretKey::from_slice(&[1u8; 32]).expect("fixed secret key");
+        let public_key = PublicKey::from_secret_key(&secp, &secret_key);
+        let public_key_hash = ckb_hash::blake2b_256(public_key.serialize());
+
+        let mut args = vec![0u8];
+        args.extend_from_slice(&public_key_hash[..20]);
+
+        let mut context = Context::default();
+        let contract_bin = Loader::default().load_binary("cobuild-otx-lock");
+        let contract_out_point = context.deploy_cell(contract_bin);
+        let contract_dep = CellDep::new_builder()
+            .out_point(contract_out_point.clone())
+            .build();
+        let lock = context
+            .build_script_with_hash_type(&contract_out_point, ScriptHashType::Data2, args.into())
+            .expect("build cobuild-otx-lock script");
+
+        let always_success_out_point = context.deploy_cell(ALWAYS_SUCCESS.to_vec().into());
+        let always_success_dep = CellDep::new_builder()
+            .out_point(always_success_out_point.clone())
+            .build();
+        let other_lock = context
+            .build_script_with_hash_type(
+                &always_success_out_point,
+                ScriptHashType::Data,
+                Bytes::new(),
+            )
+            .expect("build always-success script");
+
+        let other_input_output = CellOutput::new_builder()
+            .capacity(100_000_000_000u64)
+            .lock(other_lock)
+            .build();
+        let input_output = CellOutput::new_builder()
+            .capacity(100_000_000_000u64)
+            .lock(lock)
+            .build();
+        let other_input_out_point = context.create_cell(other_input_output.clone(), Bytes::new());
+        let input_out_point = context.create_cell(input_output.clone(), Bytes::new());
+        let output = CellOutput::new_builder()
+            .capacity(90_000_000_000u64)
+            .lock(always_success_script(&mut context))
+            .build();
+        let unsigned_tx = TransactionBuilder::default()
+            .cell_dep(contract_dep)
+            .cell_dep(always_success_dep)
+            .input(
+                CellInput::new_builder()
+                    .previous_output(other_input_out_point)
+                    .build(),
+            )
+            .input(
+                CellInput::new_builder()
+                    .previous_output(input_out_point)
+                    .build(),
+            )
+            .output(output)
+            .output_data(Bytes::new().pack())
+            .witness(Bytes::new().pack())
+            .witness(Bytes::new().pack())
+            .build();
+
+        let signing_message_hash = tx_without_message_hash_for_inputs(
+            packed_hash_to_array(unsigned_tx.hash()),
+            &[
+                (other_input_output.as_slice(), &[][..]),
+                (input_output.as_slice(), &[][..]),
+            ],
+            &[Vec::new(), Vec::new()],
+        );
+        let seal = sign_recoverable(&secp, &secret_key, signing_message_hash);
+        let witness = WitnessLayout::from(SighashAllOnly::new_builder().seal(seal).build());
+        let tx = unsigned_tx
+            .as_advanced_builder()
+            .set_witnesses(vec![
+                Bytes::new().pack(),
+                Bytes::copy_from_slice(witness.as_slice()).pack(),
+            ])
+            .build();
+
+        Case { context, tx }
+    }
+
     pub fn signed_otx_dual_scope_case() -> Case {
         signed_otx_case(false, false)
     }
@@ -682,16 +767,26 @@ pub mod fixtures {
         resolved_output: &[u8],
         witnesses: &[Vec<u8>],
     ) -> [u8; 32] {
+        let inputs = vec![(resolved_output, &[][..]); input_count];
+        tx_without_message_hash_for_inputs(tx_hash, &inputs, witnesses)
+    }
+
+    fn tx_without_message_hash_for_inputs(
+        tx_hash: [u8; 32],
+        inputs: &[(&[u8], &[u8])],
+        witnesses: &[Vec<u8>],
+    ) -> [u8; 32] {
         let mut out = [0u8; 32];
         let mut hasher = Blake2bBuilder::new(32)
             .personal(b"ckbcb_tnm_core1\0")
             .build();
         hasher.update(&tx_hash);
-        for _ in 0..input_count {
+        for (resolved_output, data) in inputs {
             hasher.update(resolved_output);
-            hasher.update(&checked_len_prefix(0));
+            hasher.update(&checked_len_prefix(data.len()));
+            hasher.update(data);
         }
-        for witness in witnesses.iter().skip(input_count) {
+        for witness in witnesses.iter().skip(inputs.len()) {
             hasher.update(&checked_len_prefix(witness.len()));
             hasher.update(witness);
         }

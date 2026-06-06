@@ -816,15 +816,17 @@ require one as a script-specific policy.
 
 ## Malformed Witness Handling
 
-OTX layout errors fail closed for every Cobuild-aware script processing the
-transaction.
+Malformed witnesses using reserved Cobuild `WitnessLayout` union ids fail
+closed for every Cobuild-aware script processing the transaction.
 
-- Malformed `OtxStart` or `Otx` witnesses fail OTX layout scanning.
+- Any witness that starts with a reserved Cobuild `WitnessLayout` union id
+  (`SighashAll`, `SighashAllOnly`, `OtxStart`, or `Otx`) but cannot be parsed
+  as that valid layout MUST fail Cobuild witness scanning.
 - Multiple valid `OtxStart` witnesses fail OTX layout scanning.
 - Any valid `Otx` witness outside the single contiguous OTX sequence fails OTX
   layout scanning.
-- Tx-level `SighashAll` / `SighashAllOnly` malformed handling remains scoped to
-  tx-level flow selection.
+- Non-empty witness bytes that do not use a reserved Cobuild `WitnessLayout`
+  union id are treated as legacy or script-specific witness bytes by Core.
 
 ## Error Model
 

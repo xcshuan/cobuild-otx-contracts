@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use crate::{
     error::CoreError,
     protocol::{AppendPermissions, SealScope},
-    view::{OtxStartView, OtxView, WitnessLayoutView},
+    view::{CobuildWitnessLayoutView, OtxStartView, OtxView},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -43,7 +43,6 @@ pub enum OtxLayoutScan {
 }
 
 pub(crate) struct OtxLayoutCollector {
-    witness_count: usize,
     start: Option<(usize, OtxStartView)>,
     last_layout_witness_index: Option<usize>,
     otx_entries: Vec<(usize, OtxView)>,
@@ -51,7 +50,6 @@ pub(crate) struct OtxLayoutCollector {
 
 enum LayoutWitnessView {
     Ignore,
-    MalformedOtx(CoreError),
     OtxStart(OtxStartView),
     Otx(OtxView),
 }
@@ -59,20 +57,19 @@ enum LayoutWitnessView {
 impl OtxLayoutCollector {
     pub(crate) fn new() -> Self {
         Self {
-            witness_count: 0,
             start: None,
             last_layout_witness_index: None,
             otx_entries: Vec::new(),
         }
     }
 
-    pub(crate) fn push_witness(&mut self, witness: &[u8]) -> Result<(), CoreError> {
-        let index = self.witness_count;
-        self.witness_count += 1;
-
-        match Self::layout_witness_view(witness) {
+    pub(crate) fn record_cobuild_layout(
+        &mut self,
+        index: usize,
+        view: &CobuildWitnessLayoutView,
+    ) -> Result<(), CoreError> {
+        match Self::layout_witness_view(view)? {
             LayoutWitnessView::Ignore => Ok(()),
-            LayoutWitnessView::MalformedOtx(error) => Err(error),
             LayoutWitnessView::OtxStart(view) => self.push_otx_start(index, view),
             LayoutWitnessView::Otx(view) => self.push_otx(index, view),
         }
@@ -112,32 +109,19 @@ impl OtxLayoutCollector {
         Ok(OtxLayoutScan::Complete(BuiltLayout { otx_entries }))
     }
 
-    fn layout_witness_view(witness: &[u8]) -> LayoutWitnessView {
-        if witness.is_empty() {
-            return LayoutWitnessView::Ignore;
-        }
-
-        let view = match WitnessLayoutView::from_slice(witness) {
-            Ok(view) => view,
-            Err(error) => {
-                return if has_otx_witness_id(witness) {
-                    LayoutWitnessView::MalformedOtx(error)
-                } else {
-                    LayoutWitnessView::Ignore
-                };
-            }
-        };
-
+    fn layout_witness_view(
+        view: &CobuildWitnessLayoutView,
+    ) -> Result<LayoutWitnessView, CoreError> {
         match view.otx_start() {
-            Ok(Some(data)) => return LayoutWitnessView::OtxStart(data),
+            Ok(Some(data)) => return Ok(LayoutWitnessView::OtxStart(data)),
             Ok(None) => {}
-            Err(error) => return LayoutWitnessView::MalformedOtx(error),
+            Err(error) => return Err(error),
         }
 
         match view.otx() {
-            Ok(Some(data)) => LayoutWitnessView::Otx(data),
-            Ok(None) => LayoutWitnessView::Ignore,
-            Err(error) => LayoutWitnessView::MalformedOtx(error),
+            Ok(Some(data)) => Ok(LayoutWitnessView::Otx(data)),
+            Ok(None) => Ok(LayoutWitnessView::Ignore),
+            Err(error) => Err(error),
         }
     }
 
@@ -258,7 +242,7 @@ fn validate_otx_view(data: &OtxView) -> Result<(), CoreError> {
     Ok(())
 }
 
-fn has_otx_witness_id(witness: &[u8]) -> bool {
+pub(crate) fn has_otx_witness_id(witness: &[u8]) -> bool {
     if witness.len() < 4 {
         return false;
     }

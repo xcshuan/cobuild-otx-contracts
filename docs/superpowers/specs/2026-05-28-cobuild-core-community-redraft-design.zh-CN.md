@@ -726,14 +726,17 @@ Core 不要求每个 type script 必须要求 action 存在。
 
 ## 畸形 Witness 处理
 
-OTX layout 错误对处理该交易的每个 Cobuild-aware 脚本都必须 fail-closed。
+使用保留 Cobuild `WitnessLayout` union id 的畸形 witness，对处理该交易的每个
+Cobuild-aware 脚本都必须 fail-closed。
 
-- 畸形 `OtxStart` 或 `Otx` witness 必须导致 OTX layout 扫描失败。
+- 任何以保留 Cobuild `WitnessLayout` union id（`SighashAll`、
+  `SighashAllOnly`、`OtxStart` 或 `Otx`）开头、但无法解析为对应合法 layout
+  的 witness，都必须导致 Cobuild witness 扫描失败。
 - 多个有效 `OtxStart` witness 必须导致 OTX layout 扫描失败。
 - 任何有效 `Otx` witness 出现在唯一连续 OTX 序列之外，都必须导致 OTX layout
   扫描失败。
-- tx-level `SighashAll` / `SighashAllOnly` 的畸形处理仍然由 tx-level flow
-  选择规则决定。
+- 非空 witness bytes 如果不使用保留 Cobuild `WitnessLayout` union id，Core 将其视为
+  legacy 或脚本私有 witness bytes。
 
 ## 错误模型
 

@@ -1,12 +1,12 @@
 use cobuild_core::error::CoreError;
 use cobuild_core::protocol::ScriptRole;
 use cobuild_core::reader::{cursor_bytes, OwnedReader};
-use cobuild_core::view::{MessageView, SighashAllWitnessView, WitnessLayoutView};
+use cobuild_core::view::{CobuildWitnessLayoutView, MessageView, SighashAllWitnessView};
 use cobuild_types::lazy_reader::support::{Error as MoleculeError, Read};
 
 #[test]
 fn empty_witness_is_not_a_cobuild_layout() {
-    assert!(WitnessLayoutView::from_slice(&[]).is_err());
+    assert!(CobuildWitnessLayoutView::from_slice(&[]).is_err());
 }
 
 #[test]
@@ -23,7 +23,7 @@ fn owned_reader_reports_out_of_bound_offsets() {
 fn parsed_view_survives_source_slice_drop() {
     let view = {
         let witness = sighash_all_only_witness_bytes(&[0x11, 0x22, 0x33]);
-        WitnessLayoutView::from_slice(&witness).unwrap()
+        CobuildWitnessLayoutView::from_slice(&witness).unwrap()
     };
 
     assert_eq!(
@@ -37,9 +37,9 @@ fn parsed_sighash_all_view_carries_cursor_backed_seal_and_message() {
     let seal = [0x11, 0x22, 0x33];
     let message = empty_message();
     let witness = sighash_all_witness_bytes(&seal, &message);
-    let view = WitnessLayoutView::from_slice(&witness).unwrap();
+    let view = CobuildWitnessLayoutView::from_slice(&witness).unwrap();
 
-    let layout = view.sighash_all_witness_layout().unwrap().unwrap();
+    let layout = view.sighash_all_cobuild_witness_layout().unwrap().unwrap();
     match layout {
         SighashAllWitnessView::WithMessage {
             seal: seal_cursor,
