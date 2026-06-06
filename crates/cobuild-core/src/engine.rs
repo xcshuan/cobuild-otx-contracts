@@ -26,7 +26,7 @@ pub struct CobuildContext {
 }
 
 impl CobuildContext {
-    pub fn from_syscalls(current_script: CurrentScript) -> Result<Self, CoreError> {
+    pub fn build(current_script: CurrentScript) -> Result<Self, CoreError> {
         let tx = SyscallTxReader::from_syscalls()?;
         let script_context = CurrentScriptContext::from_reader(&tx, current_script)?;
         let counts = tx.counts();

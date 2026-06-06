@@ -19,7 +19,7 @@ pub fn main() -> Result<(), Error> {
     };
 
     let current_script_hash = load_script_hash()?;
-    let plan = CobuildContext::from_syscalls(CurrentScript::InputLock(current_script_hash))?
+    let plan = CobuildContext::build(CurrentScript::InputLock(current_script_hash))?
         .plan_lock_validation()?;
 
     if plan.required_signatures.is_empty() {

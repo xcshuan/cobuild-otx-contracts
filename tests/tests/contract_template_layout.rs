@@ -102,7 +102,7 @@ fn cobuild_otx_lock_entry_owns_contract_flow() {
         "AuthContext::try_from",
         "load_script_hash()?",
         "CurrentScript::InputLock",
-        "CobuildContext::from_syscalls",
+        "CobuildContext::build",
         "plan_lock_validation()",
         "required_signatures",
         "LocalVerifier",
@@ -587,8 +587,8 @@ fn cobuild_core_context_preparation_is_owned_by_engine_context() {
         "engine.rs should expose CobuildContext"
     );
     assert!(
-        engine_rs.contains("pub fn from_syscalls(current_script: CurrentScript)"),
-        "CobuildContext should prepare from the current script"
+        engine_rs.contains("pub fn build(current_script: CurrentScript)"),
+        "CobuildContext should build from the current script"
     );
 }
 
@@ -675,7 +675,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
     for expected in [
         "pub struct CobuildContext",
         "impl CobuildContext",
-        "from_syscalls(current_script: CurrentScript)",
+        "build(current_script: CurrentScript)",
         "let tx = SyscallTxReader::from_syscalls()?;",
         "let counts = tx.counts();",
         "struct LockPlanBuilder",

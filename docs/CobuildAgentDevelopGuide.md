@@ -37,7 +37,7 @@ from them without checking the current architecture in this guide:
 Historical specs and plans may mention removed names such as `CobuildEngine`,
 `PreparedCobuild`, `ScriptHashIndex`, `ChainSource`, `prepare.rs`, `flow.rs`,
 or `message.rs`. The current production entry point is
-`CobuildContext::from_syscalls(CurrentScript::...)`, and the current concrete
+`CobuildContext::build(CurrentScript::...)`, and the current concrete
 flow objects are `SyscallTxReader`, `CurrentScriptContext`, `WitnessScan`,
 `LockPlanBuilder`, and `TypePlanBuilder`.
 
@@ -49,11 +49,11 @@ handled as a new focused task, not by silently rewriting completed plan history.
 - `contracts/cobuild-otx-lock/src/entry.rs` is the production lock entry:
   - parse `AuthContext` from lock args;
   - load current script hash;
-  - call `CobuildContext::from_syscalls(CurrentScript::InputLock(current_script_hash))`;
+  - call `CobuildContext::build(CurrentScript::InputLock(current_script_hash))`;
   - call `plan_lock_validation()`;
   - verify each signature request through `LockVerifier`.
 - `crates/cobuild-core/src/engine.rs` owns prepared validation state:
-  - `CobuildContext::from_syscalls(current_script)`;
+  - `CobuildContext::build(current_script)`;
   - `CobuildContext::plan_lock_validation()`;
   - `CobuildContext::plan_type_validation()`;
   - crate-private `LockPlanBuilder` and `TypePlanBuilder`.
@@ -94,7 +94,7 @@ Do not reintroduce `CobuildEngine`, `PreparedCobuild`, `ScriptHashIndex`,
   - message action target validation.
 - `cobuild-otx-lock` stays thin:
   - load current script args and script hash;
-  - call `CobuildContext::from_syscalls(CurrentScript::InputLock(...))`;
+  - call `CobuildContext::build(CurrentScript::InputLock(...))`;
   - invoke verifier;
   - map errors to stable exit codes.
 - The lock contract must not parse Cobuild protocol details, scan OTX layouts, construct Cobuild hash preimages, or depend on `cobuild_types::entity`.
@@ -128,7 +128,7 @@ The lock path must not load the whole transaction into a `Vec`. Use
 `ckb_std::high_level` in the lock for owned or fixed-size reads such as current
 script args and script hash. Keep transaction-range, resolved-input, and hash
 preimage reads inside `cobuild-core` syscall helpers, then prepare validation
-state with `CobuildContext::from_syscalls(CurrentScript::...)`.
+state with `CobuildContext::build(CurrentScript::...)`.
 
 This depends on the repository's Rust 1.92 toolchain plus `ckb-std`
 `dummy-atomic`; do not move the contract target back to a newer toolchain or
@@ -256,7 +256,7 @@ through final verification. Current architecture highlights:
 - `LockPlanBuilder` and `TypePlanBuilder` own validation plan construction;
 - context preparation lives in `crates/cobuild-core/src/engine.rs`;
 - the lock delegates Cobuild preparation to
-  `CobuildContext::from_syscalls(CurrentScript::InputLock(...))`;
+  `CobuildContext::build(CurrentScript::InputLock(...))`;
 - hash/query flow uses concrete syscall helpers;
 - view DTOs are cursor-backed.
 
