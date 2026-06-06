@@ -622,6 +622,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "input_lock_indices",
         "input_type_indices",
         "output_type_indices",
+        "from_script_hashes",
     ] {
         assert!(
             !context_rs.contains(forbidden),
@@ -758,6 +759,7 @@ fn cobuild_core_scans_cobuild_witness_layout_once() {
     let core_src = workspace_root.join("crates/cobuild-core/src");
 
     let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("core engine.rs");
+    let view_rs = fs::read_to_string(core_src.join("view.rs")).expect("core view.rs");
     let witness_rs = fs::read_to_string(core_src.join("witness.rs")).expect("core witness.rs");
     let layout_rs = fs::read_to_string(core_src.join("layout.rs")).expect("core layout.rs");
 
@@ -774,8 +776,20 @@ fn cobuild_core_scans_cobuild_witness_layout_once() {
         "engine preparation should not manually coordinate a separate OTX layout collector"
     );
     assert!(
+        !engine_rs.contains("cursor_bytes_with_error"),
+        "engine preparation should pass witness cursors into CobuildWitnessScanner without materializing witness bytes"
+    );
+    assert!(
+        !witness_rs.contains("push_witness(&mut self, witness: &[u8])"),
+        "CobuildWitnessScanner should scan cursor-backed witnesses instead of byte slices"
+    );
+    assert!(
         !layout_rs.contains("CobuildWitnessLayoutView::from_slice"),
         "layout collector should consume parsed cobuild witness layouts instead of reparsing witness bytes"
+    );
+    assert!(
+        !view_rs.contains("pub fn from_slice(data: &[u8])"),
+        "CobuildWitnessLayoutView should expose cursor-backed construction only"
     );
 }
 

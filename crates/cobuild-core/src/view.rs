@@ -6,11 +6,7 @@ use cobuild_types::lazy_reader::{
     witness::WitnessLayout as CobuildWitnessLayout,
 };
 
-use crate::{
-    error::CoreError,
-    protocol::ScriptRole,
-    reader::{cursor_bytes, cursor_from_slice},
-};
+use crate::{error::CoreError, protocol::ScriptRole, reader::cursor_bytes};
 
 pub struct CobuildWitnessLayoutView {
     #[allow(dead_code)]
@@ -163,8 +159,7 @@ impl MaskView {
 }
 
 impl CobuildWitnessLayoutView {
-    pub fn from_slice(data: &[u8]) -> Result<Self, CoreError> {
-        let cursor = cursor_from_slice(data);
+    pub fn from_cursor(cursor: Cursor) -> Result<Self, CoreError> {
         let inner =
             CobuildWitnessLayout::try_from(cursor).map_err(|_| CoreError::MalformedCobuild)?;
 

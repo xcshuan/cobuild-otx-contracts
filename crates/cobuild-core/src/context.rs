@@ -81,57 +81,43 @@ impl CurrentScriptContext {
         current_script: CurrentScript,
     ) -> Result<Self, CoreError> {
         let counts = reader.counts();
-        Self::from_script_hashes(
-            current_script,
-            (0..counts.inputs).map(|index| {
-                Ok((
-                    reader.input_lock_hash(index)?,
-                    reader.input_type_hash(index)?,
-                ))
-            }),
-            (0..counts.outputs).map(|index| reader.output_type_hash(index)),
-        )
-    }
-
-    pub(crate) fn from_script_hashes(
-        current_script: CurrentScript,
-        inputs: impl IntoIterator<Item = Result<([u8; 32], Option<[u8; 32]>), CoreError>>,
-        output_types: impl IntoIterator<Item = Result<Option<[u8; 32]>, CoreError>>,
-    ) -> Result<Self, CoreError> {
         let mut context = Self {
             current_script,
             indices: CurrentScriptIndices::from_script(current_script),
             script_hashes: ScriptHashes::default(),
         };
 
-        for (index, input) in inputs.into_iter().enumerate() {
-            let (lock_hash, type_hash) = input?;
-            context.push_input_script_hash(index, lock_hash, type_hash)?;
+        for index in 0..counts.inputs {
+            let lock_hash = reader.input_lock_hash(index)?;
+            context.push_input_lock_hash(index, lock_hash)?;
+
+            if let Some(type_hash) = reader.input_type_hash(index)? {
+                context.push_input_type_hash(index, type_hash)?;
+            }
         }
 
-        for (index, type_hash) in output_types.into_iter().enumerate() {
-            context.push_output_type_hash(index, type_hash?)?;
+        for index in 0..counts.outputs {
+            if let Some(type_hash) = reader.output_type_hash(index)? {
+                context.push_output_type_hash(index, type_hash)?;
+            }
         }
 
         Ok(context)
     }
 
-    fn push_input_script_hash(
-        &mut self,
-        index: usize,
-        lock_hash: [u8; 32],
-        type_hash: Option<[u8; 32]>,
-    ) -> Result<(), CoreError> {
+    fn push_input_lock_hash(&mut self, index: usize, lock_hash: [u8; 32]) -> Result<(), CoreError> {
         self.script_hashes.input_locks.insert(lock_hash);
         if self.current_script == CurrentScript::InputLock(lock_hash) {
             self.indices.push_input(index)?;
         }
 
-        if let Some(type_hash) = type_hash {
-            self.script_hashes.input_types.insert(type_hash);
-            if self.current_script == CurrentScript::Type(type_hash) {
-                self.indices.push_input(index)?;
-            }
+        Ok(())
+    }
+
+    fn push_input_type_hash(&mut self, index: usize, type_hash: [u8; 32]) -> Result<(), CoreError> {
+        self.script_hashes.input_types.insert(type_hash);
+        if self.current_script == CurrentScript::Type(type_hash) {
+            self.indices.push_input(index)?;
         }
 
         Ok(())
@@ -140,13 +126,11 @@ impl CurrentScriptContext {
     fn push_output_type_hash(
         &mut self,
         index: usize,
-        type_hash: Option<[u8; 32]>,
+        type_hash: [u8; 32],
     ) -> Result<(), CoreError> {
-        if let Some(type_hash) = type_hash {
-            self.script_hashes.output_types.insert(type_hash);
-            if self.current_script == CurrentScript::Type(type_hash) {
-                self.indices.push_output(index)?;
-            }
+        self.script_hashes.output_types.insert(type_hash);
+        if self.current_script == CurrentScript::Type(type_hash) {
+            self.indices.push_output(index)?;
         }
 
         Ok(())
@@ -415,7 +399,7 @@ mod tests {
     fn current_lock_context_tracks_only_current_lock_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
-        let context = context_from_script_hashes(
+        let context = context_with_scripts(
             CurrentScript::InputLock(lock_a),
             alloc::vec![lock_a, lock_b, lock_a],
             alloc::vec![None, None, None],
@@ -437,7 +421,7 @@ mod tests {
     fn current_type_context_tracks_current_type_inputs_and_outputs() {
         let type_a = hash(1);
         let type_b = hash(2);
-        let context = context_from_script_hashes(
+        let context = context_with_scripts(
             CurrentScript::Type(type_a),
             alloc::vec![hash(9), hash(9)],
             alloc::vec![Some(type_a), Some(type_b)],
@@ -453,7 +437,7 @@ mod tests {
     fn lock_coverage_uses_current_lock_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
-        let context = context_from_script_hashes(
+        let context = context_with_scripts(
             CurrentScript::InputLock(lock_a),
             alloc::vec![lock_a, lock_b, lock_a],
             alloc::vec![None, None, None],
@@ -482,11 +466,39 @@ mod tests {
     }
 
     #[test]
+    fn current_lock_outside_otx_ranges_uses_only_current_lock_indices() {
+        let lock_a = hash(1);
+        let lock_b = hash(2);
+        let context = context_with_scripts(
+            CurrentScript::InputLock(lock_a),
+            alloc::vec![lock_b, lock_b, lock_a],
+            alloc::vec![None, None, None],
+            alloc::vec![],
+        );
+        let otx_covering_other_locks = otx_entry(crate::layout::OtxLayout {
+            witness_index: 0,
+            base_inputs: range(0, 1),
+            append_inputs: range(1, 1),
+            base_outputs: range(0, 0),
+            append_outputs: range(0, 0),
+            base_cell_deps: range(0, 0),
+            append_cell_deps: range(0, 0),
+            base_header_deps: range(0, 0),
+            append_header_deps: range(0, 0),
+        });
+
+        assert_eq!(
+            context.current_lock_outside_otx_ranges(&[otx_covering_other_locks]),
+            Ok(true)
+        );
+    }
+
+    #[test]
     fn validate_message_targets_accepts_existing_targets() {
         let lock_hash = hash(1);
         let input_type_hash = hash(2);
         let output_type_hash = hash(3);
-        let context = context_from_script_hashes(
+        let context = context_with_scripts(
             CurrentScript::InputLock(lock_hash),
             alloc::vec![lock_hash],
             alloc::vec![Some(input_type_hash)],
@@ -505,7 +517,7 @@ mod tests {
 
     #[test]
     fn validate_message_targets_rejects_missing_or_unknown_targets() {
-        let context = context_from_script_hashes(
+        let context = context_with_scripts(
             CurrentScript::InputLock(hash(1)),
             alloc::vec![hash(1)],
             alloc::vec![None],
@@ -520,12 +532,12 @@ mod tests {
     }
 
     #[test]
-    fn from_script_hashes_collects_script_hashes_for_target_validation() {
+    fn script_hashes_cover_full_transaction_for_target_validation() {
         let lock_hash = hash(1);
         let other_lock_hash = hash(2);
         let input_type_hash = hash(3);
         let output_type_hash = hash(4);
-        let context = context_from_script_hashes(
+        let context = context_with_scripts(
             CurrentScript::InputLock(lock_hash),
             alloc::vec![other_lock_hash, lock_hash, lock_hash],
             alloc::vec![Some(input_type_hash), Some(input_type_hash), None],
@@ -547,18 +559,33 @@ mod tests {
             .is_ok());
     }
 
-    fn context_from_script_hashes(
+    fn context_with_scripts(
         current_script: CurrentScript,
         input_locks: Vec<[u8; 32]>,
         input_types: Vec<Option<[u8; 32]>>,
         output_types: Vec<Option<[u8; 32]>>,
     ) -> CurrentScriptContext {
         assert_eq!(input_locks.len(), input_types.len());
-        let inputs = input_locks
-            .into_iter()
-            .zip(input_types)
-            .map(|(lock_hash, type_hash)| Ok((lock_hash, type_hash)));
-        let output_types = output_types.into_iter().map(Ok);
-        CurrentScriptContext::from_script_hashes(current_script, inputs, output_types).unwrap()
+        let mut context = CurrentScriptContext {
+            current_script,
+            indices: CurrentScriptIndices::from_script(current_script),
+            script_hashes: ScriptHashes::default(),
+        };
+
+        for (index, (lock_hash, type_hash)) in input_locks.into_iter().zip(input_types).enumerate()
+        {
+            context.push_input_lock_hash(index, lock_hash).unwrap();
+            if let Some(type_hash) = type_hash {
+                context.push_input_type_hash(index, type_hash).unwrap();
+            }
+        }
+
+        for (index, type_hash) in output_types.into_iter().enumerate() {
+            if let Some(type_hash) = type_hash {
+                context.push_output_type_hash(index, type_hash).unwrap();
+            }
+        }
+
+        context
     }
 }

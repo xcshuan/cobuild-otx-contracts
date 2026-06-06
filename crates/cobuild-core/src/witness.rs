@@ -4,7 +4,7 @@ use cobuild_types::lazy_reader::support::Cursor;
 
 use crate::{
     error::CoreError,
-    layout::{has_otx_witness_id, OtxLayoutCollector, OtxLayoutScan},
+    layout::{OtxLayoutCollector, OtxLayoutScan},
     view::{CobuildWitnessLayoutView, SighashAllWitnessView},
 };
 
@@ -47,24 +47,24 @@ impl CobuildWitnessScanner {
         }
     }
 
-    pub(crate) fn push_witness(&mut self, witness: &[u8]) -> Result<(), CoreError> {
+    pub(crate) fn push_witness(&mut self, witness: Cursor) -> Result<(), CoreError> {
         let index = self.witness_count;
         self.witness_count += 1;
 
-        if witness.is_empty() {
+        if witness.size == 0 {
             self.tx_level
                 .record_witness_summary(SighashAllWitnessSummary::Empty);
             return Ok(());
         }
 
-        match CobuildWitnessLayoutView::from_slice(witness) {
+        match CobuildWitnessLayoutView::from_cursor(witness.clone()) {
             Ok(view) => {
                 let summary = WitnessScan::summarize_cobuild_layout(&view)?;
                 self.tx_level.record_witness_summary(summary);
                 self.otx_layout.record_cobuild_layout(index, &view)
             }
             Err(error) => {
-                let summary = WitnessScan::summarize_legacy_or_reject(witness, error)?;
+                let summary = WitnessScan::summarize_legacy_or_reject(&witness, error)?;
                 self.tx_level.record_witness_summary(summary);
                 Ok(())
             }
@@ -205,10 +205,10 @@ impl WitnessScan {
     }
 
     fn summarize_legacy_or_reject(
-        witness: &[u8],
+        witness: &Cursor,
         error: CoreError,
     ) -> Result<SighashAllWitnessSummary, CoreError> {
-        if has_cobuild_witness_id(witness) {
+        if has_cobuild_witness_id(witness)? {
             Err(error)
         } else {
             Ok(SighashAllWitnessSummary::Legacy)
@@ -238,16 +238,25 @@ impl SighashAllWitnessSummary {
     }
 }
 
-fn has_tx_level_witness_id(witness: &[u8]) -> bool {
-    if witness.len() < 4 {
-        return false;
+fn has_cobuild_witness_id(witness: &Cursor) -> Result<bool, CoreError> {
+    if witness.size < 4 {
+        return Ok(false);
     }
-    let item_id = u32::from_le_bytes([witness[0], witness[1], witness[2], witness[3]]);
-    matches!(item_id, 0xff00_0001 | 0xff00_0002)
-}
 
-fn has_cobuild_witness_id(witness: &[u8]) -> bool {
-    has_tx_level_witness_id(witness) || has_otx_witness_id(witness)
+    let mut item_id = [0u8; 4];
+    let mut prefix = witness.clone();
+    prefix.size = 4;
+    let read = prefix
+        .read_at(&mut item_id)
+        .map_err(|_| CoreError::MalformedCobuild)?;
+    if read != item_id.len() {
+        return Err(CoreError::MalformedCobuild);
+    }
+
+    Ok(matches!(
+        u32::from_le_bytes(item_id),
+        0xff00_0001 | 0xff00_0002 | 0xff00_0003 | 0xff00_0004
+    ))
 }
 
 #[cfg(test)]
@@ -255,7 +264,7 @@ mod tests {
     use alloc::vec::Vec;
 
     use super::{CobuildWitnessScanner, WitnessScan};
-    use crate::error::CoreError;
+    use crate::{error::CoreError, reader::cursor_from_slice};
 
     #[test]
     fn tx_level_carrier_returns_false_for_empty_or_other_witness() {
@@ -320,7 +329,7 @@ mod tests {
     fn scan_witnesses<const N: usize>(witnesses: [&[u8]; N]) -> Result<WitnessScan, CoreError> {
         let mut scanner = CobuildWitnessScanner::with_capacity(N);
         for witness in witnesses {
-            scanner.push_witness(witness)?;
+            scanner.push_witness(cursor_from_slice(witness))?;
         }
         scanner.finish(0, 0, 0, 0).map(|scanned| scanned.tx_level)
     }

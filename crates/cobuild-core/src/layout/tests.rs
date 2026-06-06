@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 
 use super::*;
-use crate::witness::CobuildWitnessScanner;
+use crate::{reader::cursor_from_slice, witness::CobuildWitnessScanner};
 
 #[test]
 fn empty_tx_has_no_otx_layouts() {
@@ -207,7 +207,7 @@ fn build_layout(
 ) -> Result<BuiltLayout, CoreError> {
     let mut scanner = CobuildWitnessScanner::with_capacity(witnesses.len());
     for witness in witnesses {
-        scanner.push_witness(&witness)?;
+        scanner.push_witness(cursor_from_slice(&witness))?;
     }
     match scanner
         .finish(input_count, output_count, cell_dep_count, header_dep_count)?

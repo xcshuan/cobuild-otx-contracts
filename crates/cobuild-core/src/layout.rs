@@ -242,13 +242,5 @@ fn validate_otx_view(data: &OtxView) -> Result<(), CoreError> {
     Ok(())
 }
 
-pub(crate) fn has_otx_witness_id(witness: &[u8]) -> bool {
-    if witness.len() < 4 {
-        return false;
-    }
-    let item_id = u32::from_le_bytes([witness[0], witness[1], witness[2], witness[3]]);
-    matches!(item_id, 0xff00_0003 | 0xff00_0004)
-}
-
 #[cfg(test)]
 mod tests;
