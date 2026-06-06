@@ -611,6 +611,9 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "pub input_types:",
         "pub output_types:",
         "lock_input_indices",
+        "let mut input_locks",
+        "let mut input_types",
+        "let mut output_types",
     ] {
         assert!(
             !context_rs.contains(forbidden),

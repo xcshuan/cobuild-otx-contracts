@@ -137,19 +137,35 @@ struct ScriptHashIndices {
 impl TxScriptHashes {
     pub(crate) fn from_reader(reader: &SyscallTxReader) -> Result<Self, CoreError> {
         let counts = reader.counts();
-        let mut input_locks = Vec::with_capacity(counts.inputs);
-        let mut input_types = Vec::with_capacity(counts.inputs);
+        let mut input_lock_indices = Vec::new();
+        let mut input_type_indices = Vec::new();
         for index in 0..counts.inputs {
-            input_locks.push(reader.input_lock_hash(index)?);
-            input_types.push(reader.input_type_hash(index)?);
+            push_script_hash_index(
+                &mut input_lock_indices,
+                reader.input_lock_hash(index)?,
+                index,
+            );
+            push_optional_script_hash_index(
+                &mut input_type_indices,
+                reader.input_type_hash(index)?,
+                index,
+            );
         }
 
-        let mut output_types = Vec::with_capacity(counts.outputs);
+        let mut output_type_indices = Vec::new();
         for index in 0..counts.outputs {
-            output_types.push(reader.output_type_hash(index)?);
+            push_optional_script_hash_index(
+                &mut output_type_indices,
+                reader.output_type_hash(index)?,
+                index,
+            );
         }
 
-        Ok(Self::from_parts(input_locks, input_types, output_types))
+        Ok(Self {
+            input_lock_indices,
+            input_type_indices,
+            output_type_indices,
+        })
     }
 
     #[cfg(test)]
@@ -161,6 +177,7 @@ impl TxScriptHashes {
         Self::from_parts(input_locks, input_types, output_types)
     }
 
+    #[cfg(test)]
     fn from_parts(
         input_locks: Vec<[u8; 32]>,
         input_types: Vec<Option<[u8; 32]>>,
@@ -326,26 +343,42 @@ fn range_contains(range: Range, index: usize) -> bool {
     index >= range.start && index < range.start.saturating_add(range.count)
 }
 
+#[cfg(test)]
 fn index_script_hashes(
     hashes: impl IntoIterator<Item = Option<[u8; 32]>>,
 ) -> Vec<ScriptHashIndices> {
     let mut entries: Vec<ScriptHashIndices> = Vec::new();
     for (index, script_hash) in hashes.into_iter().enumerate() {
-        let Some(script_hash) = script_hash else {
-            continue;
-        };
-        match entries
-            .iter_mut()
-            .find(|entry| entry.script_hash == script_hash)
-        {
-            Some(entry) => entry.indices.push(index),
-            None => entries.push(ScriptHashIndices {
-                script_hash,
-                indices: alloc::vec![index],
-            }),
-        }
+        push_optional_script_hash_index(&mut entries, script_hash, index);
     }
     entries
+}
+
+fn push_optional_script_hash_index(
+    entries: &mut Vec<ScriptHashIndices>,
+    script_hash: Option<[u8; 32]>,
+    index: usize,
+) {
+    if let Some(script_hash) = script_hash {
+        push_script_hash_index(entries, script_hash, index);
+    }
+}
+
+fn push_script_hash_index(
+    entries: &mut Vec<ScriptHashIndices>,
+    script_hash: [u8; 32],
+    index: usize,
+) {
+    match entries
+        .iter_mut()
+        .find(|entry| entry.script_hash == script_hash)
+    {
+        Some(entry) => entry.indices.push(index),
+        None => entries.push(ScriptHashIndices {
+            script_hash,
+            indices: alloc::vec![index],
+        }),
+    }
 }
 
 #[cfg(test)]
