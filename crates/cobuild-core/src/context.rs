@@ -75,62 +75,6 @@ struct ScriptHashes {
     output_types: BTreeSet<[u8; 32]>,
 }
 
-struct ScriptHashScan {
-    current_script: CurrentScript,
-    indices: CurrentScriptIndices,
-    script_hashes: ScriptHashes,
-}
-
-impl ScriptHashScan {
-    fn new(current_script: CurrentScript) -> Self {
-        Self {
-            current_script,
-            indices: CurrentScriptIndices::from_script(current_script),
-            script_hashes: ScriptHashes::default(),
-        }
-    }
-
-    fn push_input(
-        &mut self,
-        index: usize,
-        lock_hash: [u8; 32],
-        type_hash: Option<[u8; 32]>,
-    ) -> Result<(), CoreError> {
-        self.script_hashes.input_locks.insert(lock_hash);
-        if self.current_script == CurrentScript::InputLock(lock_hash) {
-            self.indices.push_input(index)?;
-        }
-
-        if let Some(type_hash) = type_hash {
-            self.script_hashes.input_types.insert(type_hash);
-            if self.current_script == CurrentScript::Type(type_hash) {
-                self.indices.push_input(index)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn push_output(&mut self, index: usize, type_hash: Option<[u8; 32]>) -> Result<(), CoreError> {
-        if let Some(type_hash) = type_hash {
-            self.script_hashes.output_types.insert(type_hash);
-            if self.current_script == CurrentScript::Type(type_hash) {
-                self.indices.push_output(index)?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn finish(self) -> CurrentScriptContext {
-        CurrentScriptContext {
-            current_script: self.current_script,
-            indices: self.indices,
-            script_hashes: self.script_hashes,
-        }
-    }
-}
-
 impl CurrentScriptContext {
     pub(crate) fn from_reader(
         reader: &SyscallTxReader,
@@ -154,18 +98,58 @@ impl CurrentScriptContext {
         inputs: impl IntoIterator<Item = Result<([u8; 32], Option<[u8; 32]>), CoreError>>,
         output_types: impl IntoIterator<Item = Result<Option<[u8; 32]>, CoreError>>,
     ) -> Result<Self, CoreError> {
-        let mut scan = ScriptHashScan::new(current_script);
+        let mut context = Self {
+            current_script,
+            indices: CurrentScriptIndices::from_script(current_script),
+            script_hashes: ScriptHashes::default(),
+        };
 
         for (index, input) in inputs.into_iter().enumerate() {
             let (lock_hash, type_hash) = input?;
-            scan.push_input(index, lock_hash, type_hash)?;
+            context.push_input_script_hash(index, lock_hash, type_hash)?;
         }
 
         for (index, type_hash) in output_types.into_iter().enumerate() {
-            scan.push_output(index, type_hash?)?;
+            context.push_output_type_hash(index, type_hash?)?;
         }
 
-        Ok(scan.finish())
+        Ok(context)
+    }
+
+    fn push_input_script_hash(
+        &mut self,
+        index: usize,
+        lock_hash: [u8; 32],
+        type_hash: Option<[u8; 32]>,
+    ) -> Result<(), CoreError> {
+        self.script_hashes.input_locks.insert(lock_hash);
+        if self.current_script == CurrentScript::InputLock(lock_hash) {
+            self.indices.push_input(index)?;
+        }
+
+        if let Some(type_hash) = type_hash {
+            self.script_hashes.input_types.insert(type_hash);
+            if self.current_script == CurrentScript::Type(type_hash) {
+                self.indices.push_input(index)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn push_output_type_hash(
+        &mut self,
+        index: usize,
+        type_hash: Option<[u8; 32]>,
+    ) -> Result<(), CoreError> {
+        if let Some(type_hash) = type_hash {
+            self.script_hashes.output_types.insert(type_hash);
+            if self.current_script == CurrentScript::Type(type_hash) {
+                self.indices.push_output(index)?;
+            }
+        }
+
+        Ok(())
     }
 
     pub(crate) fn current_lock_hash(&self) -> Result<[u8; 32], CoreError> {
