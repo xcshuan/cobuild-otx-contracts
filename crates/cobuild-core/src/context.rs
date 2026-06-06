@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{collections::BTreeSet, vec::Vec};
 
 use cobuild_types::lazy_reader::support::Cursor;
 
@@ -21,14 +21,11 @@ pub enum CurrentScript {
 pub struct CurrentScriptContext {
     current_script: CurrentScript,
     indices: CurrentScriptIndices,
-    #[cfg(test)]
-    target_hashes_for_tests: Option<TargetHashesForTests>,
+    script_hashes: ScriptHashes,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 enum CurrentScriptIndices {
-    #[default]
-    Empty,
     Lock {
         input_indices: Vec<usize>,
     },
@@ -38,19 +35,44 @@ enum CurrentScriptIndices {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct TargetPresence {
-    role: ScriptRole,
-    script_hash: [u8; 32],
-    exists: bool,
+impl CurrentScriptIndices {
+    fn from_script(current_script: CurrentScript) -> Self {
+        match current_script {
+            CurrentScript::InputLock(_) => Self::Lock {
+                input_indices: Vec::new(),
+            },
+            CurrentScript::Type(_) => Self::Type {
+                input_indices: Vec::new(),
+                output_indices: Vec::new(),
+            },
+        }
+    }
+
+    fn push_input(&mut self, index: usize) -> Result<(), CoreError> {
+        match self {
+            Self::Lock { input_indices } | Self::Type { input_indices, .. } => {
+                input_indices.push(index);
+                Ok(())
+            }
+        }
+    }
+
+    fn push_output(&mut self, index: usize) -> Result<(), CoreError> {
+        match self {
+            Self::Type { output_indices, .. } => {
+                output_indices.push(index);
+                Ok(())
+            }
+            Self::Lock { .. } => Err(CoreError::InvalidContextInput),
+        }
+    }
 }
 
-#[cfg(test)]
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct TargetHashesForTests {
-    input_lock_hashes: Vec<[u8; 32]>,
-    input_type_hashes: Vec<[u8; 32]>,
-    output_type_hashes: Vec<[u8; 32]>,
+struct ScriptHashes {
+    input_locks: BTreeSet<[u8; 32]>,
+    input_types: BTreeSet<[u8; 32]>,
+    output_types: BTreeSet<[u8; 32]>,
 }
 
 impl CurrentScriptContext {
@@ -59,42 +81,37 @@ impl CurrentScriptContext {
         current_script: CurrentScript,
     ) -> Result<Self, CoreError> {
         let counts = reader.counts();
-        let indices = match current_script {
-            CurrentScript::InputLock(lock_hash) => {
-                let mut input_indices = Vec::new();
-                for index in 0..counts.inputs {
-                    if reader.input_lock_hash(index)? == lock_hash {
-                        input_indices.push(index);
-                    }
-                }
-                CurrentScriptIndices::Lock { input_indices }
-            }
-            CurrentScript::Type(type_hash) => {
-                let mut input_indices = Vec::new();
-                for index in 0..counts.inputs {
-                    if reader.input_type_hash(index)? == Some(type_hash) {
-                        input_indices.push(index);
-                    }
-                }
+        let mut script_hashes = ScriptHashes::default();
+        let mut current_indices = CurrentScriptIndices::from_script(current_script);
 
-                let mut output_indices = Vec::new();
-                for index in 0..counts.outputs {
-                    if reader.output_type_hash(index)? == Some(type_hash) {
-                        output_indices.push(index);
-                    }
-                }
-                CurrentScriptIndices::Type {
-                    input_indices,
-                    output_indices,
+        for index in 0..counts.inputs {
+            let input_lock_hash = reader.input_lock_hash(index)?;
+            script_hashes.input_locks.insert(input_lock_hash);
+            if current_script == CurrentScript::InputLock(input_lock_hash) {
+                current_indices.push_input(index)?;
+            }
+
+            if let Some(input_type_hash) = reader.input_type_hash(index)? {
+                script_hashes.input_types.insert(input_type_hash);
+                if current_script == CurrentScript::Type(input_type_hash) {
+                    current_indices.push_input(index)?;
                 }
             }
-        };
+        }
+
+        for index in 0..counts.outputs {
+            if let Some(output_type_hash) = reader.output_type_hash(index)? {
+                script_hashes.output_types.insert(output_type_hash);
+                if current_script == CurrentScript::Type(output_type_hash) {
+                    current_indices.push_output(index)?;
+                }
+            }
+        }
 
         Ok(Self {
             current_script,
-            indices,
-            #[cfg(test)]
-            target_hashes_for_tests: None,
+            indices: current_indices,
+            script_hashes,
         })
     }
 
@@ -130,16 +147,12 @@ impl CurrentScriptContext {
                     .collect(),
             },
         };
-        let target_hashes_for_tests = TargetHashesForTests {
-            input_lock_hashes: input_locks,
-            input_type_hashes: input_types.into_iter().flatten().collect(),
-            output_type_hashes: output_types.into_iter().flatten().collect(),
-        };
+        let script_hashes = ScriptHashes::from_parts(&input_locks, &input_types, &output_types);
 
         Self {
             current_script,
             indices,
-            target_hashes_for_tests: Some(target_hashes_for_tests),
+            script_hashes,
         }
     }
 
@@ -160,27 +173,21 @@ impl CurrentScriptContext {
     pub(crate) fn current_lock_inputs(&self) -> Result<&[usize], CoreError> {
         match &self.indices {
             CurrentScriptIndices::Lock { input_indices } => Ok(input_indices),
-            CurrentScriptIndices::Empty | CurrentScriptIndices::Type { .. } => {
-                Err(CoreError::InvalidContextInput)
-            }
+            CurrentScriptIndices::Type { .. } => Err(CoreError::InvalidContextInput),
         }
     }
 
     pub(crate) fn type_input_indices(&self) -> Result<&[usize], CoreError> {
         match &self.indices {
             CurrentScriptIndices::Type { input_indices, .. } => Ok(input_indices),
-            CurrentScriptIndices::Empty | CurrentScriptIndices::Lock { .. } => {
-                Err(CoreError::InvalidContextInput)
-            }
+            CurrentScriptIndices::Lock { .. } => Err(CoreError::InvalidContextInput),
         }
     }
 
     pub(crate) fn type_output_indices(&self) -> Result<&[usize], CoreError> {
         match &self.indices {
             CurrentScriptIndices::Type { output_indices, .. } => Ok(output_indices),
-            CurrentScriptIndices::Empty | CurrentScriptIndices::Lock { .. } => {
-                Err(CoreError::InvalidContextInput)
-            }
+            CurrentScriptIndices::Lock { .. } => Err(CoreError::InvalidContextInput),
         }
     }
 
@@ -252,16 +259,12 @@ impl CurrentScriptContext {
         }))
     }
 
-    pub(crate) fn validate_message_targets(
-        &self,
-        tx: &SyscallTxReader,
-        message: &Cursor,
-    ) -> Result<(), CoreError> {
-        let mut cache = Vec::new();
+    pub(crate) fn validate_message_targets(&self, message: &Cursor) -> Result<(), CoreError> {
         for action in MessageView::new(message.clone()).actions()? {
-            let target_exists =
-                self.target_exists(tx, action.script_role, action.script_hash, &mut cache)?;
-            if !target_exists {
+            if !self
+                .script_hashes
+                .contains(action.script_role, action.script_hash)
+            {
                 return Err(CoreError::InvalidMessageTarget);
             }
         }
@@ -302,76 +305,27 @@ impl CurrentScriptContext {
         }
         Ok(false)
     }
-
-    fn target_exists(
-        &self,
-        tx: &SyscallTxReader,
-        role: ScriptRole,
-        script_hash: [u8; 32],
-        cache: &mut Vec<TargetPresence>,
-    ) -> Result<bool, CoreError> {
-        if let Some(cached) = cache
-            .iter()
-            .find(|entry| entry.role == role && entry.script_hash == script_hash)
-        {
-            return Ok(cached.exists);
-        }
-
-        let exists = self.find_target(tx, role, script_hash)?;
-        cache.push(TargetPresence {
-            role,
-            script_hash,
-            exists,
-        });
-        Ok(exists)
-    }
-
-    fn find_target(
-        &self,
-        tx: &SyscallTxReader,
-        role: ScriptRole,
-        script_hash: [u8; 32],
-    ) -> Result<bool, CoreError> {
-        #[cfg(test)]
-        if let Some(targets) = &self.target_hashes_for_tests {
-            return Ok(targets.contains(role, script_hash));
-        }
-
-        let counts = tx.counts();
-        match role {
-            ScriptRole::InputLock => {
-                for index in 0..counts.inputs {
-                    if tx.input_lock_hash(index)? == script_hash {
-                        return Ok(true);
-                    }
-                }
-            }
-            ScriptRole::InputType => {
-                for index in 0..counts.inputs {
-                    if tx.input_type_hash(index)? == Some(script_hash) {
-                        return Ok(true);
-                    }
-                }
-            }
-            ScriptRole::OutputType => {
-                for index in 0..counts.outputs {
-                    if tx.output_type_hash(index)? == Some(script_hash) {
-                        return Ok(true);
-                    }
-                }
-            }
-        }
-        Ok(false)
-    }
 }
 
-#[cfg(test)]
-impl TargetHashesForTests {
+impl ScriptHashes {
+    #[cfg(test)]
+    fn from_parts(
+        input_locks: &[[u8; 32]],
+        input_types: &[Option<[u8; 32]>],
+        output_types: &[Option<[u8; 32]>],
+    ) -> Self {
+        Self {
+            input_locks: input_locks.iter().copied().collect(),
+            input_types: input_types.iter().flatten().copied().collect(),
+            output_types: output_types.iter().flatten().copied().collect(),
+        }
+    }
+
     fn contains(&self, role: ScriptRole, script_hash: [u8; 32]) -> bool {
         match role {
-            ScriptRole::InputLock => self.input_lock_hashes.contains(&script_hash),
-            ScriptRole::InputType => self.input_type_hashes.contains(&script_hash),
-            ScriptRole::OutputType => self.output_type_hashes.contains(&script_hash),
+            ScriptRole::InputLock => self.input_locks.contains(&script_hash),
+            ScriptRole::InputType => self.input_types.contains(&script_hash),
+            ScriptRole::OutputType => self.output_types.contains(&script_hash),
         }
     }
 }
@@ -549,48 +503,85 @@ mod tests {
         let lock_hash = hash(1);
         let input_type_hash = hash(2);
         let output_type_hash = hash(3);
-        let context = CurrentScriptContext::from_parts_for_tests(
+        let context = context_from_reader_for_tests(
             CurrentScript::InputLock(lock_hash),
             alloc::vec![lock_hash],
             alloc::vec![Some(input_type_hash)],
             alloc::vec![Some(output_type_hash)],
         );
-        let tx = SyscallTxReader::from_cached_parts_for_tests(
-            crate::syscalls::TxCounts::default(),
-            crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
-            [0; 32],
-        );
-
         assert!(context
-            .validate_message_targets(&tx, &message_with_action(0, lock_hash))
+            .validate_message_targets(&message_with_action(0, lock_hash))
             .is_ok());
         assert!(context
-            .validate_message_targets(&tx, &message_with_action(1, input_type_hash))
+            .validate_message_targets(&message_with_action(1, input_type_hash))
             .is_ok());
         assert!(context
-            .validate_message_targets(&tx, &message_with_action(2, output_type_hash))
+            .validate_message_targets(&message_with_action(2, output_type_hash))
             .is_ok());
     }
 
     #[test]
     fn validate_message_targets_rejects_missing_or_unknown_targets() {
-        let context = CurrentScriptContext::from_parts_for_tests(
+        let context = context_from_reader_for_tests(
             CurrentScript::InputLock(hash(1)),
             alloc::vec![hash(1)],
-            alloc::vec![],
+            alloc::vec![None],
             alloc::vec![],
         );
+        for script_role in [0, 1, 2, 9] {
+            assert_eq!(
+                context.validate_message_targets(&message_with_action(script_role, hash(7))),
+                Err(CoreError::InvalidMessageTarget)
+            );
+        }
+    }
+
+    #[test]
+    fn from_reader_collects_script_hashes_for_target_validation() {
+        let lock_hash = hash(1);
+        let other_lock_hash = hash(2);
+        let input_type_hash = hash(3);
+        let output_type_hash = hash(4);
         let tx = SyscallTxReader::from_cached_parts_for_tests(
             crate::syscalls::TxCounts::default(),
             crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
             [0; 32],
+        )
+        .with_cell_script_hashes_for_tests(
+            alloc::vec![other_lock_hash, lock_hash, lock_hash],
+            alloc::vec![Some(input_type_hash), Some(input_type_hash), None],
+            alloc::vec![Some(output_type_hash), Some(output_type_hash)],
         );
+        let context =
+            CurrentScriptContext::from_reader(&tx, CurrentScript::InputLock(lock_hash)).unwrap();
 
-        for script_role in [0, 1, 2, 9] {
-            assert_eq!(
-                context.validate_message_targets(&tx, &message_with_action(script_role, hash(7))),
-                Err(CoreError::InvalidMessageTarget)
-            );
-        }
+        assert_eq!(context.current_lock_inputs(), Ok([1, 2].as_slice()));
+        assert_eq!(context.script_hashes.input_locks.len(), 2);
+        assert_eq!(context.script_hashes.input_types.len(), 1);
+        assert_eq!(context.script_hashes.output_types.len(), 1);
+        assert!(context
+            .validate_message_targets(&message_with_action(0, lock_hash))
+            .is_ok());
+        assert!(context
+            .validate_message_targets(&message_with_action(1, input_type_hash))
+            .is_ok());
+        assert!(context
+            .validate_message_targets(&message_with_action(2, output_type_hash))
+            .is_ok());
+    }
+
+    fn context_from_reader_for_tests(
+        current_script: CurrentScript,
+        input_locks: Vec<[u8; 32]>,
+        input_types: Vec<Option<[u8; 32]>>,
+        output_types: Vec<Option<[u8; 32]>>,
+    ) -> CurrentScriptContext {
+        let tx = SyscallTxReader::from_cached_parts_for_tests(
+            crate::syscalls::TxCounts::default(),
+            crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
+            [0; 32],
+        )
+        .with_cell_script_hashes_for_tests(input_locks, input_types, output_types);
+        CurrentScriptContext::from_reader(&tx, current_script).unwrap()
     }
 }

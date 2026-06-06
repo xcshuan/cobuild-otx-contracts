@@ -1,4 +1,6 @@
 use alloc::boxed::Box;
+#[cfg(test)]
+use alloc::vec::Vec;
 use core::cmp::min;
 
 use ckb_std::{ckb_constants::Source, error::SysError, high_level, syscalls};
@@ -159,6 +161,8 @@ pub(crate) struct SyscallTxReader {
     counts: TxCounts,
     transaction: Cursor,
     tx_hash: [u8; 32],
+    #[cfg(test)]
+    cell_script_hashes: CellScriptHashesForTests,
 }
 
 impl SyscallTxReader {
@@ -170,6 +174,8 @@ impl SyscallTxReader {
             counts,
             transaction,
             tx_hash,
+            #[cfg(test)]
+            cell_script_hashes: CellScriptHashesForTests::default(),
         })
     }
 
@@ -183,7 +189,26 @@ impl SyscallTxReader {
             counts,
             transaction,
             tx_hash,
+            cell_script_hashes: CellScriptHashesForTests::default(),
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_cell_script_hashes_for_tests(
+        mut self,
+        input_locks: Vec<[u8; 32]>,
+        input_types: Vec<Option<[u8; 32]>>,
+        output_types: Vec<Option<[u8; 32]>>,
+    ) -> Self {
+        assert_eq!(input_locks.len(), input_types.len());
+        self.counts.inputs = input_locks.len();
+        self.counts.outputs = output_types.len();
+        self.cell_script_hashes = CellScriptHashesForTests {
+            input_locks,
+            input_types,
+            output_types,
+        };
+        self
     }
 
     pub(super) fn counts(&self) -> TxCounts {
@@ -256,14 +281,26 @@ impl SyscallTxReader {
     }
 
     pub(super) fn input_lock_hash(&self, index: usize) -> Result<[u8; 32], CoreError> {
+        #[cfg(test)]
+        if let Some(hash) = self.cell_script_hashes.input_locks.get(index).copied() {
+            return Ok(hash);
+        }
         input_lock_hash(index)
     }
 
     pub(super) fn input_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        #[cfg(test)]
+        if let Some(hash) = self.cell_script_hashes.input_types.get(index).copied() {
+            return Ok(hash);
+        }
         input_type_hash(index)
     }
 
     pub(super) fn output_type_hash(&self, index: usize) -> Result<Option<[u8; 32]>, CoreError> {
+        #[cfg(test)]
+        if let Some(hash) = self.cell_script_hashes.output_types.get(index).copied() {
+            return Ok(hash);
+        }
         output_type_hash(index)
     }
 
@@ -276,6 +313,14 @@ impl SyscallTxReader {
             .raw()
             .map_err(|_| CoreError::MissingHashInput)
     }
+}
+
+#[cfg(test)]
+#[derive(Default)]
+struct CellScriptHashesForTests {
+    input_locks: Vec<[u8; 32]>,
+    input_types: Vec<Option<[u8; 32]>>,
+    output_types: Vec<Option<[u8; 32]>>,
 }
 
 fn read_counts_from_transaction(transaction: &Cursor) -> Result<TxCounts, CoreError> {

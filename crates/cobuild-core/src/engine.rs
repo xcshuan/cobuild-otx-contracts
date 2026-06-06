@@ -529,7 +529,7 @@ impl<'a> LockPlanBuilder<'a> {
                 let message = tx_message.as_ref().unwrap_or(&message);
                 self.context
                     .script_context
-                    .validate_message_targets(&self.context.tx, message)?;
+                    .validate_message_targets(message)?;
                 related_message = Some(message.clone());
                 let signing_message_hash = tx_with_message_hash(message, &self.context.tx)?;
                 (cursor_bytes(&seal)?, signing_message_hash)
@@ -539,7 +539,7 @@ impl<'a> LockPlanBuilder<'a> {
                     Some(message) => {
                         self.context
                             .script_context
-                            .validate_message_targets(&self.context.tx, &message)?;
+                            .validate_message_targets(&message)?;
                         related_message = Some(message.clone());
                         tx_with_message_hash(&message, &self.context.tx)?
                     }
@@ -588,7 +588,7 @@ impl<'a> LockPlanBuilder<'a> {
 
                     self.context
                         .script_context
-                        .validate_message_targets(&self.context.tx, &otx.witness.message)?;
+                        .validate_message_targets(&otx.witness.message)?;
                     if !relevance.needs_signature() {
                         continue;
                     }
@@ -770,7 +770,7 @@ impl<'a> TypePlanBuilder<'a> {
                     }
                     self.context
                         .script_context
-                        .validate_message_targets(&self.context.tx, &otx.witness.message)?;
+                        .validate_message_targets(&otx.witness.message)?;
                     self.related_messages.push(TypeRelatedMessage {
                         message: related_otx_message(otx_index, otx),
                         otx_relation: Some(relation),
@@ -803,7 +803,7 @@ impl<'a> TypePlanBuilder<'a> {
 
         self.context
             .script_context
-            .validate_message_targets(&self.context.tx, &message)?;
+            .validate_message_targets(&message)?;
         self.related_messages.push(TypeRelatedMessage {
             message: related_tx_message(carrier_witness_index, message),
             otx_relation: None,
