@@ -606,6 +606,17 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
     );
 
     let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("context.rs");
+    for forbidden in [
+        "pub input_locks:",
+        "pub input_types:",
+        "pub output_types:",
+        "lock_input_indices",
+    ] {
+        assert!(
+            !context_rs.contains(forbidden),
+            "TxScriptHashes should not expose or duplicate raw script hash storage {forbidden}"
+        );
+    }
     for expected in [
         "pub(crate) struct CurrentLockGroup",
         "impl CurrentLockGroup",
@@ -615,7 +626,10 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "pub struct TxScriptHashes",
         "impl TxScriptHashes",
         "from_reader",
-        "lock_input_indices",
+        "ScriptHashIndices",
+        "input_lock_indices",
+        "input_type_indices",
+        "output_type_indices",
         "SyscallTxReader",
         "input_range_contains_lock",
         "type_relation_for_otx",

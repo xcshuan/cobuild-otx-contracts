@@ -123,15 +123,14 @@ impl CurrentLockGroup {
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TxScriptHashes {
-    pub input_locks: Vec<[u8; 32]>,
-    pub input_types: Vec<Option<[u8; 32]>>,
-    pub output_types: Vec<Option<[u8; 32]>>,
-    lock_input_indices: Vec<LockInputIndices>,
+    input_lock_indices: Vec<ScriptHashIndices>,
+    input_type_indices: Vec<ScriptHashIndices>,
+    output_type_indices: Vec<ScriptHashIndices>,
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
-struct LockInputIndices {
-    lock_hash: [u8; 32],
+struct ScriptHashIndices {
+    script_hash: [u8; 32],
     indices: Vec<usize>,
 }
 
@@ -167,35 +166,23 @@ impl TxScriptHashes {
         input_types: Vec<Option<[u8; 32]>>,
         output_types: Vec<Option<[u8; 32]>>,
     ) -> Self {
-        let lock_input_indices = index_input_locks(&input_locks);
         Self {
-            input_locks,
-            input_types,
-            output_types,
-            lock_input_indices,
+            input_lock_indices: index_script_hashes(input_locks.into_iter().map(Some)),
+            input_type_indices: index_script_hashes(input_types),
+            output_type_indices: index_script_hashes(output_types),
         }
     }
 
     pub(crate) fn type_in_input_range(&self, range: Range, type_hash: [u8; 32]) -> bool {
-        self.input_types
-            .iter()
-            .skip(range.start)
-            .take(range.count)
-            .any(|hash| *hash == Some(type_hash))
+        Self::indices_contain_range(&self.input_type_indices, type_hash, range)
     }
 
     pub(crate) fn input_range_contains_lock(&self, range: Range, lock_hash: [u8; 32]) -> bool {
-        self.input_indices_for_lock(lock_hash)
-            .iter()
-            .any(|index| range_contains(range, *index))
+        Self::indices_contain_range(&self.input_lock_indices, lock_hash, range)
     }
 
     pub(crate) fn type_in_output_range(&self, range: Range, type_hash: [u8; 32]) -> bool {
-        self.output_types
-            .iter()
-            .skip(range.start)
-            .take(range.count)
-            .any(|hash| *hash == Some(type_hash))
+        Self::indices_contain_range(&self.output_type_indices, type_hash, range)
     }
 
     pub(crate) fn type_relation_for_otx(
@@ -213,10 +200,8 @@ impl TxScriptHashes {
     }
 
     pub(crate) fn type_hash_present(&self, type_hash: [u8; 32]) -> bool {
-        self.input_types
-            .iter()
-            .chain(self.output_types.iter())
-            .any(|hash| *hash == Some(type_hash))
+        Self::has_script_hash(&self.input_type_indices, type_hash)
+            || Self::has_script_hash(&self.output_type_indices, type_hash)
     }
 
     pub(crate) fn type_hash_outside_otx_ranges(
@@ -224,19 +209,22 @@ impl TxScriptHashes {
         type_hash: [u8; 32],
         otxs: &[OtxLayoutEntry],
     ) -> bool {
-        self.input_types.iter().enumerate().any(|(index, hash)| {
-            *hash == Some(type_hash)
-                && !otxs.iter().any(|entry| {
-                    range_contains(entry.layout.base_inputs, index)
-                        || range_contains(entry.layout.append_inputs, index)
+        Self::indices_for_hash(&self.input_type_indices, type_hash)
+            .iter()
+            .any(|index| {
+                !otxs.iter().any(|entry| {
+                    range_contains(entry.layout.base_inputs, *index)
+                        || range_contains(entry.layout.append_inputs, *index)
                 })
-        }) || self.output_types.iter().enumerate().any(|(index, hash)| {
-            *hash == Some(type_hash)
-                && !otxs.iter().any(|entry| {
-                    range_contains(entry.layout.base_outputs, index)
-                        || range_contains(entry.layout.append_outputs, index)
+            })
+            || Self::indices_for_hash(&self.output_type_indices, type_hash)
+                .iter()
+                .any(|index| {
+                    !otxs.iter().any(|entry| {
+                        range_contains(entry.layout.base_outputs, *index)
+                            || range_contains(entry.layout.append_outputs, *index)
+                    })
                 })
-        })
     }
 
     pub(crate) fn lock_hash_outside_otx_ranges(
@@ -244,12 +232,14 @@ impl TxScriptHashes {
         lock_hash: [u8; 32],
         otxs: &[OtxLayoutEntry],
     ) -> bool {
-        self.input_indices_for_lock(lock_hash).iter().any(|index| {
-            !otxs.iter().any(|entry| {
-                range_contains(entry.layout.base_inputs, *index)
-                    || range_contains(entry.layout.append_inputs, *index)
+        Self::indices_for_hash(&self.input_lock_indices, lock_hash)
+            .iter()
+            .any(|index| {
+                !otxs.iter().any(|entry| {
+                    range_contains(entry.layout.base_inputs, *index)
+                        || range_contains(entry.layout.append_inputs, *index)
+                })
             })
-        })
     }
 
     pub(crate) fn all_inputs_with_lock_covered_by_otx(
@@ -257,36 +247,50 @@ impl TxScriptHashes {
         lock_hash: [u8; 32],
         otxs: &[OtxLayoutEntry],
     ) -> bool {
-        self.input_indices_for_lock(lock_hash).iter().all(|index| {
-            otxs.iter().any(|entry| {
-                range_contains(entry.layout.base_inputs, *index)
-                    || range_contains(entry.layout.append_inputs, *index)
+        Self::indices_for_hash(&self.input_lock_indices, lock_hash)
+            .iter()
+            .all(|index| {
+                otxs.iter().any(|entry| {
+                    range_contains(entry.layout.base_inputs, *index)
+                        || range_contains(entry.layout.append_inputs, *index)
+                })
             })
-        })
     }
 
-    fn input_indices_for_lock(&self, lock_hash: [u8; 32]) -> &[usize] {
-        self.lock_input_indices
+    fn indices_for_hash(entries: &[ScriptHashIndices], script_hash: [u8; 32]) -> &[usize] {
+        entries
             .iter()
-            .find(|entry| entry.lock_hash == lock_hash)
+            .find(|entry| entry.script_hash == script_hash)
             .map(|entry| entry.indices.as_slice())
             .unwrap_or(&[])
+    }
+
+    fn indices_contain_range(
+        entries: &[ScriptHashIndices],
+        script_hash: [u8; 32],
+        range: Range,
+    ) -> bool {
+        Self::indices_for_hash(entries, script_hash)
+            .iter()
+            .any(|index| range_contains(range, *index))
+    }
+
+    fn has_script_hash(entries: &[ScriptHashIndices], script_hash: [u8; 32]) -> bool {
+        entries.iter().any(|entry| entry.script_hash == script_hash)
     }
 
     pub(crate) fn validate_message_targets(&self, message: &Cursor) -> Result<(), CoreError> {
         for action in MessageView::new(message.clone()).actions()? {
             let target_exists = match action.script_role {
-                ScriptRole::InputLock => self.input_locks.contains(&action.script_hash),
-                ScriptRole::InputType => self
-                    .input_types
-                    .iter()
-                    .flatten()
-                    .any(|hash| *hash == action.script_hash),
-                ScriptRole::OutputType => self
-                    .output_types
-                    .iter()
-                    .flatten()
-                    .any(|hash| *hash == action.script_hash),
+                ScriptRole::InputLock => {
+                    Self::has_script_hash(&self.input_lock_indices, action.script_hash)
+                }
+                ScriptRole::InputType => {
+                    Self::has_script_hash(&self.input_type_indices, action.script_hash)
+                }
+                ScriptRole::OutputType => {
+                    Self::has_script_hash(&self.output_type_indices, action.script_hash)
+                }
             };
             if !target_exists {
                 return Err(CoreError::InvalidMessageTarget);
@@ -307,7 +311,7 @@ impl TxScriptHashes {
                 .start
                 .checked_add(local_index)
                 .ok_or(CoreError::InvalidOtxLayout)?;
-            if self.output_types.get(tx_index).copied().flatten() != Some(type_hash) {
+            if !Self::indices_for_hash(&self.output_type_indices, type_hash).contains(&tx_index) {
                 continue;
             }
             if otx.witness.base_output_masks.get(local_index * 4 + 2)? {
@@ -322,16 +326,21 @@ fn range_contains(range: Range, index: usize) -> bool {
     index >= range.start && index < range.start.saturating_add(range.count)
 }
 
-fn index_input_locks(input_locks: &[[u8; 32]]) -> Vec<LockInputIndices> {
-    let mut entries: Vec<LockInputIndices> = Vec::new();
-    for (index, lock_hash) in input_locks.iter().copied().enumerate() {
+fn index_script_hashes(
+    hashes: impl IntoIterator<Item = Option<[u8; 32]>>,
+) -> Vec<ScriptHashIndices> {
+    let mut entries: Vec<ScriptHashIndices> = Vec::new();
+    for (index, script_hash) in hashes.into_iter().enumerate() {
+        let Some(script_hash) = script_hash else {
+            continue;
+        };
         match entries
             .iter_mut()
-            .find(|entry| entry.lock_hash == lock_hash)
+            .find(|entry| entry.script_hash == script_hash)
         {
             Some(entry) => entry.indices.push(index),
-            None => entries.push(LockInputIndices {
-                lock_hash,
+            None => entries.push(ScriptHashIndices {
+                script_hash,
                 indices: alloc::vec![index],
             }),
         }
@@ -448,7 +457,7 @@ mod tests {
     }
 
     #[test]
-    fn lock_coverage_uses_cached_lock_input_indices() {
+    fn lock_coverage_uses_cached_input_lock_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
         let hashes = TxScriptHashes::from_parts_for_tests(
