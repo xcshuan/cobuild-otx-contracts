@@ -722,12 +722,22 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "crate::flow::",
         "TxCountsCache",
         "SyscallTxReader::with_counts",
+        "tx_level_remainder_exists",
+        "current_lock_outside_otx_ranges",
     ] {
         assert!(
             !engine_rs.contains(forbidden),
             "engine.rs should not keep old scattered flow name {forbidden}"
         );
     }
+    assert!(
+        engine_rs.contains("current_lock_needs_tx_level_signature"),
+        "lock planning should name the tx-level decision by the signature requirement it creates"
+    );
+    assert!(
+        context_rs.contains("current_lock_has_inputs_outside_otx_ranges"),
+        "context.rs should make OTX range checks explicit about current lock input indices"
+    );
 }
 
 #[test]

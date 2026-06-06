@@ -215,7 +215,7 @@ impl CurrentScriptContext {
         }))
     }
 
-    pub(crate) fn current_lock_outside_otx_ranges(
+    pub(crate) fn current_lock_has_inputs_outside_otx_ranges(
         &self,
         otxs: &[OtxLayoutEntry],
     ) -> Result<bool, CoreError> {
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn current_lock_outside_otx_ranges_uses_only_current_lock_indices() {
+    fn current_lock_has_inputs_outside_otx_ranges_uses_only_current_lock_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
         let context = context_with_scripts(
@@ -488,7 +488,7 @@ mod tests {
         });
 
         assert_eq!(
-            context.current_lock_outside_otx_ranges(&[otx_covering_other_locks]),
+            context.current_lock_has_inputs_outside_otx_ranges(&[otx_covering_other_locks]),
             Ok(true)
         );
     }

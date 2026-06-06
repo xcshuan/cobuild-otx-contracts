@@ -193,17 +193,19 @@ impl<'a> LockPlanBuilder<'a> {
     }
 
     fn add_tx_level_requirement(&mut self) -> Result<(), CoreError> {
-        let current_lock_inputs = self.current_lock_inputs()?;
-        let Some(carrier_witness_index) = current_lock_inputs.first().copied() else {
-            return Ok(());
-        };
-
         if !self.context.witnesses.has_cobuild_witness_layout() {
             return Ok(());
         }
-        if !self.tx_level_remainder_exists()? {
+        if !self.current_lock_needs_tx_level_signature()? {
             return Ok(());
         }
+
+        let current_lock_inputs = self.current_lock_inputs()?;
+        let carrier_witness_index = current_lock_inputs
+            .first()
+            .copied()
+            .ok_or(CoreError::InvalidContextInput)?;
+
         if !self
             .context
             .witnesses
@@ -263,13 +265,13 @@ impl<'a> LockPlanBuilder<'a> {
         Ok(())
     }
 
-    fn tx_level_remainder_exists(&self) -> Result<bool, CoreError> {
+    fn current_lock_needs_tx_level_signature(&self) -> Result<bool, CoreError> {
         match &self.context.layout_scan {
             OtxLayoutScan::None => Ok(!self.current_lock_inputs()?.is_empty()),
             OtxLayoutScan::Complete(layout) => self
                 .context
                 .script_context
-                .current_lock_outside_otx_ranges(&layout.otx_entries),
+                .current_lock_has_inputs_outside_otx_ranges(&layout.otx_entries),
         }
     }
 
