@@ -75,85 +75,97 @@ struct ScriptHashes {
     output_types: BTreeSet<[u8; 32]>,
 }
 
+struct ScriptHashScan {
+    current_script: CurrentScript,
+    indices: CurrentScriptIndices,
+    script_hashes: ScriptHashes,
+}
+
+impl ScriptHashScan {
+    fn new(current_script: CurrentScript) -> Self {
+        Self {
+            current_script,
+            indices: CurrentScriptIndices::from_script(current_script),
+            script_hashes: ScriptHashes::default(),
+        }
+    }
+
+    fn push_input(
+        &mut self,
+        index: usize,
+        lock_hash: [u8; 32],
+        type_hash: Option<[u8; 32]>,
+    ) -> Result<(), CoreError> {
+        self.script_hashes.input_locks.insert(lock_hash);
+        if self.current_script == CurrentScript::InputLock(lock_hash) {
+            self.indices.push_input(index)?;
+        }
+
+        if let Some(type_hash) = type_hash {
+            self.script_hashes.input_types.insert(type_hash);
+            if self.current_script == CurrentScript::Type(type_hash) {
+                self.indices.push_input(index)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn push_output(&mut self, index: usize, type_hash: Option<[u8; 32]>) -> Result<(), CoreError> {
+        if let Some(type_hash) = type_hash {
+            self.script_hashes.output_types.insert(type_hash);
+            if self.current_script == CurrentScript::Type(type_hash) {
+                self.indices.push_output(index)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn finish(self) -> CurrentScriptContext {
+        CurrentScriptContext {
+            current_script: self.current_script,
+            indices: self.indices,
+            script_hashes: self.script_hashes,
+        }
+    }
+}
+
 impl CurrentScriptContext {
     pub(crate) fn from_reader(
         reader: &SyscallTxReader,
         current_script: CurrentScript,
     ) -> Result<Self, CoreError> {
         let counts = reader.counts();
-        let mut script_hashes = ScriptHashes::default();
-        let mut current_indices = CurrentScriptIndices::from_script(current_script);
-
-        for index in 0..counts.inputs {
-            let input_lock_hash = reader.input_lock_hash(index)?;
-            script_hashes.input_locks.insert(input_lock_hash);
-            if current_script == CurrentScript::InputLock(input_lock_hash) {
-                current_indices.push_input(index)?;
-            }
-
-            if let Some(input_type_hash) = reader.input_type_hash(index)? {
-                script_hashes.input_types.insert(input_type_hash);
-                if current_script == CurrentScript::Type(input_type_hash) {
-                    current_indices.push_input(index)?;
-                }
-            }
-        }
-
-        for index in 0..counts.outputs {
-            if let Some(output_type_hash) = reader.output_type_hash(index)? {
-                script_hashes.output_types.insert(output_type_hash);
-                if current_script == CurrentScript::Type(output_type_hash) {
-                    current_indices.push_output(index)?;
-                }
-            }
-        }
-
-        Ok(Self {
+        Self::from_script_hashes(
             current_script,
-            indices: current_indices,
-            script_hashes,
-        })
+            (0..counts.inputs).map(|index| {
+                Ok((
+                    reader.input_lock_hash(index)?,
+                    reader.input_type_hash(index)?,
+                ))
+            }),
+            (0..counts.outputs).map(|index| reader.output_type_hash(index)),
+        )
     }
 
-    #[cfg(test)]
-    pub(crate) fn from_parts_for_tests(
+    pub(crate) fn from_script_hashes(
         current_script: CurrentScript,
-        input_locks: Vec<[u8; 32]>,
-        input_types: Vec<Option<[u8; 32]>>,
-        output_types: Vec<Option<[u8; 32]>>,
-    ) -> Self {
-        let indices = match current_script {
-            CurrentScript::InputLock(lock_hash) => CurrentScriptIndices::Lock {
-                input_indices: input_locks
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, candidate)| (*candidate == lock_hash).then_some(index))
-                    .collect(),
-            },
-            CurrentScript::Type(type_hash) => CurrentScriptIndices::Type {
-                input_indices: input_types
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, candidate)| {
-                        (*candidate == Some(type_hash)).then_some(index)
-                    })
-                    .collect(),
-                output_indices: output_types
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, candidate)| {
-                        (*candidate == Some(type_hash)).then_some(index)
-                    })
-                    .collect(),
-            },
-        };
-        let script_hashes = ScriptHashes::from_parts(&input_locks, &input_types, &output_types);
+        inputs: impl IntoIterator<Item = Result<([u8; 32], Option<[u8; 32]>), CoreError>>,
+        output_types: impl IntoIterator<Item = Result<Option<[u8; 32]>, CoreError>>,
+    ) -> Result<Self, CoreError> {
+        let mut scan = ScriptHashScan::new(current_script);
 
-        Self {
-            current_script,
-            indices,
-            script_hashes,
+        for (index, input) in inputs.into_iter().enumerate() {
+            let (lock_hash, type_hash) = input?;
+            scan.push_input(index, lock_hash, type_hash)?;
         }
+
+        for (index, type_hash) in output_types.into_iter().enumerate() {
+            scan.push_output(index, type_hash?)?;
+        }
+
+        Ok(scan.finish())
     }
 
     pub(crate) fn current_lock_hash(&self) -> Result<[u8; 32], CoreError> {
@@ -308,19 +320,6 @@ impl CurrentScriptContext {
 }
 
 impl ScriptHashes {
-    #[cfg(test)]
-    fn from_parts(
-        input_locks: &[[u8; 32]],
-        input_types: &[Option<[u8; 32]>],
-        output_types: &[Option<[u8; 32]>],
-    ) -> Self {
-        Self {
-            input_locks: input_locks.iter().copied().collect(),
-            input_types: input_types.iter().flatten().copied().collect(),
-            output_types: output_types.iter().flatten().copied().collect(),
-        }
-    }
-
     fn contains(&self, role: ScriptRole, script_hash: [u8; 32]) -> bool {
         match role {
             ScriptRole::InputLock => self.input_locks.contains(&script_hash),
@@ -432,7 +431,7 @@ mod tests {
     fn current_lock_context_tracks_only_current_lock_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
-        let context = CurrentScriptContext::from_parts_for_tests(
+        let context = context_from_script_hashes(
             CurrentScript::InputLock(lock_a),
             alloc::vec![lock_a, lock_b, lock_a],
             alloc::vec![None, None, None],
@@ -454,9 +453,9 @@ mod tests {
     fn current_type_context_tracks_current_type_inputs_and_outputs() {
         let type_a = hash(1);
         let type_b = hash(2);
-        let context = CurrentScriptContext::from_parts_for_tests(
+        let context = context_from_script_hashes(
             CurrentScript::Type(type_a),
-            alloc::vec![],
+            alloc::vec![hash(9), hash(9)],
             alloc::vec![Some(type_a), Some(type_b)],
             alloc::vec![None, Some(type_a)],
         );
@@ -470,7 +469,7 @@ mod tests {
     fn lock_coverage_uses_current_lock_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
-        let context = CurrentScriptContext::from_parts_for_tests(
+        let context = context_from_script_hashes(
             CurrentScript::InputLock(lock_a),
             alloc::vec![lock_a, lock_b, lock_a],
             alloc::vec![None, None, None],
@@ -503,7 +502,7 @@ mod tests {
         let lock_hash = hash(1);
         let input_type_hash = hash(2);
         let output_type_hash = hash(3);
-        let context = context_from_reader_for_tests(
+        let context = context_from_script_hashes(
             CurrentScript::InputLock(lock_hash),
             alloc::vec![lock_hash],
             alloc::vec![Some(input_type_hash)],
@@ -522,7 +521,7 @@ mod tests {
 
     #[test]
     fn validate_message_targets_rejects_missing_or_unknown_targets() {
-        let context = context_from_reader_for_tests(
+        let context = context_from_script_hashes(
             CurrentScript::InputLock(hash(1)),
             alloc::vec![hash(1)],
             alloc::vec![None],
@@ -537,23 +536,17 @@ mod tests {
     }
 
     #[test]
-    fn from_reader_collects_script_hashes_for_target_validation() {
+    fn from_script_hashes_collects_script_hashes_for_target_validation() {
         let lock_hash = hash(1);
         let other_lock_hash = hash(2);
         let input_type_hash = hash(3);
         let output_type_hash = hash(4);
-        let tx = SyscallTxReader::from_cached_parts_for_tests(
-            crate::syscalls::TxCounts::default(),
-            crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
-            [0; 32],
-        )
-        .with_cell_script_hashes_for_tests(
+        let context = context_from_script_hashes(
+            CurrentScript::InputLock(lock_hash),
             alloc::vec![other_lock_hash, lock_hash, lock_hash],
             alloc::vec![Some(input_type_hash), Some(input_type_hash), None],
             alloc::vec![Some(output_type_hash), Some(output_type_hash)],
         );
-        let context =
-            CurrentScriptContext::from_reader(&tx, CurrentScript::InputLock(lock_hash)).unwrap();
 
         assert_eq!(context.current_lock_inputs(), Ok([1, 2].as_slice()));
         assert_eq!(context.script_hashes.input_locks.len(), 2);
@@ -570,18 +563,18 @@ mod tests {
             .is_ok());
     }
 
-    fn context_from_reader_for_tests(
+    fn context_from_script_hashes(
         current_script: CurrentScript,
         input_locks: Vec<[u8; 32]>,
         input_types: Vec<Option<[u8; 32]>>,
         output_types: Vec<Option<[u8; 32]>>,
     ) -> CurrentScriptContext {
-        let tx = SyscallTxReader::from_cached_parts_for_tests(
-            crate::syscalls::TxCounts::default(),
-            crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
-            [0; 32],
-        )
-        .with_cell_script_hashes_for_tests(input_locks, input_types, output_types);
-        CurrentScriptContext::from_reader(&tx, current_script).unwrap()
+        assert_eq!(input_locks.len(), input_types.len());
+        let inputs = input_locks
+            .into_iter()
+            .zip(input_types)
+            .map(|(lock_hash, type_hash)| Ok((lock_hash, type_hash)));
+        let output_types = output_types.into_iter().map(Ok);
+        CurrentScriptContext::from_script_hashes(current_script, inputs, output_types).unwrap()
     }
 }

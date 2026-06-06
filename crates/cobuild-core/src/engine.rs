@@ -72,10 +72,11 @@ mod tests {
     }
 
     fn test_lock_context(lock_hash: [u8; 32], input_locks: Vec<[u8; 32]>) -> CobuildContext {
+        let input_types = alloc::vec![None; input_locks.len()];
         test_context_with_scripts(
             CurrentScript::InputLock(lock_hash),
             input_locks,
-            Vec::new(),
+            input_types,
             Vec::new(),
         )
     }
@@ -100,18 +101,24 @@ mod tests {
         input_types: Vec<Option<[u8; 32]>>,
         output_types: Vec<Option<[u8; 32]>>,
     ) -> CobuildContext {
+        assert_eq!(input_locks.len(), input_types.len());
+        let inputs = input_locks
+            .into_iter()
+            .zip(input_types)
+            .map(|(lock_hash, type_hash)| Ok((lock_hash, type_hash)));
+        let output_types = output_types.into_iter().map(Ok);
         CobuildContext {
             tx: SyscallTxReader::from_cached_parts_for_tests(
                 crate::syscalls::TxCounts::default(),
                 crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
                 [0u8; 32],
             ),
-            script_context: CurrentScriptContext::from_parts_for_tests(
+            script_context: CurrentScriptContext::from_script_hashes(
                 current_script,
-                input_locks,
-                input_types,
+                inputs,
                 output_types,
-            ),
+            )
+            .unwrap(),
             witnesses: WitnessScan::with_capacity(0),
             layout_scan: OtxLayoutScan::None,
         }
@@ -428,7 +435,7 @@ mod tests {
         let otx = test_otx(&message_bytes, 0, 1);
         let mut context = test_type_context(
             type_hash,
-            Vec::new(),
+            alloc::vec![hash(0), hash(0)],
             alloc::vec![Some(other_type_hash), Some(other_type_hash)],
             alloc::vec![Some(other_type_hash), Some(type_hash)],
         );
