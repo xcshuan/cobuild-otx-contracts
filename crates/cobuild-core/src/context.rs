@@ -198,45 +198,36 @@ impl CurrentScriptContext {
         Ok(!self.type_input_indices()?.is_empty() || !self.type_output_indices()?.is_empty())
     }
 
-    pub(crate) fn current_type_outside_otx_ranges(
+    pub(crate) fn current_type_outside_ranges(
         &self,
-        otxs: &[OtxLayoutEntry],
+        input_range: Range,
+        output_range: Range,
     ) -> Result<bool, CoreError> {
-        Ok(self.type_input_indices()?.iter().any(|index| {
-            !otxs.iter().any(|entry| {
-                range_contains(entry.layout.base_inputs, *index)
-                    || range_contains(entry.layout.append_inputs, *index)
-            })
-        }) || self.type_output_indices()?.iter().any(|index| {
-            !otxs.iter().any(|entry| {
-                range_contains(entry.layout.base_outputs, *index)
-                    || range_contains(entry.layout.append_outputs, *index)
-            })
-        }))
+        Ok(self
+            .type_input_indices()?
+            .iter()
+            .any(|index| !range_contains(input_range, *index))
+            || self
+                .type_output_indices()?
+                .iter()
+                .any(|index| !range_contains(output_range, *index)))
     }
 
-    pub(crate) fn current_lock_has_inputs_outside_otx_ranges(
+    pub(crate) fn current_lock_has_inputs_outside_range(
         &self,
-        otxs: &[OtxLayoutEntry],
+        range: Range,
     ) -> Result<bool, CoreError> {
-        Ok(self.current_lock_inputs()?.iter().any(|index| {
-            !otxs.iter().any(|entry| {
-                range_contains(entry.layout.base_inputs, *index)
-                    || range_contains(entry.layout.append_inputs, *index)
-            })
-        }))
+        Ok(self
+            .current_lock_inputs()?
+            .iter()
+            .any(|index| !range_contains(range, *index)))
     }
 
-    pub(crate) fn all_current_lock_inputs_covered_by_otx(
-        &self,
-        otxs: &[OtxLayoutEntry],
-    ) -> Result<bool, CoreError> {
-        Ok(self.current_lock_inputs()?.iter().all(|index| {
-            otxs.iter().any(|entry| {
-                range_contains(entry.layout.base_inputs, *index)
-                    || range_contains(entry.layout.append_inputs, *index)
-            })
-        }))
+    pub(crate) fn all_current_lock_inputs_in_range(&self, range: Range) -> Result<bool, CoreError> {
+        Ok(self
+            .current_lock_inputs()?
+            .iter()
+            .all(|index| range_contains(range, *index)))
     }
 
     pub(crate) fn validate_message_targets(&self, message: &Cursor) -> Result<(), CoreError> {
@@ -311,29 +302,6 @@ mod tests {
 
     fn range(start: usize, count: usize) -> Range {
         Range { start, count }
-    }
-
-    fn otx_entry(layout: crate::layout::OtxLayout) -> OtxLayoutEntry {
-        OtxLayoutEntry {
-            layout,
-            witness: crate::view::OtxView {
-                message: crate::reader::cursor_from_slice(&[4, 0, 0, 0]),
-                append_permissions: 0,
-                base_input_cells: 1,
-                base_input_masks: crate::view::MaskView::new(alloc::vec![0]),
-                base_output_cells: 0,
-                base_output_masks: crate::view::MaskView::new(Vec::new()),
-                base_cell_deps: 0,
-                base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
-                base_header_deps: 0,
-                base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
-                append_input_cells: 0,
-                append_output_cells: 0,
-                append_cell_deps: 0,
-                append_header_deps: 0,
-                seals: Vec::new(),
-            },
-        }
     }
 
     fn message_with_action(script_role: u8, script_hash: [u8; 32]) -> Cursor {
@@ -443,30 +411,19 @@ mod tests {
             alloc::vec![None, None, None],
             alloc::vec![],
         );
-        let layout_covering_lock_a = otx_entry(crate::layout::OtxLayout {
-            witness_index: 0,
-            base_inputs: range(0, 1),
-            append_inputs: range(2, 1),
-            base_outputs: range(0, 0),
-            append_outputs: range(0, 0),
-            base_cell_deps: range(0, 0),
-            append_cell_deps: range(0, 0),
-            base_header_deps: range(0, 0),
-            append_header_deps: range(0, 0),
-        });
 
         assert_eq!(
-            context.all_current_lock_inputs_covered_by_otx(&[layout_covering_lock_a]),
+            context.all_current_lock_inputs_in_range(range(0, 3)),
             Ok(true)
         );
         assert_eq!(
-            context.all_current_lock_inputs_covered_by_otx(&[]),
+            context.all_current_lock_inputs_in_range(range(0, 1)),
             Ok(false)
         );
     }
 
     #[test]
-    fn current_lock_has_inputs_outside_otx_ranges_uses_only_current_lock_indices() {
+    fn current_lock_has_inputs_outside_range_uses_only_current_lock_indices() {
         let lock_a = hash(1);
         let lock_b = hash(2);
         let context = context_with_scripts(
@@ -475,20 +432,9 @@ mod tests {
             alloc::vec![None, None, None],
             alloc::vec![],
         );
-        let otx_covering_other_locks = otx_entry(crate::layout::OtxLayout {
-            witness_index: 0,
-            base_inputs: range(0, 1),
-            append_inputs: range(1, 1),
-            base_outputs: range(0, 0),
-            append_outputs: range(0, 0),
-            base_cell_deps: range(0, 0),
-            append_cell_deps: range(0, 0),
-            base_header_deps: range(0, 0),
-            append_header_deps: range(0, 0),
-        });
 
         assert_eq!(
-            context.current_lock_has_inputs_outside_otx_ranges(&[otx_covering_other_locks]),
+            context.current_lock_has_inputs_outside_range(range(0, 2)),
             Ok(true)
         );
     }

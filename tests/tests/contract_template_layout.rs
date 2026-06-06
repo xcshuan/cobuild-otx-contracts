@@ -641,7 +641,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "type_output_indices",
         "input_range_contains_current_lock",
         "type_relation_for_otx",
-        "all_current_lock_inputs_covered_by_otx",
+        "all_current_lock_inputs_in_range",
         "validate_message_targets",
     ] {
         assert!(
@@ -710,6 +710,11 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "BuiltLayout should keep one entry list carrying both layout and witness view"
     );
     assert!(
+        layout_rs.contains("pub input_range: Range")
+            && layout_rs.contains("pub output_range: Range"),
+        "BuiltLayout should cache aggregate OTX input/output ranges for scope checks"
+    );
+    assert!(
         layout_rs.contains("pub enum OtxLayouts"),
         "OTX layout result should be named as the layouts it carries"
     );
@@ -739,6 +744,8 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "SyscallTxReader::with_counts",
         "tx_level_remainder_exists",
         "current_lock_outside_otx_ranges",
+        "current_lock_has_inputs_outside_otx_ranges",
+        "all_current_lock_inputs_covered_by_otx",
     ] {
         assert!(
             !engine_rs.contains(forbidden),
@@ -750,7 +757,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "lock planning should name the tx-level decision by the signature requirement it creates"
     );
     assert!(
-        context_rs.contains("current_lock_has_inputs_outside_otx_ranges"),
+        context_rs.contains("current_lock_has_inputs_outside_range"),
         "context.rs should make OTX range checks explicit about current lock input indices"
     );
 }

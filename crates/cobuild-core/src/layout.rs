@@ -33,6 +33,8 @@ pub struct OtxLayoutEntry {
 
 #[derive(Clone)]
 pub struct BuiltLayout {
+    pub input_range: Range,
+    pub output_range: Range,
     pub otx_entries: Vec<OtxLayoutEntry>,
 }
 
@@ -106,7 +108,17 @@ impl OtxLayoutCollector {
         }
         ranges.ensure_within(input_count, output_count, cell_dep_count, header_dep_count)?;
 
-        Ok(OtxLayouts::Complete(BuiltLayout { otx_entries }))
+        Ok(OtxLayouts::Complete(BuiltLayout {
+            input_range: Range {
+                start: start_data.start_input_cell,
+                count: ranges.next_input - start_data.start_input_cell,
+            },
+            output_range: Range {
+                start: start_data.start_output_cell,
+                count: ranges.next_output - start_data.start_output_cell,
+            },
+            otx_entries,
+        }))
     }
 
     fn layout_witness_view(

@@ -276,7 +276,7 @@ impl<'a> LockPlanBuilder<'a> {
             OtxLayouts::Complete(layout) => self
                 .context
                 .script_context
-                .current_lock_has_inputs_outside_otx_ranges(&layout.otx_entries),
+                .current_lock_has_inputs_outside_range(layout.input_range),
         }
     }
 
@@ -399,7 +399,7 @@ impl<'a> LockPlanBuilder<'a> {
                 if !self
                     .context
                     .script_context
-                    .all_current_lock_inputs_covered_by_otx(&layout.otx_entries)?
+                    .all_current_lock_inputs_in_range(layout.input_range)?
                 {
                     return Err(CoreError::MissingLockGroupCoverage);
                 }
@@ -525,7 +525,7 @@ impl<'a> TypePlanBuilder<'a> {
             OtxLayouts::Complete(layout) => self
                 .context
                 .script_context
-                .current_type_outside_otx_ranges(&layout.otx_entries),
+                .current_type_outside_ranges(layout.input_range, layout.output_range),
             OtxLayouts::None => self.context.script_context.current_type_present(),
         }
     }

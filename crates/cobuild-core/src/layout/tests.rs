@@ -198,6 +198,25 @@ fn legacy_witness_after_otx_sequence_is_allowed() {
     assert_eq!(layout.otx_entries.len(), 1);
 }
 
+#[test]
+fn built_layout_tracks_aggregate_input_and_output_ranges() {
+    let layout = build_layout(
+        vec![
+            otx_start_witness_with_starts(2, 3, 0, 0),
+            otx_witness_with_counts(1, 0, 1, 0, 0, 0),
+            otx_witness_with_counts(2, 0, 2, 0, 0, 0),
+        ],
+        5,
+        6,
+        0,
+        0,
+    )
+    .unwrap();
+
+    assert_eq!(layout.input_range, Range { start: 2, count: 3 });
+    assert_eq!(layout.output_range, Range { start: 3, count: 3 });
+}
+
 fn build_layout(
     witnesses: Vec<Vec<u8>>,
     input_count: usize,
@@ -214,6 +233,8 @@ fn build_layout(
         .otx_layouts
     {
         OtxLayouts::None => Ok(BuiltLayout {
+            input_range: Range { start: 0, count: 0 },
+            output_range: Range { start: 0, count: 0 },
             otx_entries: Vec::new(),
         }),
         OtxLayouts::Complete(layout) => Ok(layout),
@@ -225,13 +246,22 @@ fn assert_invalid<T>(result: Result<T, CoreError>, expected: CoreError) {
 }
 
 fn otx_start_witness() -> Vec<u8> {
+    otx_start_witness_with_starts(0, 0, 0, 0)
+}
+
+fn otx_start_witness_with_starts(
+    input_start: u32,
+    output_start: u32,
+    cell_dep_start: u32,
+    header_dep_start: u32,
+) -> Vec<u8> {
     witness_union(
         0xff00_0004,
         &table(&[
-            0u32.to_le_bytes().to_vec(),
-            0u32.to_le_bytes().to_vec(),
-            0u32.to_le_bytes().to_vec(),
-            0u32.to_le_bytes().to_vec(),
+            input_start.to_le_bytes().to_vec(),
+            output_start.to_le_bytes().to_vec(),
+            cell_dep_start.to_le_bytes().to_vec(),
+            header_dep_start.to_le_bytes().to_vec(),
         ]),
     )
 }
