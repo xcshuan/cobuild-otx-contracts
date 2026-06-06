@@ -114,16 +114,14 @@ impl WitnessScan {
     pub(crate) fn unique_sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
         let mut message = None;
         for summary in &self.sighash_all_summaries {
-            match summary {
-                SighashAllWitnessSummary::SighashAll {
-                    message: candidate, ..
-                } => {
-                    if message.is_some() {
-                        return Err(CoreError::DuplicateSighashAll);
-                    }
-                    message = Some(candidate.clone());
+            if let SighashAllWitnessSummary::SighashAll {
+                message: candidate, ..
+            } = summary
+            {
+                if message.is_some() {
+                    return Err(CoreError::DuplicateSighashAll);
                 }
-                _ => {}
+                message = Some(candidate.clone());
             }
         }
         Ok(message)
@@ -134,16 +132,14 @@ impl WitnessScan {
     ) -> Result<Option<(usize, Cursor)>, CoreError> {
         let mut message = None;
         for (index, summary) in self.sighash_all_summaries.iter().enumerate() {
-            match summary {
-                SighashAllWitnessSummary::SighashAll {
-                    message: candidate, ..
-                } => {
-                    if message.is_some() {
-                        return Err(CoreError::DuplicateSighashAll);
-                    }
-                    message = Some((index, candidate.clone()));
+            if let SighashAllWitnessSummary::SighashAll {
+                message: candidate, ..
+            } = summary
+            {
+                if message.is_some() {
+                    return Err(CoreError::DuplicateSighashAll);
                 }
-                _ => {}
+                message = Some((index, candidate.clone()));
             }
         }
         Ok(message)
@@ -243,7 +239,7 @@ fn has_cobuild_witness_id(witness: &Cursor) -> Result<bool, CoreError> {
 
     Ok(matches!(
         u32::from_le_bytes(item_id),
-        0xff00_0001 | 0xff00_0002 | 0xff00_0003 | 0xff00_0004
+        0xff00_0001..=0xff00_0004
     ))
 }
 

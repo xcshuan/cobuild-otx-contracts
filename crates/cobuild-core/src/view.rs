@@ -134,6 +134,10 @@ impl MaskView {
         self.bytes.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
     pub fn bytes(&self) -> &[u8] {
         &self.bytes
     }
@@ -168,26 +172,6 @@ impl CobuildWitnessLayoutView {
             .map_err(|_| CoreError::InvalidOtxLayout)?;
 
         Ok(Self { inner })
-    }
-
-    pub fn sighash_all_only_seal(&self) -> Result<Option<Vec<u8>>, CoreError> {
-        match &self.inner {
-            CobuildWitnessLayout::SighashAllOnly(witness) => {
-                let seal = witness.seal().map_err(|_| CoreError::MalformedCobuild)?;
-                cursor_bytes(&seal).map(Some)
-            }
-            _ => Ok(None),
-        }
-    }
-
-    pub fn sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
-        match &self.inner {
-            CobuildWitnessLayout::SighashAll(witness) => {
-                let message = witness.message().map_err(|_| CoreError::MalformedCobuild)?;
-                Ok(Some(message.cursor))
-            }
-            _ => Ok(None),
-        }
     }
 
     pub fn sighash_all_cobuild_witness_layout(

@@ -59,215 +59,6 @@ impl CobuildContext {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use alloc::vec;
-
-    use super::*;
-
-    fn test_otx(
-        message_bytes: &[u8],
-        base_start: usize,
-        append_start: usize,
-    ) -> crate::layout::OtxLayoutEntry {
-        crate::layout::OtxLayoutEntry {
-            layout: crate::layout::OtxLayout {
-                witness_index: 7,
-                base_inputs: crate::layout::Range {
-                    start: base_start,
-                    count: 1,
-                },
-                append_inputs: crate::layout::Range {
-                    start: append_start,
-                    count: 1,
-                },
-                base_outputs: crate::layout::Range { start: 0, count: 1 },
-                append_outputs: crate::layout::Range { start: 1, count: 0 },
-                base_cell_deps: crate::layout::Range { start: 0, count: 0 },
-                append_cell_deps: crate::layout::Range { start: 0, count: 0 },
-                base_header_deps: crate::layout::Range { start: 0, count: 0 },
-                append_header_deps: crate::layout::Range { start: 0, count: 0 },
-            },
-            witness: crate::view::OtxView {
-                message: crate::reader::cursor_from_slice(message_bytes),
-                append_permissions: 0,
-                base_input_cells: 1,
-                base_input_masks: crate::view::MaskView::new(vec![0]),
-                base_output_cells: 0,
-                base_output_masks: crate::view::MaskView::new(Vec::new()),
-                base_cell_deps: 0,
-                base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
-                base_header_deps: 0,
-                base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
-                append_input_cells: 0,
-                append_output_cells: 0,
-                append_cell_deps: 0,
-                append_header_deps: 0,
-                seals: Vec::new(),
-            },
-        }
-    }
-
-    fn test_action(role: ScriptRole, script_hash: [u8; 32], data: &[u8]) -> ActionView {
-        ActionView {
-            index: 0,
-            script_info_hash: [0x33; 32],
-            script_role: role,
-            script_hash,
-            data: crate::reader::cursor_from_slice(data),
-        }
-    }
-
-    fn message_with_actions(actions: &[Vec<u8>]) -> Vec<u8> {
-        table_bytes(&[dynvec_bytes(actions)])
-    }
-
-    fn action_bytes(script_role: u8, script_hash: [u8; 32], data: &[u8]) -> Vec<u8> {
-        table_bytes(&[
-            [0x33u8; 32].to_vec(),
-            vec![script_role],
-            script_hash.to_vec(),
-            molecule_bytes(data),
-        ])
-    }
-
-    fn dynvec_bytes(items: &[Vec<u8>]) -> Vec<u8> {
-        if items.is_empty() {
-            return 4u32.to_le_bytes().to_vec();
-        }
-        let header_size = 4 + items.len() * 4;
-        let total_size = header_size + items.iter().map(Vec::len).sum::<usize>();
-        let mut bytes = Vec::with_capacity(total_size);
-        bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
-        let mut offset = header_size;
-        for item in items {
-            bytes.extend_from_slice(&(offset as u32).to_le_bytes());
-            offset += item.len();
-        }
-        for item in items {
-            bytes.extend_from_slice(item);
-        }
-        bytes
-    }
-
-    fn molecule_bytes(raw: &[u8]) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(4 + raw.len());
-        bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
-        bytes.extend_from_slice(raw);
-        bytes
-    }
-
-    fn table_bytes(fields: &[Vec<u8>]) -> Vec<u8> {
-        let header_size = 4 + fields.len() * 4;
-        let total_size = header_size + fields.iter().map(Vec::len).sum::<usize>();
-        let mut bytes = Vec::with_capacity(total_size);
-        bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
-        let mut offset = header_size;
-        for field in fields {
-            bytes.extend_from_slice(&(offset as u32).to_le_bytes());
-            offset += field.len();
-        }
-        for field in fields {
-            bytes.extend_from_slice(field);
-        }
-        bytes
-    }
-
-    #[test]
-    fn lock_related_tx_action_preserves_origin_and_action_cursor() {
-        let action = test_action(ScriptRole::InputLock, [0x44; 32], &[0x99]);
-        let related = related_tx_action(2, action.clone());
-
-        assert!(matches!(
-            related.origin,
-            ActionOrigin::TxLevel { witness_index: 2 }
-        ));
-        assert_eq!(
-            crate::reader::cursor_bytes(&related.action.data).unwrap(),
-            vec![0x99]
-        );
-    }
-
-    #[test]
-    fn lock_related_otx_action_preserves_origin_layout_and_action_cursor() {
-        let message_bytes = [4u8, 0, 0, 0];
-        let otx = test_otx(&message_bytes, 1, 3);
-        let action = test_action(ScriptRole::InputLock, [0x44; 32], &[0x88]);
-
-        let related = related_otx_action(3, &otx, action);
-
-        match related.origin {
-            ActionOrigin::Otx {
-                witness_index,
-                otx_index,
-                layout,
-            } => {
-                assert_eq!(witness_index, 7);
-                assert_eq!(otx_index, 3);
-                assert_eq!(layout.base_inputs.start, 1);
-                assert_eq!(layout.append_inputs.start, 3);
-            }
-            ActionOrigin::TxLevel { .. } => panic!("expected OTX action origin"),
-        }
-        assert_eq!(
-            crate::reader::cursor_bytes(&related.action.data).unwrap(),
-            vec![0x88]
-        );
-    }
-
-    #[test]
-    fn lock_actions_for_message_returns_all_matching_actions() {
-        let lock_hash = [0x44; 32];
-        let other_hash = [0x55; 32];
-        let message = message_with_actions(&[
-            action_bytes(0, lock_hash, &[0x10]),
-            action_bytes(0, lock_hash, &[0x20]),
-            action_bytes(0, other_hash, &[0x30]),
-        ]);
-
-        let actions =
-            lock_actions_for_message(&crate::reader::cursor_from_slice(&message), lock_hash)
-                .unwrap();
-
-        assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0].index, 0);
-        assert_eq!(actions[1].index, 1);
-    }
-
-    #[test]
-    fn type_actions_for_message_returns_all_matching_type_actions() {
-        let type_hash = [0x66; 32];
-        let message = message_with_actions(&[
-            action_bytes(1, type_hash, &[0x10]),
-            action_bytes(1, type_hash, &[0x20]),
-            action_bytes(2, type_hash, &[0x30]),
-            action_bytes(0, type_hash, &[0x40]),
-        ]);
-
-        let actions =
-            type_actions_for_message(&crate::reader::cursor_from_slice(&message), type_hash)
-                .unwrap();
-
-        assert_eq!(actions.len(), 3);
-        assert_eq!(actions[0].script_role, ScriptRole::InputType);
-        assert_eq!(actions[1].script_role, ScriptRole::InputType);
-        assert_eq!(actions[2].script_role, ScriptRole::OutputType);
-    }
-
-    #[test]
-    fn otx_relation_is_absent_when_type_only_matches_by_action() {
-        let relation = crate::plan::OtxTypeRelation {
-            input_type_in_base: false,
-            input_type_in_append: false,
-            output_type_in_base: false,
-            output_type_in_base_covered: false,
-            output_type_in_append: false,
-        };
-
-        assert_eq!(otx_relation_if_range_related(relation), None);
-    }
-}
-
 struct LockPlanBuilder<'a> {
     context: &'a CobuildContext,
     lock_script_hash: [u8; 32],
@@ -677,4 +468,213 @@ fn type_actions_for_message(
     let mut actions = view.actions_for(ScriptRole::InputType, type_script_hash)?;
     actions.extend(view.actions_for(ScriptRole::OutputType, type_script_hash)?);
     Ok(actions)
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec;
+
+    use super::*;
+
+    fn test_otx(
+        message_bytes: &[u8],
+        base_start: usize,
+        append_start: usize,
+    ) -> crate::layout::OtxLayoutEntry {
+        crate::layout::OtxLayoutEntry {
+            layout: crate::layout::OtxLayout {
+                witness_index: 7,
+                base_inputs: crate::layout::Range {
+                    start: base_start,
+                    count: 1,
+                },
+                append_inputs: crate::layout::Range {
+                    start: append_start,
+                    count: 1,
+                },
+                base_outputs: crate::layout::Range { start: 0, count: 1 },
+                append_outputs: crate::layout::Range { start: 1, count: 0 },
+                base_cell_deps: crate::layout::Range { start: 0, count: 0 },
+                append_cell_deps: crate::layout::Range { start: 0, count: 0 },
+                base_header_deps: crate::layout::Range { start: 0, count: 0 },
+                append_header_deps: crate::layout::Range { start: 0, count: 0 },
+            },
+            witness: crate::view::OtxView {
+                message: crate::reader::cursor_from_slice(message_bytes),
+                append_permissions: 0,
+                base_input_cells: 1,
+                base_input_masks: crate::view::MaskView::new(vec![0]),
+                base_output_cells: 0,
+                base_output_masks: crate::view::MaskView::new(Vec::new()),
+                base_cell_deps: 0,
+                base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
+                base_header_deps: 0,
+                base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
+                append_input_cells: 0,
+                append_output_cells: 0,
+                append_cell_deps: 0,
+                append_header_deps: 0,
+                seals: Vec::new(),
+            },
+        }
+    }
+
+    fn test_action(role: ScriptRole, script_hash: [u8; 32], data: &[u8]) -> ActionView {
+        ActionView {
+            index: 0,
+            script_info_hash: [0x33; 32],
+            script_role: role,
+            script_hash,
+            data: crate::reader::cursor_from_slice(data),
+        }
+    }
+
+    fn message_with_actions(actions: &[Vec<u8>]) -> Vec<u8> {
+        table_bytes(&[dynvec_bytes(actions)])
+    }
+
+    fn action_bytes(script_role: u8, script_hash: [u8; 32], data: &[u8]) -> Vec<u8> {
+        table_bytes(&[
+            [0x33u8; 32].to_vec(),
+            vec![script_role],
+            script_hash.to_vec(),
+            molecule_bytes(data),
+        ])
+    }
+
+    fn dynvec_bytes(items: &[Vec<u8>]) -> Vec<u8> {
+        if items.is_empty() {
+            return 4u32.to_le_bytes().to_vec();
+        }
+        let header_size = 4 + items.len() * 4;
+        let total_size = header_size + items.iter().map(Vec::len).sum::<usize>();
+        let mut bytes = Vec::with_capacity(total_size);
+        bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
+        let mut offset = header_size;
+        for item in items {
+            bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+            offset += item.len();
+        }
+        for item in items {
+            bytes.extend_from_slice(item);
+        }
+        bytes
+    }
+
+    fn molecule_bytes(raw: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(4 + raw.len());
+        bytes.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(raw);
+        bytes
+    }
+
+    fn table_bytes(fields: &[Vec<u8>]) -> Vec<u8> {
+        let header_size = 4 + fields.len() * 4;
+        let total_size = header_size + fields.iter().map(Vec::len).sum::<usize>();
+        let mut bytes = Vec::with_capacity(total_size);
+        bytes.extend_from_slice(&(total_size as u32).to_le_bytes());
+        let mut offset = header_size;
+        for field in fields {
+            bytes.extend_from_slice(&(offset as u32).to_le_bytes());
+            offset += field.len();
+        }
+        for field in fields {
+            bytes.extend_from_slice(field);
+        }
+        bytes
+    }
+
+    #[test]
+    fn lock_related_tx_action_preserves_origin_and_action_cursor() {
+        let action = test_action(ScriptRole::InputLock, [0x44; 32], &[0x99]);
+        let related = related_tx_action(2, action.clone());
+
+        assert!(matches!(
+            related.origin,
+            ActionOrigin::TxLevel { witness_index: 2 }
+        ));
+        assert_eq!(
+            crate::reader::cursor_bytes(&related.action.data).unwrap(),
+            vec![0x99]
+        );
+    }
+
+    #[test]
+    fn lock_related_otx_action_preserves_origin_layout_and_action_cursor() {
+        let message_bytes = [4u8, 0, 0, 0];
+        let otx = test_otx(&message_bytes, 1, 3);
+        let action = test_action(ScriptRole::InputLock, [0x44; 32], &[0x88]);
+
+        let related = related_otx_action(3, &otx, action);
+
+        match related.origin {
+            ActionOrigin::Otx {
+                witness_index,
+                otx_index,
+                layout,
+            } => {
+                assert_eq!(witness_index, 7);
+                assert_eq!(otx_index, 3);
+                assert_eq!(layout.base_inputs.start, 1);
+                assert_eq!(layout.append_inputs.start, 3);
+            }
+            ActionOrigin::TxLevel { .. } => panic!("expected OTX action origin"),
+        }
+        assert_eq!(
+            crate::reader::cursor_bytes(&related.action.data).unwrap(),
+            vec![0x88]
+        );
+    }
+
+    #[test]
+    fn lock_actions_for_message_returns_all_matching_actions() {
+        let lock_hash = [0x44; 32];
+        let other_hash = [0x55; 32];
+        let message = message_with_actions(&[
+            action_bytes(0, lock_hash, &[0x10]),
+            action_bytes(0, lock_hash, &[0x20]),
+            action_bytes(0, other_hash, &[0x30]),
+        ]);
+
+        let actions =
+            lock_actions_for_message(&crate::reader::cursor_from_slice(&message), lock_hash)
+                .unwrap();
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].index, 0);
+        assert_eq!(actions[1].index, 1);
+    }
+
+    #[test]
+    fn type_actions_for_message_returns_all_matching_type_actions() {
+        let type_hash = [0x66; 32];
+        let message = message_with_actions(&[
+            action_bytes(1, type_hash, &[0x10]),
+            action_bytes(1, type_hash, &[0x20]),
+            action_bytes(2, type_hash, &[0x30]),
+            action_bytes(0, type_hash, &[0x40]),
+        ]);
+
+        let actions =
+            type_actions_for_message(&crate::reader::cursor_from_slice(&message), type_hash)
+                .unwrap();
+
+        assert_eq!(actions.len(), 3);
+        assert_eq!(actions[0].script_role, ScriptRole::InputType);
+        assert_eq!(actions[1].script_role, ScriptRole::InputType);
+        assert_eq!(actions[2].script_role, ScriptRole::OutputType);
+    }
+
+    #[test]
+    fn otx_relation_is_absent_when_type_only_matches_by_action() {
+        let relation = crate::plan::OtxTypeRelation {
+            input_type_in_base: false,
+            input_type_in_append: false,
+            output_type_in_base: false,
+            output_type_in_base_covered: false,
+            output_type_in_append: false,
+        };
+
+        assert_eq!(otx_relation_if_range_related(relation), None);
+    }
 }

@@ -26,10 +26,13 @@ fn parsed_view_survives_source_slice_drop() {
         CobuildWitnessLayoutView::from_cursor(cursor_from_slice(&witness)).unwrap()
     };
 
-    assert_eq!(
-        view.sighash_all_only_seal().unwrap(),
-        Some(vec![0x11, 0x22, 0x33])
-    );
+    let layout = view.sighash_all_cobuild_witness_layout().unwrap().unwrap();
+    match layout {
+        SighashAllWitnessView::SealOnly { seal } => {
+            assert_eq!(cursor_bytes(&seal).unwrap(), vec![0x11, 0x22, 0x33]);
+        }
+        SighashAllWitnessView::WithMessage { .. } => panic!("expected seal-only view"),
+    }
 }
 
 #[test]
