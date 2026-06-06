@@ -656,7 +656,7 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "enum SighashAllWitnessSummary",
         "impl WitnessScan",
         "push_witness",
-        "tx_level_carrier_has_sighash_all_layout",
+        "tx_level_carrier_view",
         "unique_sighash_all_message",
         "unique_sighash_all_message_with_index",
     ] {
@@ -743,6 +743,15 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "TxCountsCache",
         "SyscallTxReader::with_counts",
         "tx_level_remainder_exists",
+        "tx_level_carrier_has_sighash_all_layout",
+        "collect_tx_related_message",
+        "RelatedMessage",
+        "TypeRelatedMessage",
+        "MessageOrigin",
+        "related_messages",
+        "related_tx_message",
+        "related_otx_message",
+        "collect_otx_related_message_if_relevant",
         "current_lock_outside_otx_ranges",
         "current_lock_has_inputs_outside_otx_ranges",
         "all_current_lock_inputs_covered_by_otx",
@@ -763,25 +772,25 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
 }
 
 #[test]
-fn cobuild_core_lock_plan_exposes_related_messages() {
+fn cobuild_core_lock_plan_exposes_related_actions() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let core_src = workspace_root.join("crates/cobuild-core/src");
     let plan_rs = fs::read_to_string(core_src.join("plan.rs")).expect("plan.rs");
     let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs");
 
     assert!(
-        plan_rs.contains("pub related_messages: Vec<RelatedMessage>"),
-        "LockValidationPlan should expose related messages for input_lock actions"
+        plan_rs.contains("pub related_actions: Vec<RelatedAction>"),
+        "LockValidationPlan should expose only related actions for input_lock actions"
     );
     assert!(
-        engine_rs.contains("related_messages: Vec<RelatedMessage>"),
-        "LockPlanBuilder should collect lock related messages"
+        engine_rs.contains("related_actions: Vec<RelatedAction>"),
+        "LockPlanBuilder should collect lock related actions"
     );
     assert!(
-        engine_rs.contains("collect_tx_related_message")
-            && engine_rs.contains("collect_otx_related_message_if_relevant")
-            && engine_rs.contains("related_otx_message"),
-        "lock planning should collect tx-level and OTX related messages through explicit helpers"
+        engine_rs.contains("related_tx_action")
+            && engine_rs.contains("otx_lock_relevance")
+            && engine_rs.contains("related_otx_action"),
+        "lock planning should keep explicit related action constructors and separate signature relevance from action delivery"
     );
 }
 

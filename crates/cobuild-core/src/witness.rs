@@ -111,22 +111,6 @@ impl WitnessScan {
         self.has_cobuild_witness_layout
     }
 
-    pub(crate) fn tx_level_carrier_has_sighash_all_layout(
-        &self,
-        index: usize,
-    ) -> Result<bool, CoreError> {
-        match self.sighash_all_summaries.get(index) {
-            Some(SighashAllWitnessSummary::SighashAll { .. })
-            | Some(SighashAllWitnessSummary::SighashAllOnly { .. }) => Ok(true),
-            Some(
-                SighashAllWitnessSummary::Empty
-                | SighashAllWitnessSummary::Legacy
-                | SighashAllWitnessSummary::OtherCobuildLayout,
-            )
-            | None => Ok(false),
-        }
-    }
-
     pub(crate) fn unique_sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
         let mut message = None;
         for summary in &self.sighash_all_summaries {
@@ -168,23 +152,23 @@ impl WitnessScan {
     pub(crate) fn tx_level_carrier_view(
         &self,
         index: usize,
-    ) -> Result<Option<TxLevelCarrierView>, CoreError> {
+    ) -> Result<TxLevelCarrierView, CoreError> {
         match self.sighash_all_summaries.get(index) {
             Some(SighashAllWitnessSummary::SighashAll { seal, message }) => {
-                Ok(Some(TxLevelCarrierView::WithMessage {
+                Ok(TxLevelCarrierView::WithMessage {
                     seal: seal.clone(),
                     message: message.clone(),
-                }))
+                })
             }
             Some(SighashAllWitnessSummary::SighashAllOnly { seal }) => {
-                Ok(Some(TxLevelCarrierView::SealOnly { seal: seal.clone() }))
+                Ok(TxLevelCarrierView::SealOnly { seal: seal.clone() })
             }
             Some(
                 SighashAllWitnessSummary::Empty
                 | SighashAllWitnessSummary::Legacy
                 | SighashAllWitnessSummary::OtherCobuildLayout,
             )
-            | None => Ok(None),
+            | None => Err(CoreError::InvalidLockGroupWitness),
         }
     }
 
@@ -267,18 +251,27 @@ fn has_cobuild_witness_id(witness: &Cursor) -> Result<bool, CoreError> {
 mod tests {
     use alloc::vec::Vec;
 
-    use super::{CobuildWitnessScanner, WitnessScan};
+    use super::{CobuildWitnessScanner, TxLevelCarrierView, WitnessScan};
     use crate::{error::CoreError, reader::cursor_from_slice};
 
     #[test]
-    fn tx_level_carrier_returns_false_for_empty_or_other_witness() {
+    fn tx_level_carrier_view_rejects_empty_legacy_or_missing_witness() {
         let empty = Vec::new();
         let legacy = [0, 1, 2, 3];
         let scan = scan_witnesses([empty.as_slice(), legacy.as_slice()]).unwrap();
 
-        assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(0), Ok(false));
-        assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(1), Ok(false));
-        assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(2), Ok(false));
+        assert_eq!(
+            scan.tx_level_carrier_view(0).err(),
+            Some(CoreError::InvalidLockGroupWitness)
+        );
+        assert_eq!(
+            scan.tx_level_carrier_view(1).err(),
+            Some(CoreError::InvalidLockGroupWitness)
+        );
+        assert_eq!(
+            scan.tx_level_carrier_view(2).err(),
+            Some(CoreError::InvalidLockGroupWitness)
+        );
     }
 
     #[test]
@@ -317,7 +310,10 @@ mod tests {
         let witness = sighash_all_only_witness_bytes(&[0x11, 0x22]);
         let scan = scan_witnesses([witness.as_slice()]).unwrap();
 
-        assert_eq!(scan.tx_level_carrier_has_sighash_all_layout(0), Ok(true));
+        assert!(matches!(
+            scan.tx_level_carrier_view(0),
+            Ok(TxLevelCarrierView::SealOnly { .. })
+        ));
         assert_eq!(
             scan.unique_sighash_all_message()
                 .map(|message| message.is_some()),
