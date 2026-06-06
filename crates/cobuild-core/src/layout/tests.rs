@@ -211,12 +211,12 @@ fn build_layout(
     }
     match scanner
         .finish(input_count, output_count, cell_dep_count, header_dep_count)?
-        .otx_layout
+        .otx_layouts
     {
-        OtxLayoutScan::None => Ok(BuiltLayout {
+        OtxLayouts::None => Ok(BuiltLayout {
             otx_entries: Vec::new(),
         }),
-        OtxLayoutScan::Complete(layout) => Ok(layout),
+        OtxLayouts::Complete(layout) => Ok(layout),
     }
 }
 

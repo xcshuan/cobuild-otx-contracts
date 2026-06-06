@@ -6,7 +6,7 @@ use crate::{
     context::{CurrentScript, CurrentScriptContext},
     error::CoreError,
     hash::{otx_append_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash},
-    layout::OtxLayoutScan,
+    layout::OtxLayouts,
     plan::{
         LockValidationPlan, MessageOrigin, OtxMessageLayout, RelatedMessage, SignatureOrigin,
         SigningRequirement, TypeRelatedMessage, TypeValidationPlan,
@@ -22,7 +22,7 @@ pub struct CobuildContext {
     pub(crate) tx: SyscallTxReader,
     pub(crate) script_context: CurrentScriptContext,
     witnesses: WitnessScan,
-    pub(crate) layout_scan: OtxLayoutScan,
+    pub(crate) otx_layouts: OtxLayouts,
 }
 
 impl CobuildContext {
@@ -46,7 +46,7 @@ impl CobuildContext {
             tx,
             script_context,
             witnesses: scanned.tx_level,
-            layout_scan: scanned.otx_layout,
+            otx_layouts: scanned.otx_layouts,
         })
     }
 
@@ -266,9 +266,14 @@ impl<'a> LockPlanBuilder<'a> {
     }
 
     fn current_lock_needs_tx_level_signature(&self) -> Result<bool, CoreError> {
-        match &self.context.layout_scan {
-            OtxLayoutScan::None => Ok(!self.current_lock_inputs()?.is_empty()),
-            OtxLayoutScan::Complete(layout) => self
+        let current_lock_inputs = self.current_lock_inputs()?;
+        if current_lock_inputs.is_empty() {
+            return Ok(false);
+        }
+
+        match &self.context.otx_layouts {
+            OtxLayouts::None => Ok(true),
+            OtxLayouts::Complete(layout) => self
                 .context
                 .script_context
                 .current_lock_has_inputs_outside_otx_ranges(&layout.otx_entries),
@@ -280,9 +285,9 @@ impl<'a> LockPlanBuilder<'a> {
     }
 
     fn add_otx_requirements(&mut self) -> Result<(), CoreError> {
-        match &self.context.layout_scan {
-            OtxLayoutScan::None => {}
-            OtxLayoutScan::Complete(layout) => {
+        match &self.context.otx_layouts {
+            OtxLayouts::None => {}
+            OtxLayouts::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
                     let Some(relevance) =
                         self.collect_otx_related_message_if_relevant(otx_index, otx)?
@@ -390,7 +395,7 @@ impl<'a> LockPlanBuilder<'a> {
             )
         });
         if has_otx && !has_tx_level {
-            if let OtxLayoutScan::Complete(layout) = &self.context.layout_scan {
+            if let OtxLayouts::Complete(layout) = &self.context.otx_layouts {
                 if !self
                     .context
                     .script_context
@@ -459,8 +464,8 @@ impl<'a> TypePlanBuilder<'a> {
     }
 
     fn add_otx_related_messages(&mut self) -> Result<(), CoreError> {
-        match &self.context.layout_scan {
-            OtxLayoutScan::Complete(layout) => {
+        match &self.context.otx_layouts {
+            OtxLayouts::Complete(layout) => {
                 for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
                     let relation = self.context.script_context.type_relation_for_otx(otx)?;
                     let range_related = otx_type_relation_mentions_type(&relation);
@@ -482,7 +487,7 @@ impl<'a> TypePlanBuilder<'a> {
                 }
                 Ok(())
             }
-            OtxLayoutScan::None => Ok(()),
+            OtxLayouts::None => Ok(()),
         }
     }
 
@@ -516,12 +521,12 @@ impl<'a> TypePlanBuilder<'a> {
     }
 
     fn tx_level_scope_mentions_type(&self) -> Result<bool, CoreError> {
-        match &self.context.layout_scan {
-            OtxLayoutScan::Complete(layout) => self
+        match &self.context.otx_layouts {
+            OtxLayouts::Complete(layout) => self
                 .context
                 .script_context
                 .current_type_outside_otx_ranges(&layout.otx_entries),
-            OtxLayoutScan::None => self.context.script_context.current_type_present(),
+            OtxLayouts::None => self.context.script_context.current_type_present(),
         }
     }
 }

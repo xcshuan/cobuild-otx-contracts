@@ -710,9 +710,24 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "BuiltLayout should keep one entry list carrying both layout and witness view"
     );
     assert!(
-        !layout_rs.contains("OtxLayoutScan::Invalid")
-            && !engine_rs.contains("OtxLayoutScan::Invalid"),
-        "layout errors should return Result instead of being stored in OtxLayoutScan"
+        layout_rs.contains("pub enum OtxLayouts"),
+        "OTX layout result should be named as the layouts it carries"
+    );
+    assert!(
+        engine_rs.contains("otx_layouts"),
+        "CobuildContext should name parsed OTX layouts as data, not as a scan action"
+    );
+    for forbidden in ["OtxLayoutScan", "layout_scan", "OtxLayouts::Invalid"] {
+        assert!(
+            !layout_rs.contains(forbidden) && !engine_rs.contains(forbidden),
+            "OTX layout result should not keep confusing old name {forbidden}"
+        );
+    }
+    assert!(
+        witness_rs.contains("otx_layouts: OtxLayouts")
+            && !witness_rs.contains("OtxLayoutScan")
+            && !witness_rs.contains("layout_scan"),
+        "witness scan output should expose parsed OTX layouts, not scan action names"
     );
 
     for forbidden in [

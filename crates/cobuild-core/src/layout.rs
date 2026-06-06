@@ -37,7 +37,7 @@ pub struct BuiltLayout {
 }
 
 #[derive(Clone)]
-pub enum OtxLayoutScan {
+pub enum OtxLayouts {
     None,
     Complete(BuiltLayout),
 }
@@ -81,9 +81,9 @@ impl OtxLayoutCollector {
         output_count: usize,
         cell_dep_count: usize,
         header_dep_count: usize,
-    ) -> Result<OtxLayoutScan, CoreError> {
+    ) -> Result<OtxLayouts, CoreError> {
         let Some((start_witness_index, start_data)) = self.start else {
-            return Ok(OtxLayoutScan::None);
+            return Ok(OtxLayouts::None);
         };
         if self.last_layout_witness_index == Some(start_witness_index) {
             return Err(CoreError::InvalidOtxLayout);
@@ -106,7 +106,7 @@ impl OtxLayoutCollector {
         }
         ranges.ensure_within(input_count, output_count, cell_dep_count, header_dep_count)?;
 
-        Ok(OtxLayoutScan::Complete(BuiltLayout { otx_entries }))
+        Ok(OtxLayouts::Complete(BuiltLayout { otx_entries }))
     }
 
     fn layout_witness_view(

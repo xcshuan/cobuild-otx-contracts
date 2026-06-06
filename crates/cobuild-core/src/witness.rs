@@ -4,19 +4,19 @@ use cobuild_types::lazy_reader::support::Cursor;
 
 use crate::{
     error::CoreError,
-    layout::{OtxLayoutCollector, OtxLayoutScan},
+    layout::{OtxLayoutCollector, OtxLayouts},
     view::{CobuildWitnessLayoutView, SighashAllWitnessView},
 };
 
 pub(crate) struct CobuildWitnessScanner {
     tx_level: WitnessScan,
-    otx_layout: OtxLayoutCollector,
+    otx_layout_collector: OtxLayoutCollector,
     witness_count: usize,
 }
 
 pub(crate) struct ScannedCobuildWitnesses {
     pub(crate) tx_level: WitnessScan,
-    pub(crate) otx_layout: OtxLayoutScan,
+    pub(crate) otx_layouts: OtxLayouts,
 }
 
 pub(crate) struct WitnessScan {
@@ -42,7 +42,7 @@ impl CobuildWitnessScanner {
     pub(crate) fn with_capacity(capacity: usize) -> Self {
         Self {
             tx_level: WitnessScan::with_capacity(capacity),
-            otx_layout: OtxLayoutCollector::new(),
+            otx_layout_collector: OtxLayoutCollector::new(),
             witness_count: 0,
         }
     }
@@ -61,7 +61,8 @@ impl CobuildWitnessScanner {
             Ok(view) => {
                 let summary = WitnessScan::summarize_cobuild_layout(&view)?;
                 self.tx_level.record_witness_summary(summary);
-                self.otx_layout.record_cobuild_layout(index, &view)
+                self.otx_layout_collector
+                    .record_cobuild_layout(index, &view)
             }
             Err(error) => {
                 let summary = WitnessScan::summarize_legacy_or_reject(&witness, error)?;
@@ -78,12 +79,15 @@ impl CobuildWitnessScanner {
         cell_dep_count: usize,
         header_dep_count: usize,
     ) -> Result<ScannedCobuildWitnesses, CoreError> {
-        let otx_layout =
-            self.otx_layout
-                .finish(input_count, output_count, cell_dep_count, header_dep_count)?;
+        let otx_layouts = self.otx_layout_collector.finish(
+            input_count,
+            output_count,
+            cell_dep_count,
+            header_dep_count,
+        )?;
         Ok(ScannedCobuildWitnesses {
             tx_level: self.tx_level,
-            otx_layout,
+            otx_layouts,
         })
     }
 }
