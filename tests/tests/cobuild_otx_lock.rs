@@ -31,6 +31,12 @@ fn contract_accepts_otx_base_and_append_signatures() {
 }
 
 #[test]
+fn contract_accepts_otx_signatures_covering_full_preimage_shape() {
+    let result = fixtures::signed_otx_full_preimage_case().verify();
+    assert!(result.is_ok(), "{result:?}");
+}
+
+#[test]
 fn contract_accepts_mixed_sighash_all_and_otx_signature_requests() {
     let result = fixtures::mixed_sighash_all_and_otx_case().verify();
     assert!(result.is_ok(), "{result:?}");

@@ -142,6 +142,10 @@ pub mod fixtures {
 
     use crate::Loader;
 
+    const TX_WITHOUT_MESSAGE_PERSONAL: &[u8; 16] = b"ckbcb_tnm_core1\0";
+    const OTX_BASE_PERSONAL: &[u8; 16] = b"ckbcb_otb_core1\0";
+    const OTX_APPEND_PERSONAL: &[u8; 16] = b"ckbcb_ota_core1\0";
+
     pub struct Case {
         context: Context,
         tx: TransactionView,
@@ -307,6 +311,15 @@ pub mod fixtures {
         signed_otx_case(false, false)
     }
 
+    pub fn signed_otx_full_preimage_case() -> Case {
+        signed_otx_case_with_config(OtxCaseConfig {
+            include_sighash_all: false,
+            corrupt_append_seal: false,
+            override_append_permissions: None,
+            include_full_preimage: true,
+        })
+    }
+
     pub fn mixed_sighash_all_and_otx_case() -> Case {
         signed_otx_case(true, false)
     }
@@ -340,7 +353,12 @@ pub mod fixtures {
     }
 
     fn signed_otx_case(include_sighash_all: bool, corrupt_append_seal: bool) -> Case {
-        signed_otx_case_with_options(include_sighash_all, corrupt_append_seal, None)
+        signed_otx_case_with_config(OtxCaseConfig {
+            include_sighash_all,
+            corrupt_append_seal,
+            override_append_permissions: None,
+            include_full_preimage: false,
+        })
     }
 
     fn signed_otx_case_with_options(
@@ -348,6 +366,22 @@ pub mod fixtures {
         corrupt_append_seal: bool,
         override_append_permissions: Option<u8>,
     ) -> Case {
+        signed_otx_case_with_config(OtxCaseConfig {
+            include_sighash_all,
+            corrupt_append_seal,
+            override_append_permissions,
+            include_full_preimage: false,
+        })
+    }
+
+    struct OtxCaseConfig {
+        include_sighash_all: bool,
+        corrupt_append_seal: bool,
+        override_append_permissions: Option<u8>,
+        include_full_preimage: bool,
+    }
+
+    fn signed_otx_case_with_config(config: OtxCaseConfig) -> Case {
         let secp = Secp256k1::new();
         let secret_key = SecretKey::from_slice(&[1u8; 32]).expect("fixed secret key");
         let public_key = PublicKey::from_secret_key(&secp, &secret_key);
@@ -371,7 +405,7 @@ pub mod fixtures {
             .capacity(100_000_000_000u64)
             .lock(lock)
             .build();
-        let input_count = if include_sighash_all { 3 } else { 2 };
+        let input_count = if config.include_sighash_all { 3 } else { 2 };
         let mut input_out_points = Vec::with_capacity(input_count);
         for _ in 0..input_count {
             input_out_points.push(context.create_cell(input_output.clone(), Bytes::new()));
@@ -384,27 +418,92 @@ pub mod fixtures {
                     .build()
             })
             .collect();
-        let output = CellOutput::new_builder()
-            .capacity(90_000_000_000u64)
-            .lock(always_success_script(&mut context))
-            .build();
-
         let mut builder = TransactionBuilder::default().cell_dep(contract_dep);
         for input in &cell_inputs {
             builder = builder.input(input.clone());
         }
-        let unsigned_tx = builder
-            .output(output)
-            .output_data(Bytes::new().pack())
-            .witness(Bytes::new().pack())
-            .build();
+        let mut base_cell_deps = Vec::new();
+        let mut append_cell_deps = Vec::new();
+        let mut base_header_deps = Vec::new();
+        let mut append_header_deps = Vec::new();
+        let outputs = if config.include_full_preimage {
+            let base_cell_dep = CellDep::new_builder()
+                .out_point(context.deploy_cell(Bytes::from(vec![0x51])))
+                .build();
+            let append_cell_dep = CellDep::new_builder()
+                .out_point(context.deploy_cell(Bytes::from(vec![0x52])))
+                .build();
+            base_cell_deps.push(base_cell_dep.as_slice().to_vec());
+            append_cell_deps.push(append_cell_dep.as_slice().to_vec());
+            base_header_deps.push([0x61u8; 32]);
+            append_header_deps.push([0x62u8; 32]);
+            builder = builder
+                .cell_dep(base_cell_dep.clone())
+                .cell_dep(append_cell_dep.clone())
+                .header_dep([0x61u8; 32].pack())
+                .header_dep([0x62u8; 32].pack());
 
-        let start_input = if include_sighash_all { 1 } else { 0 };
+            vec![
+                OtxFixtureOutput {
+                    cell: CellOutput::new_builder()
+                        .capacity(91_000_000_000u64)
+                        .lock(always_success_script(&mut context))
+                        .build(),
+                    data: vec![0x71, 0x72],
+                },
+                OtxFixtureOutput {
+                    cell: CellOutput::new_builder()
+                        .capacity(92_000_000_000u64)
+                        .lock(always_success_script(&mut context))
+                        .build(),
+                    data: vec![0x81, 0x82, 0x83],
+                },
+            ]
+        } else {
+            vec![OtxFixtureOutput {
+                cell: CellOutput::new_builder()
+                    .capacity(90_000_000_000u64)
+                    .lock(always_success_script(&mut context))
+                    .build(),
+                data: Vec::new(),
+            }]
+        };
+
+        for output in &outputs {
+            builder = builder
+                .output(output.cell.clone())
+                .output_data(Bytes::from(output.data.clone()).pack());
+        }
+        let unsigned_tx = builder.witness(Bytes::new().pack()).build();
+
+        let start_input = if config.include_sighash_all { 1 } else { 0 };
+        let (base_outputs, append_outputs, base_output_masks) = if config.include_full_preimage {
+            (
+                vec![OtxFixtureOutputPart {
+                    raw: outputs[0].cell.as_slice().to_vec(),
+                    data: outputs[0].data.clone(),
+                }],
+                vec![OtxFixtureOutputPart {
+                    raw: outputs[1].cell.as_slice().to_vec(),
+                    data: outputs[1].data.clone(),
+                }],
+                vec![0b0000_1111],
+            )
+        } else {
+            (Vec::new(), Vec::new(), Vec::new())
+        };
+        let default_append_permissions = if config.include_full_preimage {
+            0x0f
+        } else {
+            0x01
+        };
         let otx_parts = OtxFixtureParts {
             start_input,
             input_count,
             message: empty_message_entity().as_slice().to_vec(),
-            append_permissions: override_append_permissions.unwrap_or(0x01),
+            append_permissions: config
+                .override_append_permissions
+                .unwrap_or(default_append_permissions),
             base_input_masks: vec![0b0000_0011],
             base_inputs: vec![OtxFixtureInput {
                 raw: cell_inputs[start_input].as_slice().to_vec(),
@@ -416,12 +515,29 @@ pub mod fixtures {
                 resolved_output: input_output.as_slice().to_vec(),
                 data: Vec::new(),
             }],
+            base_output_masks,
+            base_outputs,
+            append_outputs,
+            base_cell_dep_masks: if config.include_full_preimage {
+                vec![0b0000_0001]
+            } else {
+                Vec::new()
+            },
+            base_cell_deps,
+            append_cell_deps,
+            base_header_dep_masks: if config.include_full_preimage {
+                vec![0b0000_0001]
+            } else {
+                Vec::new()
+            },
+            base_header_deps,
+            append_header_deps,
         };
         let base_hash = otx_base_hash(&otx_parts);
         let append_hash = otx_append_hash(&otx_parts, base_hash);
         let base_seal = sign_recoverable(&secp, &secret_key, base_hash);
         let mut append_seal = sign_recoverable(&secp, &secret_key, append_hash);
-        if corrupt_append_seal {
+        if config.corrupt_append_seal {
             append_seal[0] ^= 0x01;
         }
 
@@ -433,16 +549,10 @@ pub mod fixtures {
                 .start_header_deps(0u32.to_le_bytes())
                 .build(),
         );
-        let otx = WitnessLayout::from(otx_witness(
-            script_hash,
-            otx_parts.append_permissions,
-            &otx_parts.base_input_masks,
-            base_seal,
-            append_seal,
-        ));
+        let otx = WitnessLayout::from(otx_witness(script_hash, &otx_parts, base_seal, append_seal));
 
         let mut witnesses = Vec::new();
-        if include_sighash_all {
+        if config.include_sighash_all {
             let signing_message_hash = tx_without_message_hash(
                 packed_hash_to_array(unsigned_tx.hash()),
                 input_count,
@@ -476,6 +586,18 @@ pub mod fixtures {
         data: Vec<u8>,
     }
 
+    #[derive(Clone)]
+    struct OtxFixtureOutput {
+        cell: CellOutput,
+        data: Vec<u8>,
+    }
+
+    #[derive(Clone)]
+    struct OtxFixtureOutputPart {
+        raw: Vec<u8>,
+        data: Vec<u8>,
+    }
+
     struct OtxFixtureParts {
         start_input: usize,
         input_count: usize,
@@ -484,18 +606,30 @@ pub mod fixtures {
         base_input_masks: Vec<u8>,
         base_inputs: Vec<OtxFixtureInput>,
         append_inputs: Vec<OtxFixtureInput>,
+        base_output_masks: Vec<u8>,
+        base_outputs: Vec<OtxFixtureOutputPart>,
+        append_outputs: Vec<OtxFixtureOutputPart>,
+        base_cell_dep_masks: Vec<u8>,
+        base_cell_deps: Vec<Vec<u8>>,
+        append_cell_deps: Vec<Vec<u8>>,
+        base_header_dep_masks: Vec<u8>,
+        base_header_deps: Vec<[u8; 32]>,
+        append_header_deps: Vec<[u8; 32]>,
     }
 
     struct OtxHashFixture {
         raw_inputs: Vec<Vec<u8>>,
         resolved_outputs: Vec<Vec<u8>>,
         resolved_data: Vec<Vec<u8>>,
+        raw_outputs: Vec<Vec<u8>>,
+        output_data: Vec<Vec<u8>>,
+        raw_cell_deps: Vec<Vec<u8>>,
+        header_deps: Vec<[u8; 32]>,
     }
 
     fn otx_witness(
         script_hash: [u8; 32],
-        append_permissions: u8,
-        base_input_masks: &[u8],
+        parts: &OtxFixtureParts,
         base_seal: Vec<u8>,
         append_seal: Vec<u8>,
     ) -> Otx {
@@ -514,19 +648,19 @@ pub mod fixtures {
         ];
         Otx::new_builder()
             .message(message)
-            .append_permissions(append_permissions)
-            .base_input_cells(1u32.to_le_bytes())
-            .base_input_masks(base_input_masks.to_vec())
-            .base_output_cells(0u32.to_le_bytes())
-            .base_output_masks(Vec::<u8>::new())
-            .base_cell_deps(0u32.to_le_bytes())
-            .base_cell_dep_masks(Vec::<u8>::new())
-            .base_header_deps(0u32.to_le_bytes())
-            .base_header_dep_masks(Vec::<u8>::new())
-            .append_input_cells(1u32.to_le_bytes())
-            .append_output_cells(0u32.to_le_bytes())
-            .append_cell_deps(0u32.to_le_bytes())
-            .append_header_deps(0u32.to_le_bytes())
+            .append_permissions(parts.append_permissions)
+            .base_input_cells((parts.base_inputs.len() as u32).to_le_bytes())
+            .base_input_masks(parts.base_input_masks.clone())
+            .base_output_cells((parts.base_outputs.len() as u32).to_le_bytes())
+            .base_output_masks(parts.base_output_masks.clone())
+            .base_cell_deps((parts.base_cell_deps.len() as u32).to_le_bytes())
+            .base_cell_dep_masks(parts.base_cell_dep_masks.clone())
+            .base_header_deps((parts.base_header_deps.len() as u32).to_le_bytes())
+            .base_header_dep_masks(parts.base_header_dep_masks.clone())
+            .append_input_cells((parts.append_inputs.len() as u32).to_le_bytes())
+            .append_output_cells((parts.append_outputs.len() as u32).to_le_bytes())
+            .append_cell_deps((parts.append_cell_deps.len() as u32).to_le_bytes())
+            .append_header_deps((parts.append_header_deps.len() as u32).to_le_bytes())
             .seals(seals)
             .build()
     }
@@ -540,9 +674,7 @@ pub mod fixtures {
     fn otx_base_hash(parts: &OtxFixtureParts) -> [u8; 32] {
         let (otx, layout, fixture) = otx_hash_inputs(parts);
         let mut out = [0u8; 32];
-        let mut hasher = Blake2bBuilder::new(32)
-            .personal(b"ckbcb_otb_core1\0")
-            .build();
+        let mut hasher = Blake2bBuilder::new(32).personal(OTX_BASE_PERSONAL).build();
 
         update_cursor_with_error(
             &mut hasher,
@@ -560,15 +692,13 @@ pub mod fixtures {
 
             write_count(&mut hasher, local_index);
             if otx
-                .base_input_masks
-                .get(local_index * 2)
+                .includes_base_input_since(local_index)
                 .expect("input mask")
             {
                 hasher.update(&input_view.since().expect("since").to_le_bytes());
             }
             if otx
-                .base_input_masks
-                .get(local_index * 2 + 1)
+                .includes_base_input_previous_output(local_index)
                 .expect("input mask")
             {
                 update_cursor_with_error(
@@ -586,12 +716,81 @@ pub mod fixtures {
             hasher.update(&fixture.resolved_data[tx_index]);
         }
 
-        write_count(&mut hasher, 0);
+        write_count(&mut hasher, otx.base_output_cells);
         write_len_prefixed_bytes(&mut hasher, otx.base_output_masks.bytes());
-        write_count(&mut hasher, 0);
+        for local_index in 0..otx.base_output_cells {
+            let tx_index = layout.base_outputs.start + local_index;
+            let output = cursor_from_slice(&fixture.raw_outputs[tx_index]);
+            let output_view =
+                cobuild_types::lazy_reader::blockchain::CellOutput::from(output.clone());
+
+            write_count(&mut hasher, local_index);
+            if otx
+                .includes_base_output_capacity(local_index)
+                .expect("output mask")
+            {
+                hasher.update(&output_view.capacity().expect("capacity").to_le_bytes());
+            }
+            if otx
+                .includes_base_output_lock(local_index)
+                .expect("output mask")
+            {
+                update_cursor_with_error(
+                    &mut hasher,
+                    &output_view.lock().expect("lock").cursor,
+                    cobuild_core::error::CoreError::MissingHashInput,
+                )
+                .expect("lock cursor");
+            }
+            if otx
+                .includes_base_output_type(local_index)
+                .expect("output mask")
+            {
+                update_cursor_with_error(
+                    &mut hasher,
+                    &output
+                        .table_slice_by_index(2)
+                        .expect("output type option cursor"),
+                    cobuild_core::error::CoreError::MissingHashInput,
+                )
+                .expect("type cursor");
+            }
+            if otx
+                .includes_base_output_data(local_index)
+                .expect("output mask")
+            {
+                hasher.update(&checked_len_prefix(fixture.output_data[tx_index].len()));
+                hasher.update(&fixture.output_data[tx_index]);
+            }
+        }
+
+        write_count(&mut hasher, otx.base_cell_deps);
         write_len_prefixed_bytes(&mut hasher, otx.base_cell_dep_masks.bytes());
-        write_count(&mut hasher, 0);
+        for local_index in 0..otx.base_cell_deps {
+            if otx
+                .base_cell_dep_masks
+                .get(local_index)
+                .expect("cell dep mask")
+            {
+                let tx_index = layout.base_cell_deps.start + local_index;
+                write_count(&mut hasher, local_index);
+                hasher.update(&fixture.raw_cell_deps[tx_index]);
+            }
+        }
+
+        write_count(&mut hasher, otx.base_header_deps);
         write_len_prefixed_bytes(&mut hasher, otx.base_header_dep_masks.bytes());
+        for local_index in 0..otx.base_header_deps {
+            if otx
+                .base_header_dep_masks
+                .get(local_index)
+                .expect("header dep mask")
+            {
+                let tx_index = layout.base_header_deps.start + local_index;
+                write_count(&mut hasher, local_index);
+                hasher.update(&fixture.header_deps[tx_index]);
+            }
+        }
 
         hasher.finalize(&mut out);
         out
@@ -601,7 +800,7 @@ pub mod fixtures {
         let (otx, layout, fixture) = otx_hash_inputs(parts);
         let mut out = [0u8; 32];
         let mut hasher = Blake2bBuilder::new(32)
-            .personal(b"ckbcb_ota_core1\0")
+            .personal(OTX_APPEND_PERSONAL)
             .build();
 
         update_cursor_with_error(
@@ -621,9 +820,28 @@ pub mod fixtures {
             hasher.update(&fixture.resolved_data[tx_index]);
         }
 
-        write_count(&mut hasher, 0);
-        write_count(&mut hasher, 0);
-        write_count(&mut hasher, 0);
+        write_count(&mut hasher, otx.append_output_cells);
+        for local_index in 0..otx.append_output_cells {
+            let tx_index = layout.append_outputs.start + local_index;
+            write_count(&mut hasher, local_index);
+            hasher.update(&fixture.raw_outputs[tx_index]);
+            hasher.update(&checked_len_prefix(fixture.output_data[tx_index].len()));
+            hasher.update(&fixture.output_data[tx_index]);
+        }
+
+        write_count(&mut hasher, otx.append_cell_deps);
+        for local_index in 0..otx.append_cell_deps {
+            let tx_index = layout.append_cell_deps.start + local_index;
+            write_count(&mut hasher, local_index);
+            hasher.update(&fixture.raw_cell_deps[tx_index]);
+        }
+
+        write_count(&mut hasher, otx.append_header_deps);
+        for local_index in 0..otx.append_header_deps {
+            let tx_index = layout.append_header_deps.start + local_index;
+            write_count(&mut hasher, local_index);
+            hasher.update(&fixture.header_deps[tx_index]);
+        }
 
         hasher.finalize(&mut out);
         out
@@ -632,9 +850,24 @@ pub mod fixtures {
     fn otx_hash_inputs(parts: &OtxFixtureParts) -> (OtxView, OtxLayout, OtxHashFixture) {
         let base_start = parts.start_input;
         let append_start = base_start + parts.base_inputs.len();
+        let append_output_start = parts.base_outputs.len();
+        let base_cell_dep_start = 1;
+        let append_cell_dep_start = base_cell_dep_start + parts.base_cell_deps.len();
+        let append_header_dep_start = parts.base_header_deps.len();
         let mut raw_inputs = vec![Vec::new(); parts.input_count];
         let mut resolved_outputs = vec![Vec::new(); parts.input_count];
         let mut resolved_data = vec![Vec::new(); parts.input_count];
+        let mut raw_outputs =
+            vec![Vec::new(); parts.base_outputs.len() + parts.append_outputs.len()];
+        let mut output_data =
+            vec![Vec::new(); parts.base_outputs.len() + parts.append_outputs.len()];
+        let mut raw_cell_deps =
+            vec![
+                Vec::new();
+                base_cell_dep_start + parts.base_cell_deps.len() + parts.append_cell_deps.len()
+            ];
+        let mut header_deps =
+            vec![[0u8; 32]; parts.base_header_deps.len() + parts.append_header_deps.len()];
 
         for (offset, input) in parts.base_inputs.iter().enumerate() {
             let index = base_start + offset;
@@ -648,39 +881,64 @@ pub mod fixtures {
             resolved_outputs[index] = input.resolved_output.clone();
             resolved_data[index] = input.data.clone();
         }
+        for (offset, output) in parts.base_outputs.iter().enumerate() {
+            raw_outputs[offset] = output.raw.clone();
+            output_data[offset] = output.data.clone();
+        }
+        for (offset, output) in parts.append_outputs.iter().enumerate() {
+            let index = append_output_start + offset;
+            raw_outputs[index] = output.raw.clone();
+            output_data[index] = output.data.clone();
+        }
+        for (offset, cell_dep) in parts.base_cell_deps.iter().enumerate() {
+            raw_cell_deps[base_cell_dep_start + offset] = cell_dep.clone();
+        }
+        for (offset, cell_dep) in parts.append_cell_deps.iter().enumerate() {
+            raw_cell_deps[append_cell_dep_start + offset] = cell_dep.clone();
+        }
+        for (offset, header_dep) in parts.base_header_deps.iter().enumerate() {
+            header_deps[offset] = *header_dep;
+        }
+        for (offset, header_dep) in parts.append_header_deps.iter().enumerate() {
+            header_deps[append_header_dep_start + offset] = *header_dep;
+        }
 
         let otx = OtxView {
             message: cursor_from_slice(&parts.message),
             append_permissions: parts.append_permissions,
             base_input_cells: parts.base_inputs.len(),
             base_input_masks: mask_view(&parts.base_input_masks),
-            base_output_cells: 0,
-            base_output_masks: mask_view(&[]),
-            base_cell_deps: 0,
-            base_cell_dep_masks: mask_view(&[]),
-            base_header_deps: 0,
-            base_header_dep_masks: mask_view(&[]),
+            base_output_cells: parts.base_outputs.len(),
+            base_output_masks: mask_view(&parts.base_output_masks),
+            base_cell_deps: parts.base_cell_deps.len(),
+            base_cell_dep_masks: mask_view(&parts.base_cell_dep_masks),
+            base_header_deps: parts.base_header_deps.len(),
+            base_header_dep_masks: mask_view(&parts.base_header_dep_masks),
             append_input_cells: parts.append_inputs.len(),
-            append_output_cells: 0,
-            append_cell_deps: 0,
-            append_header_deps: 0,
+            append_output_cells: parts.append_outputs.len(),
+            append_cell_deps: parts.append_cell_deps.len(),
+            append_header_deps: parts.append_header_deps.len(),
             seals: Vec::new(),
         };
         let layout = OtxLayout {
             witness_index: 0,
             base_inputs: range(base_start, parts.base_inputs.len()),
             append_inputs: range(append_start, parts.append_inputs.len()),
-            base_outputs: range(0, 0),
-            append_outputs: range(0, 0),
-            base_cell_deps: range(1, 0),
-            append_cell_deps: range(1, 0),
-            base_header_deps: range(0, 0),
-            append_header_deps: range(0, 0),
+            base_outputs: range(0, parts.base_outputs.len()),
+            append_outputs: range(append_output_start, parts.append_outputs.len()),
+            base_cell_deps: range(base_cell_dep_start, parts.base_cell_deps.len()),
+            append_cell_deps: range(append_cell_dep_start, parts.append_cell_deps.len()),
+            base_header_deps: range(0, parts.base_header_deps.len()),
+            append_header_deps: range(append_header_dep_start, parts.append_header_deps.len()),
         };
         let fixture = OtxHashFixture {
             raw_inputs,
             resolved_outputs,
             resolved_data,
+            raw_outputs,
+            output_data,
+            raw_cell_deps,
+            header_deps,
         };
         (otx, layout, fixture)
     }
@@ -778,7 +1036,7 @@ pub mod fixtures {
     ) -> [u8; 32] {
         let mut out = [0u8; 32];
         let mut hasher = Blake2bBuilder::new(32)
-            .personal(b"ckbcb_tnm_core1\0")
+            .personal(TX_WITHOUT_MESSAGE_PERSONAL)
             .build();
         hasher.update(&tx_hash);
         for (resolved_output, data) in inputs {
