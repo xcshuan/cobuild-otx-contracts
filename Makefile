@@ -130,7 +130,7 @@ generate:
 			cat $(DESTINATION)/$(CRATE)/.cargo-generate/tests.rs >> tests/src/tests.rs; \
 			rm -rf $(DESTINATION)/$(CRATE)/.cargo-generate/; \
 		fi; \
-		sed '/@@INSERTION_POINT@@/s/$$/\n  "$(DESTINATION)\/$(CRATE)",/' Cargo.toml > Cargo.toml.new; \
+		sed '/@@INSERTION_POINT@@/s,$$,\n  "$(DESTINATION)/$(CRATE)",,' Cargo.toml > Cargo.toml.new; \
 		mv Cargo.toml.new Cargo.toml; \
 	fi;
 

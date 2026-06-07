@@ -1,0 +1,12 @@
+[package]
+name = "limit-order"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ckb-std = "1.1"
+cobuild-core = { path = "../../../crates/cobuild-core" }
+
+[features]
+library = []
+native-simulator = ["library", "ckb-std/native-simulator"]

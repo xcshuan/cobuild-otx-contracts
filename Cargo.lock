@@ -1117,6 +1117,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "limit-order"
+version = "0.1.0"
+dependencies = [
+ "ckb-std",
+ "cobuild-core",
+]
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

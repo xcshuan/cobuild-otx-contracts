@@ -41,3 +41,18 @@ fn root_makefile_builds_test_only_contracts() {
         );
     }
 }
+
+#[test]
+fn root_makefile_generate_handles_nested_destinations() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let makefile = std::fs::read_to_string(workspace_root.join("Makefile")).expect("Makefile");
+
+    assert!(
+        !makefile.contains("$(DESTINATION)\\/$(CRATE)"),
+        "generate target must not put DESTINATION into a slash-delimited sed replacement"
+    );
+    assert!(
+        makefile.contains(r#"s,$$,\n  "$(DESTINATION)/$(CRATE)",,"#),
+        "generate target should use a delimiter-safe replacement for nested destinations"
+    );
+}
