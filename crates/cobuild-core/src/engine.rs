@@ -66,22 +66,6 @@ struct LockPlanBuilder<'a> {
     related_actions: Vec<RelatedAction>,
 }
 
-struct LockOtxRelevance {
-    base_signature: bool,
-    append_signature: bool,
-    actions: Vec<ActionView>,
-}
-
-impl LockOtxRelevance {
-    fn needs_signature(&self) -> bool {
-        self.base_signature || self.append_signature
-    }
-
-    fn is_related(&self) -> bool {
-        self.needs_signature() || !self.actions.is_empty()
-    }
-}
-
 impl<'a> LockPlanBuilder<'a> {
     fn new(context: &'a CobuildContext) -> Result<Self, CoreError> {
         Ok(Self {
@@ -171,14 +155,23 @@ impl<'a> LockPlanBuilder<'a> {
             return Ok(());
         };
 
-        let actions = lock_actions_for_message(&message, self.lock_script_hash)?;
+        self.add_tx_related_actions(witness_index, &message)?;
+        Ok(())
+    }
+
+    fn add_tx_related_actions(
+        &mut self,
+        witness_index: usize,
+        message: &Cursor,
+    ) -> Result<(), CoreError> {
+        let actions = lock_actions_for_message(message, self.lock_script_hash)?;
         if actions.is_empty() {
             return Ok(());
         }
 
         self.context
             .script_context
-            .validate_message_targets(&message)?;
+            .validate_message_targets(message)?;
         self.related_actions.extend(
             actions
                 .into_iter()
@@ -207,70 +200,22 @@ impl<'a> LockPlanBuilder<'a> {
     }
 
     fn add_otx_requirements(&mut self) -> Result<(), CoreError> {
-        match &self.context.otx_layouts {
-            OtxLayouts::None => {}
-            OtxLayouts::Complete(layout) => {
-                for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
-                    let relevance = self.otx_lock_relevance(otx)?;
-                    if !relevance.is_related() {
-                        continue;
-                    }
+        let OtxLayouts::Complete(layout) = &self.context.otx_layouts else {
+            return Ok(());
+        };
 
-                    self.context
-                        .script_context
-                        .validate_message_targets(&otx.witness.message)?;
-                    let needs_signature = relevance.needs_signature();
-                    for action in relevance.actions {
-                        self.related_actions
-                            .push(related_otx_action(otx_index, otx, action));
-                    }
-                    if !needs_signature {
-                        continue;
-                    }
-
-                    let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.context.tx)?;
-                    if relevance.base_signature {
-                        let seal = crate::seal::unique_otx_seal_by_scope(
-                            self.lock_script_hash,
-                            &otx.witness.seals,
-                            SealScope::Base,
-                        )?;
-                        self.required_signatures.push(SigningRequirement {
-                            origin: SignatureOrigin::OtxBase,
-                            carrier_witness_index: otx.layout.witness_index,
-                            seal,
-                            signing_message_hash: base_hash,
-                        });
-                    }
-                    if relevance.append_signature {
-                        let seal = crate::seal::unique_otx_seal_by_scope(
-                            self.lock_script_hash,
-                            &otx.witness.seals,
-                            SealScope::Append,
-                        )?;
-                        self.required_signatures.push(SigningRequirement {
-                            origin: SignatureOrigin::OtxAppend,
-                            carrier_witness_index: otx.layout.witness_index,
-                            seal,
-                            signing_message_hash: otx_append_hash(
-                                &otx.witness,
-                                &otx.layout,
-                                &self.context.tx,
-                                base_hash,
-                            )?,
-                        });
-                    }
-                }
-            }
+        for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
+            self.add_otx_requirement(otx_index, otx)?;
         }
 
         Ok(())
     }
 
-    fn otx_lock_relevance(
+    fn add_otx_requirement(
         &mut self,
+        otx_index: usize,
         otx: &crate::layout::OtxLayoutEntry,
-    ) -> Result<LockOtxRelevance, CoreError> {
+    ) -> Result<(), CoreError> {
         let base_signature = self
             .context
             .script_context
@@ -280,12 +225,74 @@ impl<'a> LockPlanBuilder<'a> {
             .script_context
             .input_range_contains_current_lock(otx.layout.append_inputs)?;
         let actions = lock_actions_for_message(&otx.witness.message, self.lock_script_hash)?;
+        let needs_signature = base_signature || append_signature;
+        if !needs_signature && actions.is_empty() {
+            return Ok(());
+        }
 
-        Ok(LockOtxRelevance {
-            base_signature,
-            append_signature,
-            actions,
-        })
+        self.context
+            .script_context
+            .validate_message_targets(&otx.witness.message)?;
+        self.add_otx_related_actions(otx_index, otx, actions);
+        if needs_signature {
+            self.add_otx_signatures(otx, base_signature, append_signature)?;
+        }
+
+        Ok(())
+    }
+
+    fn add_otx_related_actions(
+        &mut self,
+        otx_index: usize,
+        otx: &crate::layout::OtxLayoutEntry,
+        actions: Vec<ActionView>,
+    ) {
+        for action in actions {
+            self.related_actions
+                .push(related_otx_action(otx_index, otx, action));
+        }
+    }
+
+    fn add_otx_signatures(
+        &mut self,
+        otx: &crate::layout::OtxLayoutEntry,
+        base_signature: bool,
+        append_signature: bool,
+    ) -> Result<(), CoreError> {
+        let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.context.tx)?;
+        if base_signature {
+            let seal = crate::seal::unique_otx_seal_by_scope(
+                self.lock_script_hash,
+                &otx.witness.seals,
+                SealScope::Base,
+            )?;
+            self.required_signatures.push(SigningRequirement {
+                origin: SignatureOrigin::OtxBase,
+                carrier_witness_index: otx.layout.witness_index,
+                seal,
+                signing_message_hash: base_hash,
+            });
+        }
+        if append_signature {
+            let seal = crate::seal::unique_otx_seal_by_scope(
+                self.lock_script_hash,
+                &otx.witness.seals,
+                SealScope::Append,
+            )?;
+            self.required_signatures.push(SigningRequirement {
+                origin: SignatureOrigin::OtxAppend,
+                carrier_witness_index: otx.layout.witness_index,
+                seal,
+                signing_message_hash: otx_append_hash(
+                    &otx.witness,
+                    &otx.layout,
+                    &self.context.tx,
+                    base_hash,
+                )?,
+            });
+        }
+
+        Ok(())
     }
 
     fn ensure_otx_lock_group_coverage(&self) -> Result<(), CoreError> {

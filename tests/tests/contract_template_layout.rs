@@ -752,6 +752,8 @@ fn cobuild_core_uses_concrete_flow_objects_without_scattered_flow_helpers() {
         "related_tx_message",
         "related_otx_message",
         "collect_otx_related_message_if_relevant",
+        "otx_lock_relevance",
+        "LockOtxRelevance",
         "current_lock_outside_otx_ranges",
         "current_lock_has_inputs_outside_otx_ranges",
         "all_current_lock_inputs_covered_by_otx",
@@ -788,7 +790,12 @@ fn cobuild_core_lock_plan_exposes_related_actions() {
     );
     assert!(
         engine_rs.contains("related_tx_action")
-            && engine_rs.contains("otx_lock_relevance")
+            && engine_rs.contains("add_tx_related_actions")
+            && engine_rs.contains("add_otx_requirement")
+            && engine_rs.contains("add_otx_related_actions")
+            && engine_rs.contains("add_otx_signatures")
+            && engine_rs.contains("input_range_contains_current_lock(otx.layout.base_inputs)")
+            && engine_rs.contains("input_range_contains_current_lock(otx.layout.append_inputs)")
             && engine_rs.contains("related_otx_action"),
         "lock planning should keep explicit related action constructors and separate signature relevance from action delivery"
     );
