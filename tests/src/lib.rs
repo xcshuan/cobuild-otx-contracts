@@ -14,6 +14,8 @@ use std::str::FromStr;
 #[cfg(test)]
 mod tests;
 
+pub mod framework;
+
 // The exact same Loader code from capsule's template, except that
 // now we use MODE as the environment variable
 const TEST_ENV_VAR: &str = "MODE";
