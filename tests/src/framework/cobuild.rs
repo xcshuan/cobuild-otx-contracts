@@ -1,7 +1,23 @@
 use ckb_testtool::ckb_types::prelude::{Builder, Entity};
 use cobuild_types::entity::core::{Action, ActionVec, Message as CobuildMessage, Otx, SealPairVec};
 
-const FILL_ORDER_TAG: u8 = 1;
+pub fn empty_message() -> CobuildMessage {
+    CobuildMessage::new_builder()
+        .actions(ActionVec::new_builder().build())
+        .build()
+}
+
+pub fn seal_pair(
+    script_hash: [u8; 32],
+    scope: u8,
+    seal: Vec<u8>,
+) -> cobuild_types::entity::core::SealPair {
+    cobuild_types::entity::core::SealPair::new_builder()
+        .script_hash(script_hash)
+        .scope(scope)
+        .seal(seal)
+        .build()
+}
 
 #[derive(Clone, Debug)]
 pub struct CobuildMessageBuilder {
@@ -25,21 +41,8 @@ impl CobuildMessageBuilder {
         self
     }
 
-    pub fn limit_order_fill(
-        mut self,
-        order_id: [u8; 32],
-        requested_asset_id: [u8; 32],
-        offered_amount: u64,
-        requested_amount: u64,
-    ) -> Self {
-        self.action_data = Vec::with_capacity(81);
-        self.action_data.push(FILL_ORDER_TAG);
-        self.action_data.extend_from_slice(&order_id);
-        self.action_data.extend_from_slice(&requested_asset_id);
-        self.action_data
-            .extend_from_slice(&offered_amount.to_le_bytes());
-        self.action_data
-            .extend_from_slice(&requested_amount.to_le_bytes());
+    pub fn action_data(mut self, action_data: Vec<u8>) -> Self {
+        self.action_data = action_data;
         self
     }
 

@@ -1,6 +1,8 @@
 use ckb_testtool::ckb_types::core::TransactionView;
 use tests::framework::{
-    contracts::cell_dep_for_script, fixture::CobuildTestFixture, fixture::LimitOrderBuilder,
+    contracts::cell_dep_for_script,
+    fixture::CobuildTestFixture,
+    limit_order::{LimitOrderBuilder, LimitOrderCobuildMessageExt, LimitOrderFixtureExt},
 };
 
 const ORDER_ID: [u8; 32] = [1; 32];

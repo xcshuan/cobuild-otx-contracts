@@ -7,40 +7,17 @@ use ckb_testtool::{
     context::Context,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LimitOrderState {
-    pub order_id: [u8; 32],
-    pub owner_lock_hash: [u8; 32],
-    pub offered_asset_id: [u8; 32],
-    pub requested_asset_id: [u8; 32],
-    pub offered_remaining: u64,
-    pub min_requested_per_offered: u64,
-    pub nonce: u64,
-}
-
-pub fn order_data(order: LimitOrderState) -> Vec<u8> {
-    let mut data = Vec::with_capacity(152);
-    data.extend_from_slice(&order.order_id);
-    data.extend_from_slice(&order.owner_lock_hash);
-    data.extend_from_slice(&order.offered_asset_id);
-    data.extend_from_slice(&order.requested_asset_id);
-    data.extend_from_slice(&order.offered_remaining.to_le_bytes());
-    data.extend_from_slice(&order.min_requested_per_offered.to_le_bytes());
-    data.extend_from_slice(&order.nonce.to_le_bytes());
-    data
-}
-
-pub fn settlement_data(asset_id: [u8; 32], amount: u64) -> Vec<u8> {
-    let mut data = Vec::with_capacity(40);
-    data.extend_from_slice(&asset_id);
-    data.extend_from_slice(&amount.to_le_bytes());
-    data
-}
-
 #[derive(Clone, Debug)]
 pub struct TestCellOutput {
     pub cell: CellOutput,
     pub data: Bytes,
+}
+
+#[derive(Clone, Debug)]
+pub struct TestResolvedInput {
+    pub raw_input: Vec<u8>,
+    pub resolved_output: Vec<u8>,
+    pub data: Vec<u8>,
 }
 
 impl TestCellOutput {
@@ -70,4 +47,41 @@ pub fn typed_output(lock: Script, type_script: Script, capacity: u64) -> CellOut
 pub fn live_input(context: &mut Context, output: CellOutput, data: impl Into<Bytes>) -> CellInput {
     let out_point: OutPoint = context.create_cell(output, data.into());
     CellInput::new_builder().previous_output(out_point).build()
+}
+
+pub fn live_resolved_input(
+    context: &mut Context,
+    output: CellOutput,
+    data: impl Into<Bytes>,
+) -> (CellInput, TestResolvedInput) {
+    let data = data.into();
+    let previous_output: OutPoint = context.create_cell(output.clone(), data.clone());
+    let input = CellInput::new_builder()
+        .previous_output(previous_output)
+        .build();
+    let resolved = TestResolvedInput {
+        raw_input: input.as_slice().to_vec(),
+        resolved_output: output.as_slice().to_vec(),
+        data: data.to_vec(),
+    };
+    (input, resolved)
+}
+
+pub fn live_resolved_normal_input(
+    context: &mut Context,
+    lock: Script,
+    capacity: u64,
+    data: impl Into<Bytes>,
+) -> (CellInput, TestResolvedInput) {
+    live_resolved_input(context, normal_output(lock, capacity), data)
+}
+
+pub fn live_resolved_typed_input(
+    context: &mut Context,
+    lock: Script,
+    type_script: Script,
+    capacity: u64,
+    data: impl Into<Bytes>,
+) -> (CellInput, TestResolvedInput) {
+    live_resolved_input(context, typed_output(lock, type_script, capacity), data)
 }

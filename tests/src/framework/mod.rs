@@ -3,18 +3,28 @@ pub mod cells;
 pub mod cobuild;
 pub mod contracts;
 pub mod fixture;
+pub mod limit_order;
 pub mod scripts;
+pub mod signing;
 pub mod tx;
 
 #[cfg(test)]
 mod tests {
     use super::{
         assertions::assert_type_script_exit_result,
-        cells::{LimitOrderState, order_data, settlement_data},
-        cobuild::{CobuildMessageBuilder, OtxBuilder},
+        cells::{TestResolvedInput, live_resolved_typed_input},
+        cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, seal_pair},
         contracts::{deploy_always_success, deploy_data2_script},
         fixture::CobuildTestFixture,
+        limit_order::{
+            LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, order_data,
+            settlement_data,
+        },
         scripts::script_hash,
+        signing::{
+            fixed_secret_key, public_key_hash20, sighash_all_only_witness, sign_recoverable,
+        },
+        tx::otx_start_witness,
     };
     use ckb_testtool::{
         ckb_script::ScriptError,
@@ -71,6 +81,36 @@ mod tests {
     }
 
     #[test]
+    fn otx_witness_helpers_encode_start_and_seal() {
+        let message = empty_message();
+        assert_eq!(message.actions().len(), 0);
+
+        let seal = seal_pair([9u8; 32], 0, vec![1, 2, 3]);
+        assert_eq!(seal.script_hash().raw_data().as_ref(), &[9u8; 32]);
+
+        let witness = otx_start_witness(1, 2, 3, 4);
+        assert!(!witness.is_empty());
+    }
+
+    #[test]
+    fn signing_helpers_build_sighash_all_only_witness() {
+        let secret_key = fixed_secret_key(1);
+        let public_key_hash = public_key_hash20(&secret_key);
+        assert_eq!(public_key_hash.len(), 20);
+
+        let seal = sign_recoverable(&secret_key, [7u8; 32]);
+        assert_eq!(seal.len(), 65);
+
+        let witness = sighash_all_only_witness(seal.clone());
+        assert!(witness.len() > seal.len());
+        assert!(
+            witness
+                .windows(seal.len())
+                .any(|window| window == seal.as_slice())
+        );
+    }
+
+    #[test]
     fn contract_helpers_deploy_scripts_and_record_script_hashes() {
         let mut context = Context::default();
 
@@ -84,6 +124,28 @@ mod tests {
         );
         let cell_dep_index: u32 = limit_order.cell_dep.out_point().index().unpack();
         assert_eq!(cell_dep_index, 0);
+    }
+
+    #[test]
+    fn resolved_input_helpers_preserve_cell_and_data() {
+        let mut fixture = CobuildTestFixture::new();
+        let lock = fixture.deploy_always_success();
+        let type_script = fixture.deploy_always_success();
+        let (_input, resolved): (_, TestResolvedInput) = live_resolved_typed_input(
+            fixture.context_mut(),
+            lock.script.clone(),
+            type_script.script.clone(),
+            1_000,
+            vec![1, 2, 3],
+        );
+
+        assert!(!resolved.raw_input.is_empty());
+        assert!(!resolved.resolved_output.is_empty());
+        assert_eq!(resolved.data, vec![1, 2, 3]);
+
+        let deployed =
+            deploy_data2_script(fixture.context_mut(), "cobuild-otx-lock", vec![0u8; 21]);
+        assert_eq!(deployed.script.args().raw_data().len(), 21);
     }
 
     #[test]

@@ -9,6 +9,23 @@ use cobuild_types::entity::{core::OtxStart, witness::WitnessLayout};
 use super::cells::TestCellOutput;
 use super::cobuild::BuiltOtx;
 
+pub fn otx_start_witness(
+    start_input_cell: u32,
+    start_output_cell: u32,
+    start_cell_deps: u32,
+    start_header_deps: u32,
+) -> Bytes {
+    let witness = WitnessLayout::from(
+        OtxStart::new_builder()
+            .start_input_cell(start_input_cell.to_le_bytes())
+            .start_output_cell(start_output_cell.to_le_bytes())
+            .start_cell_deps(start_cell_deps.to_le_bytes())
+            .start_header_deps(start_header_deps.to_le_bytes())
+            .build(),
+    );
+    Bytes::copy_from_slice(witness.as_slice())
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct OtxTransactionBuilder {
     cell_deps: Vec<CellDep>,
@@ -74,15 +91,6 @@ impl OtxTransactionBuilder {
             "OTX append output range exceeds transaction outputs"
         );
 
-        let otx_start = WitnessLayout::from(
-            OtxStart::new_builder()
-                .start_input_cell(start_input_cell.to_le_bytes())
-                .start_output_cell(start_output_cell.to_le_bytes())
-                .start_cell_deps(start_cell_deps.to_le_bytes())
-                .start_header_deps(start_header_deps.to_le_bytes())
-                .build(),
-        );
-
         let mut builder = TransactionBuilder::default();
         for dep in self.cell_deps {
             builder = builder.cell_dep(dep);
@@ -94,7 +102,15 @@ impl OtxTransactionBuilder {
             builder = builder.output(output.cell).output_data(output.data.pack());
         }
 
-        builder = builder.witness(Bytes::copy_from_slice(otx_start.as_slice()).pack());
+        builder = builder.witness(
+            otx_start_witness(
+                start_input_cell,
+                start_output_cell,
+                start_cell_deps,
+                start_header_deps,
+            )
+            .pack(),
+        );
         for otx in self.otxs {
             let witness = WitnessLayout::from(otx.otx);
             builder = builder.witness(Bytes::copy_from_slice(witness.as_slice()).pack());
