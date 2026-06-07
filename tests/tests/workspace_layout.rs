@@ -10,6 +10,8 @@ fn workspace_declares_clean_cobuild_members() {
         "\"crates/cobuild-types\"",
         "\"crates/cobuild-core\"",
         "\"contracts/cobuild-otx-lock\"",
+        "\"tests/contracts/test-udt\"",
+        "\"tests/contracts/test-nft\"",
         "\"tests\"",
     ] {
         assert!(
@@ -21,4 +23,24 @@ fn workspace_declares_clean_cobuild_members() {
         !manifest.contains("[patch.crates-io]\ncritical-section"),
         "clean workspace must not patch critical-section"
     );
+}
+
+#[test]
+fn test_asset_contracts_live_under_tests_directory() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    for contract in ["test-udt", "test-nft"] {
+        let test_contract_dir = workspace_root.join("tests/contracts").join(contract);
+        assert!(
+            test_contract_dir.join("Cargo.toml").is_file(),
+            "missing test-only contract manifest for {contract}"
+        );
+        assert!(
+            test_contract_dir.join("Makefile").is_file(),
+            "missing test-only contract Makefile for {contract}"
+        );
+        assert!(
+            !workspace_root.join("contracts").join(contract).exists(),
+            "{contract} must stay under tests/contracts, not production contracts"
+        );
+    }
 }

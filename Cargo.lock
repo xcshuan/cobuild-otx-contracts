@@ -455,6 +455,7 @@ dependencies = [
  "buddy-alloc",
  "cc",
  "ckb-gen-types",
+ "ckb-hash",
  "ckb-x64-simulator",
  "gcd",
  "int-enum",
@@ -1914,6 +1915,20 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys",
+]
+
+[[package]]
+name = "test-nft"
+version = "0.1.0"
+dependencies = [
+ "ckb-std",
+]
+
+[[package]]
+name = "test-udt"
+version = "0.1.0"
+dependencies = [
+ "ckb-std",
 ]
 
 [[package]]

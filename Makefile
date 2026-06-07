@@ -50,6 +50,11 @@ build:
 				$(MAKE) -e -C $$contract build; \
 			fi; \
 		done; \
+		for contract in $(wildcard tests/contracts/*); do \
+			if [ -f "$$contract/Makefile" ]; then \
+				$(MAKE) -e -C $$contract build; \
+			fi; \
+		done; \
 		for crate in $(wildcard crates/*); do \
 			cargo build -p $$(basename $$crate) $(MODE_ARGS) $(CARGO_ARGS); \
 		done; \

@@ -8,6 +8,7 @@ Clean Cobuild OTX lock contract workspace for CKB.
 - `crates/cobuild-core`: `no_std` Cobuild protocol logic, lazy-reader views, hashing, layout scanning, and task generation.
 - `contracts/cobuild-otx-lock`: thin lock contract runner, args, verifier boundary, and exit code mapping.
 - `tests`: CKB testtool integration fixtures for tx-level, OTX, mixed, and negative flows.
+- `tests/contracts`: test-only asset contracts used by integration fixtures.
 - `xtask`: local codegen entrypoint for `cobuild-types`.
 
 ## Common Commands
