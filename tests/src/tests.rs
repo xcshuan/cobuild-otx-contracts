@@ -36,6 +36,28 @@ fn fixtures_live_in_dedicated_module_files() {
 }
 
 #[test]
+fn business_fixtures_do_not_live_in_framework_modules() {
+    assert!(
+        !std::path::Path::new("src/framework/limit_order.rs").exists(),
+        "limit-order helpers are business fixtures and must live under tests/src/fixtures/"
+    );
+}
+
+#[test]
+fn framework_otx_builder_defaults_to_neutral_layout() {
+    let built = crate::framework::cobuild::OtxBuilder::new().build_with_layout();
+
+    assert_eq!(built.base_input_cells, 0);
+    assert_eq!(built.base_output_cells, 0);
+    assert_eq!(built.base_cell_deps, 0);
+    assert_eq!(built.base_header_deps, 0);
+    assert_eq!(built.append_input_cells, 0);
+    assert_eq!(built.append_output_cells, 0);
+    assert_eq!(built.append_cell_deps, 0);
+    assert_eq!(built.append_header_deps, 0);
+}
+
+#[test]
 fn cobuild_otx_lock_test_file_contains_no_fixture_helpers() {
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -61,6 +83,10 @@ fn cobuild_otx_lock_test_file_contains_no_fixture_helpers() {
         "fn full_output_masks",
         "fn tx_without_message_hash_for_inputs",
         "fn sign_recoverable",
+        "TransactionBuilder::default()",
+        "Loader::default().load_binary",
+        "build_script_with_hash_type",
+        "WitnessLayout::from(SighashAllOnly",
         "fn write_count",
         "fn write_len_prefixed_bytes",
         "fn checked_len_prefix",

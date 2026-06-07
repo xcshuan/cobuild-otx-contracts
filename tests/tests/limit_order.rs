@@ -1,8 +1,7 @@
 use ckb_testtool::ckb_types::core::TransactionView;
-use tests::framework::{
-    contracts::cell_dep_for_script,
-    fixture::CobuildTestFixture,
-    limit_order::{LimitOrderBuilder, LimitOrderCobuildMessageExt, LimitOrderFixtureExt},
+use tests::{
+    fixtures::limit_order::{LimitOrderBuilder, LimitOrderCobuildMessageExt, LimitOrderFixtureExt},
+    framework::{contracts::cell_dep_for_script, fixture::CobuildTestFixture},
 };
 
 const ORDER_ID: [u8; 32] = [1; 32];
@@ -57,11 +56,8 @@ fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, TransactionV
         .limit_order_fill(ORDER_ID, REQUESTED_ASSET_ID, 10, 30)
         .build();
     let otx = fixture
-        .otx()
+        .limit_order_append_settlement_otx()
         .message(message)
-        .base_input_cells(1)
-        .append_output_cells(1)
-        .allow_append_outputs()
         .build_with_layout();
 
     let tx = fixture

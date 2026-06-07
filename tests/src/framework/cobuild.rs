@@ -88,7 +88,13 @@ pub struct OtxBuilder {
 pub struct BuiltOtx {
     pub otx: Otx,
     pub base_input_cells: u32,
+    pub base_output_cells: u32,
+    pub base_cell_deps: u32,
+    pub base_header_deps: u32,
+    pub append_input_cells: u32,
     pub append_output_cells: u32,
+    pub append_cell_deps: u32,
+    pub append_header_deps: u32,
 }
 
 impl OtxBuilder {
@@ -96,8 +102,8 @@ impl OtxBuilder {
         Self {
             message: CobuildMessageBuilder::new().build(),
             append_permissions: 0,
-            base_input_cells: 1,
-            base_input_masks: vec![0],
+            base_input_cells: 0,
+            base_input_masks: Vec::new(),
             base_output_cells: 0,
             base_output_masks: Vec::new(),
             base_cell_deps: 0,
@@ -105,7 +111,7 @@ impl OtxBuilder {
             base_header_deps: 0,
             base_header_dep_masks: Vec::new(),
             append_input_cells: 0,
-            append_output_cells: 1,
+            append_output_cells: 0,
             append_cell_deps: 0,
             append_header_deps: 0,
         }
@@ -127,6 +133,36 @@ impl OtxBuilder {
         self
     }
 
+    pub fn base_output_cells(mut self, count: u32) -> Self {
+        self.base_output_cells = count;
+        self
+    }
+
+    pub fn base_cell_deps(mut self, count: u32) -> Self {
+        self.base_cell_deps = count;
+        self
+    }
+
+    pub fn base_header_deps(mut self, count: u32) -> Self {
+        self.base_header_deps = count;
+        self
+    }
+
+    pub fn append_input_cells(mut self, count: u32) -> Self {
+        self.append_input_cells = count;
+        self
+    }
+
+    pub fn append_cell_deps(mut self, count: u32) -> Self {
+        self.append_cell_deps = count;
+        self
+    }
+
+    pub fn append_header_deps(mut self, count: u32) -> Self {
+        self.append_header_deps = count;
+        self
+    }
+
     pub fn allow_append_outputs(mut self) -> Self {
         self.append_permissions |= 0b0010;
         self
@@ -138,7 +174,13 @@ impl OtxBuilder {
 
     pub fn build_with_layout(self) -> BuiltOtx {
         let base_input_cells = self.base_input_cells;
+        let base_output_cells = self.base_output_cells;
+        let base_cell_deps = self.base_cell_deps;
+        let base_header_deps = self.base_header_deps;
+        let append_input_cells = self.append_input_cells;
         let append_output_cells = self.append_output_cells;
+        let append_cell_deps = self.append_cell_deps;
+        let append_header_deps = self.append_header_deps;
         let otx = Otx::new_builder()
             .message(self.message)
             .append_permissions(self.append_permissions)
@@ -159,7 +201,13 @@ impl OtxBuilder {
         BuiltOtx {
             otx,
             base_input_cells,
+            base_output_cells,
+            base_cell_deps,
+            base_header_deps,
+            append_input_cells,
             append_output_cells,
+            append_cell_deps,
+            append_header_deps,
         }
     }
 }

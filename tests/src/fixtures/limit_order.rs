@@ -3,9 +3,9 @@ use ckb_testtool::{
     context::Context,
 };
 
-use super::{
+use crate::framework::{
     cells::{TestCellOutput, live_input, normal_output, typed_output},
-    cobuild::CobuildMessageBuilder,
+    cobuild::{CobuildMessageBuilder, OtxBuilder},
     contracts::{DeployedScript, deploy_data2_script},
     fixture::CobuildTestFixture,
     scripts::script_hash,
@@ -74,6 +74,7 @@ impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
 pub trait LimitOrderFixtureExt {
     fn deploy_limit_order(&mut self) -> DeployedScript;
     fn limit_order(&mut self) -> LimitOrderBuilder<'_>;
+    fn limit_order_append_settlement_otx(&self) -> OtxBuilder;
 }
 
 impl LimitOrderFixtureExt for CobuildTestFixture {
@@ -83,6 +84,13 @@ impl LimitOrderFixtureExt for CobuildTestFixture {
 
     fn limit_order(&mut self) -> LimitOrderBuilder<'_> {
         LimitOrderBuilder::new(self.context_mut())
+    }
+
+    fn limit_order_append_settlement_otx(&self) -> OtxBuilder {
+        OtxBuilder::new()
+            .base_input_cells(1)
+            .append_output_cells(1)
+            .allow_append_outputs()
     }
 }
 

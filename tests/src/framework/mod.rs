@@ -3,7 +3,6 @@ pub mod cells;
 pub mod cobuild;
 pub mod contracts;
 pub mod fixture;
-pub mod limit_order;
 pub mod scripts;
 pub mod signing;
 pub mod tx;
@@ -16,15 +15,15 @@ mod tests {
         cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, seal_pair},
         contracts::{deploy_always_success, deploy_data2_script},
         fixture::CobuildTestFixture,
-        limit_order::{
-            LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, order_data,
-            settlement_data,
-        },
         scripts::script_hash,
         signing::{
             fixed_secret_key, public_key_hash20, sighash_all_only_witness, sign_recoverable,
         },
         tx::otx_start_witness,
+    };
+    use crate::fixtures::limit_order::{
+        LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, order_data,
+        settlement_data,
     };
     use ckb_testtool::{
         ckb_script::ScriptError,
@@ -64,17 +63,16 @@ mod tests {
     }
 
     #[test]
-    fn cobuild_helpers_encode_limit_order_fill_action_and_default_otx_layout() {
+    fn limit_order_fixture_encodes_fill_action_and_default_otx_layout() {
         let message = CobuildMessageBuilder::new()
             .input_type_action([9; 32])
             .limit_order_fill([1; 32], [4; 32], 10, 30)
             .build();
 
-        let otx = OtxBuilder::new()
+        let fixture = CobuildTestFixture::new();
+        let otx = fixture
+            .limit_order_append_settlement_otx()
             .message(message)
-            .base_input_cells(1)
-            .append_output_cells(1)
-            .allow_append_outputs()
             .build();
 
         assert_eq!(otx.append_permissions().as_slice(), &[0b0010]);

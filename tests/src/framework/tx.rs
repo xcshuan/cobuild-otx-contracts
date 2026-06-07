@@ -81,14 +81,45 @@ impl OtxTransactionBuilder {
         let start_header_deps = 0u32;
 
         let total_base_inputs: u32 = self.otxs.iter().map(|otx| otx.base_input_cells).sum();
+        let total_base_outputs: u32 = self.otxs.iter().map(|otx| otx.base_output_cells).sum();
+        let total_base_cell_deps: u32 = self.otxs.iter().map(|otx| otx.base_cell_deps).sum();
+        let total_base_header_deps: u32 = self.otxs.iter().map(|otx| otx.base_header_deps).sum();
+        let total_append_inputs: u32 = self.otxs.iter().map(|otx| otx.append_input_cells).sum();
         let total_append_outputs: u32 = self.otxs.iter().map(|otx| otx.append_output_cells).sum();
+        let total_append_cell_deps: u32 = self.otxs.iter().map(|otx| otx.append_cell_deps).sum();
+        let total_append_header_deps: u32 =
+            self.otxs.iter().map(|otx| otx.append_header_deps).sum();
         assert!(
             total_base_inputs as usize <= self.base_inputs.len(),
             "OTX base input range exceeds transaction inputs"
         );
         assert!(
+            total_base_outputs == 0,
+            "OTX base output range exceeds transaction outputs"
+        );
+        assert!(
+            total_base_cell_deps as usize <= self.cell_deps.len(),
+            "OTX base cell dep range exceeds transaction cell deps"
+        );
+        assert!(
+            total_base_header_deps == 0,
+            "OTX base header dep range exceeds transaction header deps"
+        );
+        assert!(
+            total_append_inputs == 0,
+            "OTX append input range exceeds transaction inputs"
+        );
+        assert!(
             total_append_outputs as usize <= self.append_outputs.len(),
             "OTX append output range exceeds transaction outputs"
+        );
+        assert!(
+            total_append_cell_deps == 0,
+            "OTX append cell dep range exceeds transaction cell deps"
+        );
+        assert!(
+            total_append_header_deps == 0,
+            "OTX append header dep range exceeds transaction header deps"
         );
 
         let mut builder = TransactionBuilder::default();

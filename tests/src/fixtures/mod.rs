@@ -1,4 +1,5 @@
 mod cobuild_otx_lock;
+pub mod limit_order;
 mod otx_hash;
 mod support;
 pub mod udt;
