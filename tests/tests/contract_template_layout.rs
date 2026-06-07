@@ -400,6 +400,30 @@ fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
             "MaskView should own mask behavior via {expected}"
         );
     }
+    for expected in [
+        "pub fn includes_base_input_since(",
+        "pub fn includes_base_input_previous_output(",
+        "pub fn includes_base_output_capacity(",
+        "pub fn includes_base_output_lock(",
+        "pub fn includes_base_output_type(",
+        "pub fn includes_base_output_data(",
+    ] {
+        assert!(
+            view_rs.contains(expected),
+            "OtxView should expose semantic base mask query {expected}"
+        );
+    }
+    let hash_rs = fs::read_to_string(core_src.join("hash/mod.rs")).expect("hash/mod.rs");
+    let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("context.rs");
+    for forbidden in [
+        "base_input_masks.get(local_index * 2",
+        "base_output_masks.get(local_index * 4",
+    ] {
+        assert!(
+            !hash_rs.contains(forbidden) && !context_rs.contains(forbidden),
+            "core flow code should use semantic OTX mask helpers instead of {forbidden}"
+        );
+    }
     let layout_rs = fs::read_to_string(core_src.join("layout.rs")).expect("layout.rs");
     assert!(
         !layout_rs.contains("fn validate_mask"),

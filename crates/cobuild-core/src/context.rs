@@ -270,7 +270,7 @@ impl CurrentScriptContext {
             if !self.type_output_indices()?.contains(&tx_index) {
                 continue;
             }
-            if otx.witness.base_output_masks.get(local_index * 4 + 2)? {
+            if otx.witness.includes_base_output_type(local_index)? {
                 return Ok(true);
             }
         }

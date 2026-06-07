@@ -8,6 +8,16 @@ use cobuild_types::lazy_reader::{
 
 use crate::{error::CoreError, protocol::ScriptRole, reader::cursor_bytes};
 
+const BASE_INPUT_MASK_BITS_PER_CELL: usize = 2;
+const BASE_INPUT_SINCE_MASK_OFFSET: usize = 0;
+const BASE_INPUT_PREVIOUS_OUTPUT_MASK_OFFSET: usize = 1;
+
+const BASE_OUTPUT_MASK_BITS_PER_CELL: usize = 4;
+const BASE_OUTPUT_CAPACITY_MASK_OFFSET: usize = 0;
+const BASE_OUTPUT_LOCK_MASK_OFFSET: usize = 1;
+const BASE_OUTPUT_TYPE_MASK_OFFSET: usize = 2;
+const BASE_OUTPUT_DATA_MASK_OFFSET: usize = 3;
+
 pub struct CobuildWitnessLayoutView {
     #[allow(dead_code)]
     pub(crate) inner: CobuildWitnessLayout,
@@ -65,6 +75,53 @@ pub struct OtxView {
     pub append_cell_deps: usize,
     pub append_header_deps: usize,
     pub seals: Vec<SealPairView>,
+}
+
+impl OtxView {
+    pub fn includes_base_input_since(&self, local_index: usize) -> Result<bool, CoreError> {
+        self.base_input_masks.get(base_input_mask_bit(
+            local_index,
+            BASE_INPUT_SINCE_MASK_OFFSET,
+        ))
+    }
+
+    pub fn includes_base_input_previous_output(
+        &self,
+        local_index: usize,
+    ) -> Result<bool, CoreError> {
+        self.base_input_masks.get(base_input_mask_bit(
+            local_index,
+            BASE_INPUT_PREVIOUS_OUTPUT_MASK_OFFSET,
+        ))
+    }
+
+    pub fn includes_base_output_capacity(&self, local_index: usize) -> Result<bool, CoreError> {
+        self.base_output_masks.get(base_output_mask_bit(
+            local_index,
+            BASE_OUTPUT_CAPACITY_MASK_OFFSET,
+        ))
+    }
+
+    pub fn includes_base_output_lock(&self, local_index: usize) -> Result<bool, CoreError> {
+        self.base_output_masks.get(base_output_mask_bit(
+            local_index,
+            BASE_OUTPUT_LOCK_MASK_OFFSET,
+        ))
+    }
+
+    pub fn includes_base_output_type(&self, local_index: usize) -> Result<bool, CoreError> {
+        self.base_output_masks.get(base_output_mask_bit(
+            local_index,
+            BASE_OUTPUT_TYPE_MASK_OFFSET,
+        ))
+    }
+
+    pub fn includes_base_output_data(&self, local_index: usize) -> Result<bool, CoreError> {
+        self.base_output_masks.get(base_output_mask_bit(
+            local_index,
+            BASE_OUTPUT_DATA_MASK_OFFSET,
+        ))
+    }
 }
 
 #[derive(Clone)]
@@ -160,6 +217,14 @@ impl MaskView {
 
         Ok(())
     }
+}
+
+fn base_input_mask_bit(local_index: usize, field_offset: usize) -> usize {
+    local_index * BASE_INPUT_MASK_BITS_PER_CELL + field_offset
+}
+
+fn base_output_mask_bit(local_index: usize, field_offset: usize) -> usize {
+    local_index * BASE_OUTPUT_MASK_BITS_PER_CELL + field_offset
 }
 
 impl CobuildWitnessLayoutView {
