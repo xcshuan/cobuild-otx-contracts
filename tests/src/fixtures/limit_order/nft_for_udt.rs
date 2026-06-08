@@ -7,15 +7,15 @@ use ckb_testtool::ckb_types::{
 };
 
 use crate::framework::{
-    cells::{live_input, normal_output, typed_output, TestCellOutput},
+    cells::{TestCellOutput, live_input, normal_output, typed_output},
     cobuild::empty_message,
-    contracts::{cell_dep_for_script, deploy_always_success, deploy_data2_script, DeployedScript},
+    contracts::{DeployedScript, cell_dep_for_script, deploy_always_success, deploy_data2_script},
     fixture::CobuildTestFixture,
     scripts::script_hash,
 };
 
 use super::{
-    order_data, LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, NFT_TYPE_ARGS,
+    LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, NFT_TYPE_ARGS, order_data,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -335,16 +335,15 @@ pub fn limit_order_create_nft_order_case_with(
     } else {
         None
     };
-    let order_input =
-        if case == CreateOrderCase::InputAndOutputGroupShape {
-            Some(live_input(
-                fixture.context_mut(),
-                typed_output(owner_lock, order_type.clone(), 100_000_000_000),
-                order_data(order_state),
-            ))
-        } else {
-            None
-        };
+    let order_input = if case == CreateOrderCase::InputAndOutputGroupShape {
+        Some(live_input(
+            fixture.context_mut(),
+            typed_output(owner_lock, order_type.clone(), 100_000_000_000),
+            order_data(order_state),
+        ))
+    } else {
+        None
+    };
     let nft_output = TestCellOutput::new(
         typed_output(
             proxy_lock.script.clone(),

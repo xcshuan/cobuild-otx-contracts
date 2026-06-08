@@ -47,6 +47,27 @@ fn root_makefile_builds_test_only_contracts() {
 }
 
 #[test]
+fn limit_order_type_contract_build_enables_official_type_id_without_default_feature() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let contract_dir = workspace_root.join("tests/contracts/limit-order-type");
+    let manifest = std::fs::read_to_string(contract_dir.join("Cargo.toml")).expect("manifest");
+    let makefile = std::fs::read_to_string(contract_dir.join("Makefile")).expect("Makefile");
+
+    assert!(
+        !manifest.contains("default = [\"type-id\"]"),
+        "limit-order-type must not enable ckb-std/type-id by default for workspace tests"
+    );
+    assert!(
+        makefile.contains("CONTRACT_FEATURES := --features type-id"),
+        "limit-order-type contract build must enable official ckb-std type-id validation"
+    );
+    assert!(
+        makefile.contains("$(CONTRACT_FEATURES)"),
+        "limit-order-type Makefile must pass contract features to cargo build"
+    );
+}
+
+#[test]
 fn root_makefile_generate_handles_nested_destinations() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let makefile = std::fs::read_to_string(workspace_root.join("Makefile")).expect("Makefile");

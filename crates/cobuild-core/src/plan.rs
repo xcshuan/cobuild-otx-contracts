@@ -33,7 +33,22 @@ pub struct TypeValidationPlan {
 #[derive(Clone)]
 pub struct TypeRelatedAction {
     pub action: RelatedAction,
-    pub otx_relation: Option<OtxTypeRelation>,
+    pub otx_type_scope: TypeActionOtxScope,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TypeActionOtxScope {
+    TargetOnly,
+    InOtxScope(OtxTypeRelation),
+}
+
+impl TypeActionOtxScope {
+    pub fn in_otx_scope(self) -> Option<OtxTypeRelation> {
+        match self {
+            Self::TargetOnly => None,
+            Self::InOtxScope(relation) => Some(relation),
+        }
+    }
 }
 
 #[derive(Clone)]

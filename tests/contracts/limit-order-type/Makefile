@@ -14,6 +14,7 @@ FULL_RUSTFLAGS := -C target-feature=+zba,+zbb,+zbc,+zbs,-a $(CUSTOM_RUSTFLAGS)
 # make test CARGO_ARGS="-- --nocapture" so as to inspect data emitted to
 # stdout in unit tests
 CARGO_ARGS :=
+CONTRACT_FEATURES := --features type-id
 MODE := release
 # Tweak this to change the clang version to use for building C code. By default
 # we use a bash script with some heuristics to find clang in current system.
@@ -41,7 +42,7 @@ build:
 		echo "Skipping proxy lock hash generation; $(TOP)/build/debug/input-type-proxy-lock is missing"; \
 	fi
 	RUSTFLAGS="$(FULL_RUSTFLAGS)" TARGET_CC="$(CLANG)" TARGET_AR="$(AR)" \
-		cargo build --target=riscv64imac-unknown-none-elf $(MODE_ARGS) $(CARGO_ARGS)
+		cargo build --target=riscv64imac-unknown-none-elf $(MODE_ARGS) $(CONTRACT_FEATURES) $(CARGO_ARGS)
 	@set -eu; \
 	if [ "x$(BUILD_DIR)" != "x" ]; then \
 		for binary in $(BINARIES); do \

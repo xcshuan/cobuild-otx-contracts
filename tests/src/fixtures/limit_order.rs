@@ -11,15 +11,15 @@ mod nft_for_udt;
 
 #[cfg(not(test))]
 pub use nft_for_udt::{
-    limit_order_action_failure_case, limit_order_create_nft_order_case,
-    limit_order_create_nft_order_case_with, limit_order_nft_for_udt_case,
-    limit_order_nft_for_udt_case_with, CreateOrderCase, FillActionCase, NftForUdtPaymentCase,
+    CreateOrderCase, FillActionCase, NftForUdtPaymentCase, limit_order_action_failure_case,
+    limit_order_create_nft_order_case, limit_order_create_nft_order_case_with,
+    limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with,
 };
 
 use crate::framework::{
-    cells::{live_input, normal_output, typed_output, TestCellOutput},
+    cells::{TestCellOutput, live_input, normal_output, typed_output},
     cobuild::{CobuildMessageBuilder, OtxBuilder},
-    contracts::{cell_dep_for_script, deploy_data2_script, DeployedScript},
+    contracts::{DeployedScript, cell_dep_for_script, deploy_data2_script},
     fixture::CobuildTestFixture,
     scripts::script_hash,
 };

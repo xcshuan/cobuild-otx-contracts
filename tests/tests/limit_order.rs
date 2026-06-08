@@ -1,8 +1,8 @@
 use tests::fixtures::limit_order::{
-    failed_txs_count, limit_order_action_failure_case, limit_order_case,
-    limit_order_create_nft_order_case, limit_order_create_nft_order_case_with,
-    limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with, CreateOrderCase,
-    FillActionCase, NftForUdtPaymentCase,
+    CreateOrderCase, FillActionCase, NftForUdtPaymentCase, failed_txs_count,
+    limit_order_action_failure_case, limit_order_case, limit_order_create_nft_order_case,
+    limit_order_create_nft_order_case_with, limit_order_nft_for_udt_case,
+    limit_order_nft_for_udt_case_with,
 };
 
 #[test]

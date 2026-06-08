@@ -1,5 +1,9 @@
 use alloc::vec::Vec;
 
+#[cfg(not(feature = "type-id"))]
+use ckb_std::high_level::load_script;
+#[cfg(feature = "type-id")]
+use ckb_std::type_id::check_type_id;
 use ckb_std::{
     ckb_constants::Source,
     ckb_types::{bytes::Bytes, packed::Script, prelude::*},
@@ -58,7 +62,10 @@ fn validate_fill_entry(plan: &TypeValidationPlan) -> Result<(), Error> {
         return Err(Error::InvalidCobuild);
     }
     let related = &plan.related_actions[0];
-    let layout = otx_fill_layout(&related.action.origin, related.otx_relation)?;
+    let layout = otx_fill_layout(
+        &related.action.origin,
+        related.otx_type_scope.in_otx_scope(),
+    )?;
     let action_data = cursor_bytes(&related.action.action.data)?;
     let LimitOrderAction::Fill(action) = parse_limit_order_action(&action_data)? else {
         return Err(Error::UnsupportedAction);
@@ -72,7 +79,7 @@ fn validate_create_entry(
     current_type_hash: [u8; 32],
     plan: &TypeValidationPlan,
 ) -> Result<(), Error> {
-    ckb_std::type_id::check_type_id(0, 32).map_err(Error::from)?;
+    validate_order_type_id()?;
     let order = single_group_order(Source::GroupOutput)?;
     let action = single_create_action(plan)?;
     validate_create(&order, &action)?;
@@ -94,6 +101,21 @@ fn single_group_order(source: Source) -> Result<crate::types::OrderState, Error>
     }
 
     parse_order_state(&data)
+}
+
+#[cfg(feature = "type-id")]
+fn validate_order_type_id() -> Result<(), Error> {
+    check_type_id(0, 32).map_err(Error::from)
+}
+
+#[cfg(not(feature = "type-id"))]
+fn validate_order_type_id() -> Result<(), Error> {
+    let script = load_script()?;
+    let args: Bytes = script.args().unpack();
+    if args.len() < 32 {
+        return Err(Error::TypeId);
+    }
+    Ok(())
 }
 
 fn expected_proxy_lock_hash(order_type_hash: [u8; 32]) -> [u8; 32] {
@@ -293,6 +315,7 @@ mod tests {
 
     #[test]
     fn type_id_sys_error_maps_to_stable_exit_code() {
+        #[cfg(feature = "type-id")]
         assert_eq!(
             Error::from(ckb_std::error::SysError::TypeIDError),
             Error::TypeId

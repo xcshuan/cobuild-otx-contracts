@@ -9,7 +9,7 @@ use crate::{
     layout::OtxLayouts,
     plan::{
         ActionOrigin, LockValidationPlan, OtxMessageLayout, RelatedAction, SignatureOrigin,
-        SigningRequirement, TypeRelatedAction, TypeValidationPlan,
+        SigningRequirement, TypeActionOtxScope, TypeRelatedAction, TypeValidationPlan,
     },
     protocol::{ScriptRole, SealScope},
     reader::cursor_bytes,
@@ -391,11 +391,11 @@ impl<'a> TypePlanBuilder<'a> {
                     self.context
                         .script_context
                         .validate_message_targets(&otx.witness.message)?;
-                    let otx_relation = otx_relation_if_range_related(relation);
+                    let otx_type_scope = type_action_otx_scope(relation);
                     for action in actions {
                         self.related_actions.push(TypeRelatedAction {
                             action: related_otx_action(otx_index, otx, action),
-                            otx_relation,
+                            otx_type_scope,
                         });
                     }
                 }
@@ -426,7 +426,7 @@ impl<'a> TypePlanBuilder<'a> {
         for action in actions {
             self.related_actions.push(TypeRelatedAction {
                 action: related_tx_action(witness_index, action),
-                otx_relation: None,
+                otx_type_scope: TypeActionOtxScope::TargetOnly,
             });
         }
         Ok(())
@@ -443,13 +443,11 @@ impl<'a> TypePlanBuilder<'a> {
     }
 }
 
-fn otx_relation_if_range_related(
-    relation: crate::plan::OtxTypeRelation,
-) -> Option<crate::plan::OtxTypeRelation> {
+fn type_action_otx_scope(relation: crate::plan::OtxTypeRelation) -> TypeActionOtxScope {
     if otx_type_relation_mentions_type(&relation) {
-        Some(relation)
+        TypeActionOtxScope::InOtxScope(relation)
     } else {
-        None
+        TypeActionOtxScope::TargetOnly
     }
 }
 
@@ -673,7 +671,7 @@ mod tests {
     }
 
     #[test]
-    fn otx_relation_is_absent_when_type_only_matches_by_action() {
+    fn otx_scope_is_target_only_when_type_only_matches_by_action() {
         let relation = crate::plan::OtxTypeRelation {
             input_type_in_base: false,
             input_type_in_append: false,
@@ -682,6 +680,9 @@ mod tests {
             output_type_in_append: false,
         };
 
-        assert_eq!(otx_relation_if_range_related(relation), None);
+        assert_eq!(
+            type_action_otx_scope(relation),
+            TypeActionOtxScope::TargetOnly
+        );
     }
 }
