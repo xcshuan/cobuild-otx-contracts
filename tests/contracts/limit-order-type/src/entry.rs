@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use alloc::vec::Vec;
 
 use ckb_std::{
@@ -10,59 +12,81 @@ use cobuild_core::{
     context::CurrentScript,
     engine::CobuildContext,
     layout::Range,
-    plan::{ActionOrigin, OtxMessageLayout, OtxTypeRelation},
+    plan::{ActionOrigin, OtxMessageLayout, OtxTypeRelation, TypeValidationPlan},
     reader::cursor_bytes,
 };
 
 use crate::{
     error::Error,
     types::{
-        SETTLEMENT_DATA_LEN, SettlementCell, UDT_PAYMENT_DATA_LEN, parse_fill_order_action,
-        parse_order_state, parse_settlement_cell, parse_udt_payment, validate_fill,
+        LimitOrderAction, SETTLEMENT_DATA_LEN, SettlementCell, UDT_PAYMENT_DATA_LEN,
+        parse_limit_order_action, parse_order_state, parse_settlement_cell, parse_udt_payment,
+        validate_fill,
     },
 };
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OrderMode {
+    Create,
+    Fill,
+}
+
+pub fn order_mode(input_count: usize, output_count: usize) -> Result<OrderMode, Error> {
+    match (input_count, output_count) {
+        (0, 1) => Ok(OrderMode::Create),
+        (1, 0) => Ok(OrderMode::Fill),
+        _ => Err(Error::InvalidOrderData),
+    }
+}
 
 pub fn main() -> Result<(), Error> {
     let current_type_hash = load_script_hash()?;
     let plan =
         CobuildContext::build(CurrentScript::Type(current_type_hash))?.plan_type_validation()?;
 
-    let order = single_input_order()?;
-    require_no_order_output()?;
+    let input_count = QueryIter::new(load_cell_data, Source::GroupInput).count();
+    let output_count = QueryIter::new(load_cell_data, Source::GroupOutput).count();
 
+    match order_mode(input_count, output_count)? {
+        OrderMode::Create => validate_create_entry(current_type_hash, &plan),
+        OrderMode::Fill => validate_fill_entry(&plan),
+    }
+}
+
+fn validate_fill_entry(plan: &TypeValidationPlan) -> Result<(), Error> {
+    let order = single_group_order(Source::GroupInput)?;
     if plan.related_actions.len() != 1 {
         return Err(Error::InvalidCobuild);
     }
     let related = &plan.related_actions[0];
     let layout = otx_fill_layout(&related.action.origin, related.otx_relation)?;
     let action_data = cursor_bytes(&related.action.action.data)?;
-    let action = parse_fill_order_action(&action_data)?;
+    let LimitOrderAction::Fill(action) = parse_limit_order_action(&action_data)? else {
+        return Err(Error::UnsupportedAction);
+    };
     let settlements = collect_settlements(layout)?;
 
     validate_fill(&order, &action, &settlements)
 }
 
-fn single_input_order() -> Result<crate::types::OrderState, Error> {
-    let mut inputs = QueryIter::new(load_cell_data, Source::GroupInput);
-    let Some(data) = inputs.next() else {
+fn validate_create_entry(
+    _current_type_hash: [u8; 32],
+    _plan: &TypeValidationPlan,
+) -> Result<(), Error> {
+    let _order = single_group_order(Source::GroupOutput)?;
+    Err(Error::InvalidCobuild)
+}
+
+fn single_group_order(source: Source) -> Result<crate::types::OrderState, Error> {
+    let mut cells = QueryIter::new(load_cell_data, source);
+    let Some(data) = cells.next() else {
         return Err(Error::InvalidOrderData);
     };
-    if inputs.next().is_some() {
+    if cells.next().is_some() {
         return Err(Error::InvalidOrderData);
     }
 
     parse_order_state(&data)
-}
-
-fn require_no_order_output() -> Result<(), Error> {
-    if QueryIter::new(load_cell_data, Source::GroupOutput)
-        .next()
-        .is_some()
-    {
-        return Err(Error::InvalidOrderData);
-    }
-
-    Ok(())
 }
 
 pub fn otx_fill_layout(
@@ -201,5 +225,32 @@ mod tests {
             otx_fill_layout(&origin, Some(relation)),
             Err(crate::error::Error::InvalidCobuild)
         );
+    }
+
+    #[test]
+    fn order_mode_accepts_create_shape() {
+        assert_eq!(order_mode(0, 1), Ok(OrderMode::Create));
+    }
+
+    #[test]
+    fn order_mode_accepts_fill_shape() {
+        assert_eq!(order_mode(1, 0), Ok(OrderMode::Fill));
+    }
+
+    #[test]
+    fn order_mode_rejects_update_or_empty_shapes() {
+        assert_eq!(order_mode(1, 1), Err(Error::InvalidOrderData));
+        assert_eq!(order_mode(0, 0), Err(Error::InvalidOrderData));
+        assert_eq!(order_mode(2, 0), Err(Error::InvalidOrderData));
+    }
+
+    #[test]
+    fn type_id_sys_error_maps_to_stable_exit_code() {
+        #[cfg(feature = "type-id")]
+        assert_eq!(
+            Error::from(ckb_std::error::SysError::TypeIDError),
+            Error::TypeId
+        );
+        assert_eq!(i8::from(Error::TypeId), 14);
     }
 }

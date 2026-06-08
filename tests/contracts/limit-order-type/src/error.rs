@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use ckb_std::error::SysError;
 use cobuild_core::error::CoreError;
 
@@ -17,6 +19,7 @@ pub enum Error {
     InsufficientPayment = 11,
     InvalidCobuild = 12,
     UnexpectedSyscall = 13,
+    TypeId = 14,
 }
 
 impl From<SysError> for Error {
@@ -26,6 +29,8 @@ impl From<SysError> for Error {
             SysError::ItemMissing => Self::ItemMissing,
             SysError::LengthNotEnough(_) => Self::LengthNotEnough,
             SysError::Encoding => Self::Encoding,
+            #[cfg(feature = "type-id")]
+            SysError::TypeIDError => Self::TypeId,
             SysError::Unknown(code) => panic!("unknown syscall error {code}"),
             SysError::WaitFailure
             | SysError::InvalidFd

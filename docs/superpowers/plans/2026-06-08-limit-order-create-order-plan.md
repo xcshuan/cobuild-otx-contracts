@@ -989,7 +989,11 @@ git commit -m "test: split limit order entry modes"
 
 ```text
 Red:
+- cargo test -p limit-order-type --offline order_mode -- --nocapture -> failed to compile as expected; missing order_mode, OrderMode, and Error::TypeId. Also showed SysError::TypeIDError is gated out without ckb-std/type-id in this package configuration.
 Green:
+- cargo test -p limit-order-type --offline order_mode -- --nocapture -> passed; 3 order_mode tests passed.
+- cargo test -p limit-order-type --offline type_id_sys_error_maps_to_stable_exit_code -- --nocapture -> passed; stable TypeId exit code test passed.
+- cargo test -p limit-order-type --offline -> passed; 27 unit tests, 0 main tests, and 0 doc tests passed.
 ```
 
 ## Task 5: Add CreateOrder Validation Helpers
