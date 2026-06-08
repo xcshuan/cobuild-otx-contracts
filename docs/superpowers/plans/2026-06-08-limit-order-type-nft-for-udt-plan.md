@@ -674,8 +674,11 @@ git commit -m "test: add udt payment parsing to limit order type"
 **Red/Green Record:**
 
 ```text
-Red:
-Green:
+Red: cargo test -p limit-order-type --offline parse_udt_payment -- --nocapture -> failed to compile: parse_udt_payment not found
+Red: cargo test -p limit-order-type --offline validate_fill_rejects_payment_sum_overflow -- --nocapture -> failed to compile: parse_udt_payment not found
+Green: cargo test -p limit-order-type --offline parse_udt_payment -- --nocapture -> passed
+Green: cargo test -p limit-order-type --offline validate_fill_rejects_payment_sum_overflow -- --nocapture -> passed
+Green: cargo test -p limit-order-type --offline -> passed
 ```
 
 ## Task 5: Count UDT Payment Outputs in `limit-order-type`

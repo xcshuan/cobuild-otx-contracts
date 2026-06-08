@@ -2,6 +2,7 @@ use crate::error::Error;
 
 pub const ORDER_DATA_LEN: usize = 152;
 pub const SETTLEMENT_DATA_LEN: usize = 40;
+pub const UDT_PAYMENT_DATA_LEN: usize = 16;
 pub const FILL_ORDER_TAG: u8 = 1;
 const FILL_ORDER_DATA_LEN: usize = 81;
 
@@ -59,6 +60,22 @@ pub fn parse_settlement_cell(
         owner_lock_hash,
         asset_id: read_bytes32(data, 0),
         amount: read_u64(data, 32),
+    })
+}
+
+pub fn parse_udt_payment(
+    owner_lock_hash: [u8; 32],
+    asset_id: [u8; 32],
+    data: &[u8],
+) -> Result<SettlementCell, Error> {
+    if data.len() != UDT_PAYMENT_DATA_LEN {
+        return Err(Error::InvalidSettlementData);
+    }
+
+    Ok(SettlementCell {
+        owner_lock_hash,
+        asset_id,
+        amount: read_u128_as_u64(data, 0)?,
     })
 }
 
@@ -130,6 +147,12 @@ fn read_u64(data: &[u8], offset: usize) -> u64 {
     let mut out = [0u8; 8];
     out.copy_from_slice(&data[offset..offset + 8]);
     u64::from_le_bytes(out)
+}
+
+fn read_u128_as_u64(data: &[u8], offset: usize) -> Result<u64, Error> {
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&data[offset..offset + 16]);
+    u64::try_from(u128::from_le_bytes(out)).map_err(|_| Error::AmountOverflow)
 }
 
 #[cfg(test)]
@@ -225,6 +248,24 @@ mod tests {
     }
 
     #[test]
+    fn parse_udt_payment_reads_16_byte_amount() {
+        let payment = parse_udt_payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, &30u128.to_le_bytes())
+            .expect("udt payment");
+
+        assert_eq!(payment.owner_lock_hash, OWNER_LOCK_HASH);
+        assert_eq!(payment.asset_id, REQUESTED_ASSET_ID);
+        assert_eq!(payment.amount, 30);
+    }
+
+    #[test]
+    fn parse_udt_payment_rejects_malformed_amount() {
+        assert_eq!(
+            parse_udt_payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, &[0u8; 15]),
+            Err(Error::InvalidSettlementData)
+        );
+    }
+
+    #[test]
     fn required_requested_amount_multiplies_remaining_by_limit_price() {
         let order = parse_order_state(&order_data(10, 3)).expect("order data");
 
@@ -299,6 +340,51 @@ mod tests {
         assert_eq!(
             validate_fill(&order_state(), &action, &[]),
             Err(Error::ActionMismatch)
+        );
+    }
+
+    #[test]
+    fn validate_fill_rejects_requested_asset_mismatch() {
+        let mut action = fill_action(30);
+        action.requested_asset_id = [9; 32];
+
+        assert_eq!(
+            validate_fill(&order_state(), &action, &[]),
+            Err(Error::ActionMismatch)
+        );
+    }
+
+    #[test]
+    fn validate_fill_rejects_offered_amount_mismatch() {
+        let mut action = fill_action(30);
+        action.offered_amount = 9;
+
+        assert_eq!(
+            validate_fill(&order_state(), &action, &[]),
+            Err(Error::ActionMismatch)
+        );
+    }
+
+    #[test]
+    fn validate_fill_rejects_action_min_below_required_even_if_paid() {
+        let settlements = [settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30)];
+
+        assert_eq!(
+            validate_fill(&order_state(), &fill_action(29), &settlements),
+            Err(Error::InsufficientPayment)
+        );
+    }
+
+    #[test]
+    fn validate_fill_rejects_payment_sum_overflow() {
+        let settlements = [
+            settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, u64::MAX),
+            settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 1),
+        ];
+
+        assert_eq!(
+            validate_fill(&order_state(), &fill_action(30), &settlements),
+            Err(Error::AmountOverflow)
         );
     }
 }
