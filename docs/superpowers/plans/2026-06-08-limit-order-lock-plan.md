@@ -1004,9 +1004,15 @@ git commit -m "test: validate limit order lock entry"
 - Create: `tests/tests/limit_order_lock.rs`
 - Modify: `docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md`
 
-**Red/Green Record:** Record after Step 2 and Step 5.
+**Red/Green Record:**
 
-- [ ] **Step 1: Write failing integration test**
+Red: `cargo test -p tests --test limit_order_lock --offline limit_order_lock_accepts_nft_for_udt_otx_fill -- --nocapture` -> FAIL as expected with `error[E0583]: file not found for module 'lock_for_udt'` at `tests/src/fixtures/limit_order.rs:12:1`.
+
+Green: `make -e -C tests/contracts/limit-order-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/.worktrees/limit-order-lock BUILD_DIR=build/debug CARGO_ARGS=--offline` -> PASS; built and copied `limit-order-lock` debug binary. `make -e -C tests/contracts/test-udt build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/.worktrees/limit-order-lock BUILD_DIR=build/debug CARGO_ARGS=--offline` -> PASS; built and copied `test-udt` debug binary. `make -e -C tests/contracts/test-nft build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/.worktrees/limit-order-lock BUILD_DIR=build/debug CARGO_ARGS=--offline` -> PASS; built and copied `test-nft` debug binary. `cargo test -p tests --test limit_order_lock --offline limit_order_lock_accepts_nft_for_udt_otx_fill -- --nocapture` -> PASS; 1 test passed, 0 failed.
+
+Final verification: `cargo fmt` -> PASS. `cargo test -p limit-order-lock --offline` -> PASS; 16 unit tests passed, 0 failed, plus 0 main/doc tests. `cargo test -p tests --test limit_order_lock --offline limit_order_lock_accepts_nft_for_udt_otx_fill -- --nocapture` -> PASS; 1 test passed, 0 failed. `git diff --check` -> PASS with no output.
+
+- [x] **Step 1: Write failing integration test**
 
 Create `tests/tests/limit_order_lock.rs`:
 
@@ -1034,7 +1040,7 @@ pub use lock_for_udt::{
 };
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run:
 
@@ -1044,7 +1050,7 @@ cargo test -p tests --test limit_order_lock --offline limit_order_lock_accepts_n
 
 Expected: FAIL because `lock_for_udt.rs` or exported fixture functions do not exist.
 
-- [ ] **Step 3: Add lock fixture scenario**
+- [x] **Step 3: Add lock fixture scenario**
 
 Create `tests/src/fixtures/limit_order/lock_for_udt.rs`:
 
@@ -1196,7 +1202,7 @@ fn udt_amount_data(amount: u128) -> Vec<u8> {
 }
 ```
 
-- [ ] **Step 4: Add input-lock action builder**
+- [x] **Step 4: Add input-lock action builder**
 
 If `tests/src/framework/cobuild.rs` does not already support input-lock targets, add:
 
@@ -1210,7 +1216,7 @@ If `tests/src/framework/cobuild.rs` does not already support input-lock targets,
 
 to `impl CobuildMessageBuilder`, using the same role value as `cobuild_core::protocol::ScriptRole::InputLock`.
 
-- [ ] **Step 5: Build contracts and run green**
+- [x] **Step 5: Build contracts and run green**
 
 Run:
 
@@ -1223,7 +1229,7 @@ cargo test -p tests --test limit_order_lock --offline limit_order_lock_accepts_n
 
 Expected: all build commands PASS and happy path integration test PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 

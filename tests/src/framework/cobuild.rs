@@ -1,5 +1,7 @@
 use ckb_testtool::ckb_types::prelude::{Builder, Entity};
-use cobuild_types::entity::core::{Action, ActionVec, Message as CobuildMessage, Otx, SealPairVec};
+use cobuild_types::entity::core::{
+    Action, ActionVec, Message as CobuildMessage, Otx, SealPair, SealPairVec,
+};
 
 pub fn empty_message() -> CobuildMessage {
     CobuildMessage::new_builder()
@@ -38,6 +40,12 @@ impl CobuildMessageBuilder {
     pub fn input_type_action(mut self, script_hash: [u8; 32]) -> Self {
         self.script_hash = script_hash;
         self.script_role = 1;
+        self
+    }
+
+    pub fn input_lock_action(mut self, script_hash: [u8; 32]) -> Self {
+        self.script_hash = script_hash;
+        self.script_role = 0;
         self
     }
 
@@ -88,6 +96,7 @@ pub struct OtxBuilder {
     append_output_cells: u32,
     append_cell_deps: u32,
     append_header_deps: u32,
+    seals: Vec<SealPair>,
 }
 
 #[derive(Clone, Debug)]
@@ -120,6 +129,7 @@ impl OtxBuilder {
             append_output_cells: 0,
             append_cell_deps: 0,
             append_header_deps: 0,
+            seals: Vec::new(),
         }
     }
 
@@ -174,6 +184,11 @@ impl OtxBuilder {
         self
     }
 
+    pub fn seals(mut self, seals: Vec<SealPair>) -> Self {
+        self.seals = seals;
+        self
+    }
+
     pub fn allow_append_outputs(mut self) -> Self {
         self.append_permissions |= 0b0010;
         self
@@ -212,7 +227,7 @@ impl OtxBuilder {
             .append_output_cells(self.append_output_cells.to_le_bytes())
             .append_cell_deps(self.append_cell_deps.to_le_bytes())
             .append_header_deps(self.append_header_deps.to_le_bytes())
-            .seals(SealPairVec::new_builder().build())
+            .seals(SealPairVec::new_builder().extend(self.seals).build())
             .build();
         BuiltOtx {
             otx,
