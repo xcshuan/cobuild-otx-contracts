@@ -521,8 +521,12 @@ git commit -m "test: extend otx fixture transaction layout"
 **Red/Green Record:**
 
 ```text
-Red:
-Green:
+Red: cargo test -p tests --lib --offline otx_builder_allows_append_inputs_and_outputs -- --nocapture -> failed to compile: missing OtxBuilder::allow_append_inputs
+Red: cargo test -p tests --lib --offline otx_transaction_builder_supports_base_append_and_remainder_outputs -- --nocapture -> failed to compile: missing OtxBuilder::allow_append_inputs and OtxTransactionBuilder::append_input
+Green: cargo test -p tests --lib --offline otx_builder_allows_append_inputs_and_outputs -- --nocapture -> passed
+Green: cargo test -p tests --lib --offline otx_transaction_builder_supports_base_append_and_remainder_outputs -- --nocapture -> passed
+Green: make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> rebuilt renamed fixture binary required by lib tests
+Green: cargo test -p tests --lib --offline -> passed
 ```
 
 ## Task 4: Add UDT Payment Parsing to `limit-order-type`

@@ -11,7 +11,9 @@ pub mod tx;
 mod tests {
     use super::{
         assertions::{assert_lock_script_exit_result, assert_type_script_exit_result},
-        cells::{TestResolvedInput, live_resolved_typed_input},
+        cells::{
+            TestCellOutput, TestResolvedInput, live_input, live_resolved_typed_input, normal_output,
+        },
         cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, seal_pair},
         contracts::{deploy_always_success, deploy_data2_script},
         fixture::CobuildTestFixture,
@@ -19,7 +21,7 @@ mod tests {
         signing::{
             fixed_secret_key, public_key_hash20, sighash_all_only_witness, sign_recoverable,
         },
-        tx::otx_start_witness,
+        tx::{OtxTransactionBuilder, otx_start_witness},
     };
     use crate::fixtures::limit_order::{
         LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, order_data,
@@ -88,6 +90,77 @@ mod tests {
 
         let witness = otx_start_witness(1, 2, 3, 4);
         assert!(!witness.is_empty());
+    }
+
+    #[test]
+    fn otx_builder_allows_append_inputs_and_outputs() {
+        let otx = OtxBuilder::new()
+            .base_input_cells(2)
+            .base_output_cells(1)
+            .append_input_cells(1)
+            .append_output_cells(2)
+            .allow_append_inputs()
+            .allow_append_outputs()
+            .build_with_layout();
+
+        assert_eq!(otx.base_input_cells, 2);
+        assert_eq!(otx.base_output_cells, 1);
+        assert_eq!(otx.append_input_cells, 1);
+        assert_eq!(otx.append_output_cells, 2);
+        assert_eq!(otx.otx.append_permissions().as_slice(), &[0b0011]);
+    }
+
+    #[test]
+    fn otx_transaction_builder_supports_base_append_and_remainder_outputs() {
+        let mut fixture = CobuildTestFixture::new();
+        let lock = fixture.deploy_always_success();
+
+        let base_input_a = live_input(
+            fixture.context_mut(),
+            normal_output(lock.script.clone(), 1_000),
+            Vec::new(),
+        );
+        let base_input_b = live_input(
+            fixture.context_mut(),
+            normal_output(lock.script.clone(), 1_000),
+            Vec::new(),
+        );
+        let append_input = live_input(
+            fixture.context_mut(),
+            normal_output(lock.script.clone(), 1_000),
+            Vec::new(),
+        );
+        let base_output =
+            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
+        let append_output_a =
+            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
+        let append_output_b =
+            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
+        let remainder_output =
+            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
+        let otx = OtxBuilder::new()
+            .base_input_cells(2)
+            .base_output_cells(1)
+            .append_input_cells(1)
+            .append_output_cells(2)
+            .allow_append_inputs()
+            .allow_append_outputs()
+            .build_with_layout();
+
+        let tx = OtxTransactionBuilder::new()
+            .base_input(base_input_a)
+            .base_input(base_input_b)
+            .append_input(append_input)
+            .base_output(base_output)
+            .append_output(append_output_a)
+            .append_output(append_output_b)
+            .remainder_output(remainder_output)
+            .otx(otx)
+            .build();
+
+        assert_eq!(tx.inputs().len(), 3);
+        assert_eq!(tx.outputs().len(), 4);
+        assert_eq!(tx.witnesses().len(), 2);
     }
 
     #[test]

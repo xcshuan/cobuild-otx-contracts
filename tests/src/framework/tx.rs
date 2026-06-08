@@ -30,7 +30,10 @@ pub fn otx_start_witness(
 pub struct OtxTransactionBuilder {
     cell_deps: Vec<CellDep>,
     base_inputs: Vec<CellInput>,
+    append_inputs: Vec<CellInput>,
+    base_outputs: Vec<TestCellOutput>,
     append_outputs: Vec<TestCellOutput>,
+    remainder_outputs: Vec<TestCellOutput>,
     otxs: Vec<BuiltOtx>,
 }
 
@@ -54,8 +57,23 @@ impl OtxTransactionBuilder {
         self
     }
 
+    pub fn append_input(mut self, input: CellInput) -> Self {
+        self.append_inputs.push(input);
+        self
+    }
+
+    pub fn base_output(mut self, output: TestCellOutput) -> Self {
+        self.base_outputs.push(output);
+        self
+    }
+
     pub fn append_output(mut self, output: TestCellOutput) -> Self {
         self.append_outputs.push(output);
+        self
+    }
+
+    pub fn remainder_output(mut self, output: TestCellOutput) -> Self {
+        self.remainder_outputs.push(output);
         self
     }
 
@@ -94,7 +112,7 @@ impl OtxTransactionBuilder {
             "OTX base input range exceeds transaction inputs"
         );
         assert!(
-            total_base_outputs == 0,
+            total_base_outputs as usize <= self.base_outputs.len(),
             "OTX base output range exceeds transaction outputs"
         );
         assert!(
@@ -106,7 +124,7 @@ impl OtxTransactionBuilder {
             "OTX base header dep range exceeds transaction header deps"
         );
         assert!(
-            total_append_inputs == 0,
+            total_append_inputs as usize <= self.append_inputs.len(),
             "OTX append input range exceeds transaction inputs"
         );
         assert!(
@@ -129,7 +147,16 @@ impl OtxTransactionBuilder {
         for input in self.base_inputs {
             builder = builder.input(input);
         }
+        for input in self.append_inputs {
+            builder = builder.input(input);
+        }
+        for output in self.base_outputs {
+            builder = builder.output(output.cell).output_data(output.data.pack());
+        }
         for output in self.append_outputs {
+            builder = builder.output(output.cell).output_data(output.data.pack());
+        }
+        for output in self.remainder_outputs {
             builder = builder.output(output.cell).output_data(output.data.pack());
         }
 

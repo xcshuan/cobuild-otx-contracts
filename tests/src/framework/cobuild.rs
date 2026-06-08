@@ -168,6 +168,11 @@ impl OtxBuilder {
         self
     }
 
+    pub fn allow_append_inputs(mut self) -> Self {
+        self.append_permissions |= 0b0001;
+        self
+    }
+
     pub fn build(self) -> Otx {
         self.build_with_layout().otx
     }
