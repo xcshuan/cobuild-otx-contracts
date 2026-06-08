@@ -78,10 +78,11 @@ amount: u64
 
 The encoded length is 40 bytes.
 
-This avoids coupling the first OTX type-script test to a full token standard. A later integration stage can replace or supplement this with `tests/contracts/test-udt`.
+This avoids coupling the first OTX type-script test to a full token standard.
+These ordinary settlement cells are kept only for the initial MVP cases.
 
-For the NFT-for-UDT stage, settlement can be represented by a `tests/contracts/test-udt`
-output instead of the ordinary settlement cell:
+For the NFT-for-UDT stage, settlement must be represented by a
+`tests/contracts/test-udt` payment cell:
 
 ```text
 lock_hash: owner_lock_hash
@@ -89,9 +90,14 @@ type_hash: requested_asset_id
 data: amount as little-endian u128
 ```
 
-The `limit-order-type` script may count either supported settlement shape. It
-must count only cells inside the current OTX settlement scope, and it must not
-count unrelated tx-level outputs.
+The `limit-order-type` script may support both settlement shapes while the
+tests transition from the MVP to the UDT-backed scenario, but the NFT-for-UDT
+fixture must use the `test-udt` payment cell. The ordinary settlement cell is
+not an acceptable substitute for that scenario.
+
+All settlement counting must be limited to cells inside the current OTX
+settlement scope. Tx-level outputs and outputs belonging to other OTXs must not
+be counted.
 
 ## Action ABI
 
