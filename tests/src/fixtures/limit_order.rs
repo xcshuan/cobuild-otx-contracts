@@ -1,17 +1,23 @@
 use ckb_testtool::{
-    ckb_types::packed::{CellInput, Script},
+    ckb_types::{
+        core::TransactionView,
+        packed::{CellInput, Script},
+    },
     context::Context,
 };
 
 use crate::framework::{
     cells::{TestCellOutput, live_input, normal_output, typed_output},
     cobuild::{CobuildMessageBuilder, OtxBuilder},
-    contracts::{DeployedScript, deploy_data2_script},
+    contracts::{DeployedScript, cell_dep_for_script, deploy_data2_script},
     fixture::CobuildTestFixture,
     scripts::script_hash,
 };
 
 const FILL_ORDER_TAG: u8 = 1;
+const ORDER_ID: [u8; 32] = [1; 32];
+const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
+const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LimitOrderState {
@@ -41,6 +47,62 @@ pub fn settlement_data(asset_id: [u8; 32], amount: u64) -> Vec<u8> {
     data.extend_from_slice(&asset_id);
     data.extend_from_slice(&amount.to_le_bytes());
     data
+}
+
+pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, TransactionView) {
+    let mut fixture = CobuildTestFixture::new();
+
+    let limit_order = fixture.deploy_limit_order();
+    let always_success = fixture.deploy_always_success();
+    let owner_lock = always_success.script.clone();
+
+    let order_input = fixture
+        .limit_order()
+        .owner(owner_lock.clone())
+        .offered_asset_id(OFFERED_ASSET_ID)
+        .requested_asset_id(REQUESTED_ASSET_ID)
+        .offered_remaining(10)
+        .min_requested_per_offered(3)
+        .build_input(&limit_order.script);
+
+    let settlement_output = LimitOrderBuilder::settlement_output(
+        owner_lock,
+        REQUESTED_ASSET_ID,
+        settlement_amount,
+        90_000_000_000,
+    );
+
+    let message = fixture
+        .cobuild()
+        .input_type_action(limit_order.script_hash)
+        .limit_order_fill(ORDER_ID, REQUESTED_ASSET_ID, 10, 30)
+        .build();
+    let otx = fixture
+        .limit_order_append_settlement_otx()
+        .message(message)
+        .build_with_layout();
+
+    let tx = fixture
+        .tx()
+        .cell_dep(cell_dep_for_script(&limit_order))
+        .cell_dep(cell_dep_for_script(&always_success))
+        .base_input(order_input)
+        .append_output(settlement_output)
+        .otx(otx)
+        .build();
+
+    (fixture, tx)
+}
+
+pub fn failed_txs_count() -> usize {
+    let path = std::env::current_dir()
+        .expect("current dir")
+        .join("failed_txs");
+    match std::fs::read_dir(path) {
+        Ok(entries) => entries.count(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => panic!("read failed_txs: {error}"),
+    }
 }
 
 pub trait LimitOrderCobuildMessageExt {

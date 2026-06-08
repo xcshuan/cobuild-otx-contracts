@@ -32,6 +32,14 @@ pub fn assert_type_script_exit(
 }
 
 pub fn assert_type_script_exit_result(result: Result<Cycle, Error>, input_index: usize, code: i8) {
+    assert_script_exit_result(result, format!("Inputs[{input_index}].Type"), code);
+}
+
+pub fn assert_lock_script_exit_result(result: Result<Cycle, Error>, input_index: usize, code: i8) {
+    assert_script_exit_result(result, format!("Inputs[{input_index}].Lock"), code);
+}
+
+fn assert_script_exit_result(result: Result<Cycle, Error>, originating_script: String, code: i8) {
     let err = result.expect_err("transaction must fail closed");
     assert_eq!(err.kind(), ErrorKind::Script);
 
@@ -41,7 +49,7 @@ pub fn assert_type_script_exit_result(result: Result<Cycle, Error>, input_index:
         .expect("script validation error");
     assert_eq!(
         script_error.originating_script().to_string(),
-        format!("Inputs[{input_index}].Type"),
+        originating_script,
         "originating script"
     );
     assert!(

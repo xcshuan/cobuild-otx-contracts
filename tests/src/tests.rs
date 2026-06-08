@@ -92,10 +92,27 @@ fn cobuild_otx_lock_test_file_contains_no_fixture_helpers() {
         "fn checked_len_prefix",
         "fn packed_hash_to_array",
         "fn range",
+        "fn assert_lock_script_exit",
     ] {
         assert!(
             !source.contains(forbidden),
             "`{forbidden}` belongs in fixtures/framework, not in tests/cobuild_otx_lock.rs"
+        );
+    }
+}
+
+#[test]
+fn limit_order_test_file_contains_no_fixture_scenario_builder() {
+    let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap();
+    let test_file = repo.join("tests/tests/limit_order.rs");
+    let source = std::fs::read_to_string(&test_file).expect("read limit_order test file");
+
+    for forbidden in ["fn limit_order_case", "fn failed_txs_count"] {
+        assert!(
+            !source.contains(forbidden),
+            "`{forbidden}` belongs in fixtures/framework, not in tests/limit_order.rs"
         );
     }
 }

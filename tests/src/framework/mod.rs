@@ -10,7 +10,7 @@ pub mod tx;
 #[cfg(test)]
 mod tests {
     use super::{
-        assertions::assert_type_script_exit_result,
+        assertions::{assert_lock_script_exit_result, assert_type_script_exit_result},
         cells::{TestResolvedInput, live_resolved_typed_input},
         cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, seal_pair},
         contracts::{deploy_always_success, deploy_data2_script},
@@ -153,6 +153,15 @@ mod tests {
             .into();
 
         assert_type_script_exit_result(Err(error), 0, 11);
+    }
+
+    #[test]
+    fn lock_script_exit_assertion_matches_index_and_exit_code() {
+        let error = ScriptError::ValidationFailure("by convention".to_owned(), 39)
+            .input_lock_script(0)
+            .into();
+
+        assert_lock_script_exit_result(Err(error), 0, 39);
     }
 
     #[test]
