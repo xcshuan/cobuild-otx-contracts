@@ -378,30 +378,48 @@ impl<'a> TypePlanBuilder<'a> {
     }
 
     fn add_otx_related_actions(&mut self) -> Result<(), CoreError> {
-        match &self.context.otx_layouts {
-            OtxLayouts::Complete(layout) => {
-                for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
-                    let relation = self.context.script_context.type_relation_for_otx(otx)?;
-                    let range_related = otx_type_relation_mentions_type(&relation);
-                    let actions =
-                        type_actions_for_message(&otx.witness.message, self.type_script_hash)?;
-                    if !range_related && actions.is_empty() {
-                        continue;
-                    }
-                    self.context
-                        .script_context
-                        .validate_message_targets(&otx.witness.message)?;
-                    let otx_type_scope = type_action_otx_scope(relation);
-                    for action in actions {
-                        self.related_actions.push(TypeRelatedAction {
-                            action: related_otx_action(otx_index, otx, action),
-                            otx_type_scope,
-                        });
-                    }
-                }
-                Ok(())
-            }
-            OtxLayouts::None => Ok(()),
+        let OtxLayouts::Complete(layout) = &self.context.otx_layouts else {
+            return Ok(());
+        };
+
+        for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
+            self.add_otx_related_action(otx_index, otx)?;
+        }
+
+        Ok(())
+    }
+
+    fn add_otx_related_action(
+        &mut self,
+        otx_index: usize,
+        otx: &crate::layout::OtxLayoutEntry,
+    ) -> Result<(), CoreError> {
+        let relation = self.context.script_context.type_relation_for_otx(otx)?;
+        let scope_related = otx_type_relation_mentions_type(&relation);
+        let actions = type_actions_for_message(&otx.witness.message, self.type_script_hash)?;
+        if !scope_related && actions.is_empty() {
+            return Ok(());
+        }
+
+        self.context
+            .script_context
+            .validate_message_targets(&otx.witness.message)?;
+        self.push_otx_related_actions(otx_index, otx, actions, type_action_otx_scope(relation));
+        Ok(())
+    }
+
+    fn push_otx_related_actions(
+        &mut self,
+        otx_index: usize,
+        otx: &crate::layout::OtxLayoutEntry,
+        actions: Vec<ActionView>,
+        otx_type_scope: TypeActionOtxScope,
+    ) {
+        for action in actions {
+            self.related_actions.push(TypeRelatedAction {
+                action: related_otx_action(otx_index, otx, action),
+                otx_type_scope,
+            });
         }
     }
 

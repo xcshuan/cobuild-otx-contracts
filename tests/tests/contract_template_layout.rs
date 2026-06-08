@@ -848,6 +848,26 @@ fn cobuild_core_lock_plan_exposes_related_actions() {
 }
 
 #[test]
+fn cobuild_core_type_plan_names_otx_scope_relevance_and_action_delivery() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+    let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs");
+
+    assert!(
+        engine_rs.contains("fn add_otx_related_action("),
+        "TypePlanBuilder should handle one OTX entry in a named helper"
+    );
+    assert!(
+        engine_rs.contains("let scope_related = otx_type_relation_mentions_type(&relation);"),
+        "TypePlanBuilder should name whether the current type is in the OTX scope"
+    );
+    assert!(
+        engine_rs.contains("fn push_otx_related_actions("),
+        "TypePlanBuilder should separate action delivery from OTX scope relevance"
+    );
+}
+
+#[test]
 fn cobuild_core_scans_cobuild_witness_layout_once() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let core_src = workspace_root.join("crates/cobuild-core/src");
