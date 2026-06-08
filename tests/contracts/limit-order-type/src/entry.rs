@@ -2,7 +2,9 @@ use alloc::vec::Vec;
 
 use ckb_std::{
     ckb_constants::Source,
-    high_level::{QueryIter, load_cell_data, load_cell_lock_hash, load_script_hash},
+    high_level::{
+        QueryIter, load_cell_data, load_cell_lock_hash, load_cell_type_hash, load_script_hash,
+    },
 };
 use cobuild_core::{
     context::CurrentScript,
@@ -15,8 +17,8 @@ use cobuild_core::{
 use crate::{
     error::Error,
     types::{
-        SETTLEMENT_DATA_LEN, SettlementCell, parse_fill_order_action, parse_order_state,
-        parse_settlement_cell, validate_fill,
+        SETTLEMENT_DATA_LEN, SettlementCell, UDT_PAYMENT_DATA_LEN, parse_fill_order_action,
+        parse_order_state, parse_settlement_cell, parse_udt_payment, validate_fill,
     },
 };
 
@@ -98,12 +100,19 @@ fn collect_settlements_from_range(
 
     for index in range.start..end {
         let data = load_cell_data(index, Source::Output)?;
-        if data.len() != SETTLEMENT_DATA_LEN {
+        let lock_hash = load_cell_lock_hash(index, Source::Output)?;
+
+        if data.len() == SETTLEMENT_DATA_LEN {
+            settlements.push(parse_settlement_cell(lock_hash, &data)?);
             continue;
         }
 
-        let lock_hash = load_cell_lock_hash(index, Source::Output)?;
-        settlements.push(parse_settlement_cell(lock_hash, &data)?);
+        let Some(type_hash) = load_cell_type_hash(index, Source::Output)? else {
+            continue;
+        };
+        if data.len() == UDT_PAYMENT_DATA_LEN {
+            settlements.push(parse_udt_payment(lock_hash, type_hash, &data)?);
+        }
     }
 
     Ok(())
@@ -174,6 +183,22 @@ mod tests {
 
         assert_eq!(
             otx_fill_layout(&origin, Some(relation(false))),
+            Err(crate::error::Error::InvalidCobuild)
+        );
+    }
+
+    #[test]
+    fn otx_fill_context_rejects_append_input_relation_only() {
+        let origin = ActionOrigin::Otx {
+            witness_index: 0,
+            otx_index: 0,
+            layout: layout(),
+        };
+        let mut relation = relation(false);
+        relation.input_type_in_append = true;
+
+        assert_eq!(
+            otx_fill_layout(&origin, Some(relation)),
             Err(crate::error::Error::InvalidCobuild)
         );
     }

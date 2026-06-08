@@ -782,8 +782,8 @@ git commit -m "test: count udt payment outputs in limit order type"
 **Red/Green Record:**
 
 ```text
-Red:
-Green:
+Red: cargo test -p limit-order-type --offline otx_fill_context_rejects_append_input_relation_only -- --nocapture -> passed immediately; existing base-input relation check already rejected append-only relation
+Green: cargo test -p limit-order-type --offline -> passed after adding output type-aware UDT payment collection
 ```
 
 ## Task 6: Add NFT-for-UDT Fixture Builder and Passing Test
