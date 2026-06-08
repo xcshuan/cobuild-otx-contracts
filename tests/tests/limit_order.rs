@@ -1,6 +1,6 @@
 use tests::fixtures::limit_order::{
-    NftForUdtPaymentCase, failed_txs_count, limit_order_case, limit_order_nft_for_udt_case,
-    limit_order_nft_for_udt_case_with,
+    FillActionCase, NftForUdtPaymentCase, failed_txs_count, limit_order_action_failure_case,
+    limit_order_case, limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with,
 };
 
 #[test]
@@ -70,6 +70,78 @@ fn limit_order_type_does_not_count_tx_level_remainder_udt() {
     let failed_txs_before = failed_txs_count();
     let (fixture, tx) =
         limit_order_nft_for_udt_case_with(NftForUdtPaymentCase::TxLevelRemainderOnly);
+
+    fixture.assert_type_script_exit(&tx, 0, 11);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_tx_level_fill_order() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::TxLevelFillOrder);
+
+    fixture.assert_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_output_type_fill_order_target() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::OutputTypeTarget);
+
+    fixture.assert_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_offered_amount_mismatch() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::OfferedAmountMismatch);
+
+    fixture.assert_type_script_exit(&tx, 0, 10);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_requested_asset_mismatch() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::RequestedAssetMismatch);
+
+    fixture.assert_type_script_exit(&tx, 0, 10);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_min_requested_below_required() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::MinRequestedBelowRequired);
+
+    fixture.assert_type_script_exit(&tx, 0, 11);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_payment_in_another_otx() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::PaymentInAnotherOtx);
 
     fixture.assert_type_script_exit(&tx, 0, 11);
 

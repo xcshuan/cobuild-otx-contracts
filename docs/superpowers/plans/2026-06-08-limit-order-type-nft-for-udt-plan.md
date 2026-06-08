@@ -1304,8 +1304,18 @@ git commit -m "test: cover limit order action failures"
 **Red/Green Record:**
 
 ```text
-Red:
-Green:
+Red: cargo test -p tests --test limit_order --offline limit_order_type_rejects_tx_level_fill_order -- --nocapture -> failed to compile: unresolved imports FillActionCase and limit_order_action_failure_case
+Red: cargo test -p tests --test limit_order --offline limit_order_type_rejects_output_type_fill_order_target -- --nocapture -> failed to compile: unresolved imports FillActionCase and limit_order_action_failure_case
+Red: cargo test -p tests --test limit_order --offline limit_order_type_rejects_offered_amount_mismatch -- --nocapture -> failed to compile: unresolved imports FillActionCase and limit_order_action_failure_case
+Red: cargo test -p tests --test limit_order --offline limit_order_type_rejects_requested_asset_mismatch -- --nocapture -> failed to compile: unresolved imports FillActionCase and limit_order_action_failure_case
+Red: cargo test -p tests --test limit_order --offline limit_order_type_rejects_min_requested_below_required -- --nocapture -> failed to compile: unresolved imports FillActionCase and limit_order_action_failure_case
+Red: cargo test -p tests --test limit_order --offline limit_order_type_rejects_payment_in_another_otx -- --nocapture -> failed to compile: unresolved imports FillActionCase and limit_order_action_failure_case
+Green: cargo test -p tests --test limit_order --offline limit_order_type_rejects_tx_level_fill_order -- --nocapture -> passed
+Green: cargo test -p tests --test limit_order --offline limit_order_type_rejects_output_type_fill_order_target -- --nocapture -> passed
+Green: cargo test -p tests --test limit_order --offline limit_order_type_rejects_offered_amount_mismatch -- --nocapture -> passed
+Green: cargo test -p tests --test limit_order --offline limit_order_type_rejects_requested_asset_mismatch -- --nocapture -> passed
+Green: cargo test -p tests --test limit_order --offline limit_order_type_rejects_min_requested_below_required -- --nocapture -> passed
+Green: cargo test -p tests --test limit_order --offline limit_order_type_rejects_payment_in_another_otx -- --nocapture -> passed
 ```
 
 ## Task 9: Final Verification

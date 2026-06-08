@@ -6,28 +6,26 @@ use ckb_testtool::{
     context::Context,
 };
 
+mod nft_for_udt;
+
+pub use nft_for_udt::{
+    FillActionCase, NftForUdtPaymentCase, limit_order_action_failure_case,
+    limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with,
+};
+
 use crate::framework::{
     cells::{TestCellOutput, live_input, normal_output, typed_output},
     cobuild::{CobuildMessageBuilder, OtxBuilder},
-    contracts::{DeployedScript, cell_dep_for_script, deploy_always_success, deploy_data2_script},
+    contracts::{DeployedScript, cell_dep_for_script, deploy_data2_script},
     fixture::CobuildTestFixture,
     scripts::script_hash,
 };
 
-const FILL_ORDER_TAG: u8 = 1;
-const ORDER_ID: [u8; 32] = [1; 32];
+pub(crate) const FILL_ORDER_TAG: u8 = 1;
+pub(crate) const ORDER_ID: [u8; 32] = [1; 32];
 const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
 const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
-const NFT_TYPE_ARGS: [u8; 32] = [5; 32];
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum NftForUdtPaymentCase {
-    Valid,
-    InsufficientUdt,
-    WrongUdt,
-    WrongOwner,
-    TxLevelRemainderOnly,
-}
+pub(crate) const NFT_TYPE_ARGS: [u8; 32] = [5; 32];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LimitOrderState {
@@ -102,162 +100,6 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
         .build();
 
     (fixture, tx)
-}
-
-pub fn limit_order_nft_for_udt_case() -> (CobuildTestFixture, TransactionView) {
-    limit_order_nft_for_udt_case_with(NftForUdtPaymentCase::Valid)
-}
-
-pub fn limit_order_nft_for_udt_case_with(
-    case: NftForUdtPaymentCase,
-) -> (CobuildTestFixture, TransactionView) {
-    let mut fixture = CobuildTestFixture::new();
-
-    let limit_order = fixture.deploy_limit_order();
-    let always_success = fixture.deploy_always_success();
-    let owner_lock = always_success.script.clone();
-    let buyer_lock = always_success.script.clone();
-    let issuer_lock_hash = script_hash(&always_success.script);
-    let wrong_owner_lock = deploy_wrong_owner_lock(&mut fixture).script;
-    let proxy_lock = deploy_input_type_proxy_lock(&mut fixture, limit_order.script_hash);
-    let nft = deploy_test_nft(&mut fixture, NFT_TYPE_ARGS);
-    let udt = deploy_test_udt_with_owner(&mut fixture, issuer_lock_hash);
-    let wrong_udt = deploy_test_udt_with_owner(&mut fixture, [9; 32]);
-    let payment_udt = if case == NftForUdtPaymentCase::WrongUdt {
-        wrong_udt.clone()
-    } else {
-        udt.clone()
-    };
-    let payment_lock = if case == NftForUdtPaymentCase::WrongOwner {
-        wrong_owner_lock
-    } else {
-        owner_lock.clone()
-    };
-    let payment_amount = match case {
-        NftForUdtPaymentCase::InsufficientUdt | NftForUdtPaymentCase::TxLevelRemainderOnly => 29,
-        NftForUdtPaymentCase::Valid
-        | NftForUdtPaymentCase::WrongUdt
-        | NftForUdtPaymentCase::WrongOwner => 30,
-    };
-    let remainder_payment_output = if case == NftForUdtPaymentCase::TxLevelRemainderOnly {
-        Some(TestCellOutput::new(
-            typed_output(owner_lock.clone(), udt.script.clone(), 90_000_000_000),
-            udt_amount_data(1),
-        ))
-    } else {
-        None
-    };
-
-    let nft_payload = nft_data(b"order-nft", [1, 2, 3, 4], 1_717_171_717);
-    let order_input = fixture
-        .limit_order()
-        .owner(owner_lock.clone())
-        .offered_asset_id(nft.script_hash)
-        .requested_asset_id(udt.script_hash)
-        .offered_remaining(10)
-        .min_requested_per_offered(3)
-        .build_input(&limit_order.script);
-    let nft_input = live_input(
-        fixture.context_mut(),
-        typed_output(
-            proxy_lock.script.clone(),
-            nft.script.clone(),
-            100_000_000_000,
-        ),
-        nft_payload.clone(),
-    );
-    let udt_input = live_input(
-        fixture.context_mut(),
-        typed_output(
-            buyer_lock.clone(),
-            payment_udt.script.clone(),
-            100_000_000_000,
-        ),
-        udt_amount_data(30),
-    );
-    let nft_output = TestCellOutput::new(
-        typed_output(buyer_lock, nft.script.clone(), 90_000_000_000),
-        nft_payload,
-    );
-    let udt_payment_output = TestCellOutput::new(
-        typed_output(payment_lock, payment_udt.script.clone(), 90_000_000_000),
-        udt_amount_data(payment_amount),
-    );
-
-    let message = fixture
-        .cobuild()
-        .input_type_action(limit_order.script_hash)
-        .limit_order_fill(ORDER_ID, udt.script_hash, 10, 30)
-        .build();
-    let otx = fixture
-        .otx()
-        .base_input_cells(2)
-        .base_output_cells(1)
-        .append_input_cells(1)
-        .append_output_cells(1)
-        .allow_append_inputs()
-        .allow_append_outputs()
-        .message(message)
-        .build_with_layout();
-
-    let mut tx = fixture
-        .tx()
-        .cell_dep(cell_dep_for_script(&limit_order))
-        .cell_dep(cell_dep_for_script(&always_success))
-        .cell_dep(cell_dep_for_script(&proxy_lock))
-        .cell_dep(cell_dep_for_script(&nft))
-        .cell_dep(cell_dep_for_script(&udt))
-        .cell_dep(cell_dep_for_script(&wrong_udt))
-        .base_input(order_input)
-        .base_input(nft_input)
-        .append_input(udt_input)
-        .base_output(nft_output)
-        .append_output(udt_payment_output);
-    if let Some(output) = remainder_payment_output {
-        tx = tx.remainder_output(output);
-    }
-    let tx = tx.otx(otx).build();
-
-    (fixture, tx)
-}
-
-fn deploy_wrong_owner_lock(fixture: &mut CobuildTestFixture) -> DeployedScript {
-    deploy_always_success(fixture.context_mut(), b"wrong-owner".to_vec())
-}
-
-fn deploy_test_udt_with_owner(
-    fixture: &mut CobuildTestFixture,
-    owner_lock_hash: [u8; 32],
-) -> DeployedScript {
-    deploy_data2_script(fixture.context_mut(), "test-udt", owner_lock_hash.to_vec())
-}
-
-fn deploy_test_nft(fixture: &mut CobuildTestFixture, args: [u8; 32]) -> DeployedScript {
-    deploy_data2_script(fixture.context_mut(), "test-nft", args.to_vec())
-}
-
-fn deploy_input_type_proxy_lock(
-    fixture: &mut CobuildTestFixture,
-    owner_type_hash: [u8; 32],
-) -> DeployedScript {
-    deploy_data2_script(
-        fixture.context_mut(),
-        "input-type-proxy-lock",
-        owner_type_hash.to_vec(),
-    )
-}
-
-fn nft_data(name: &[u8], attributes: [u8; 4], created_at: u64) -> Vec<u8> {
-    let mut data = Vec::with_capacity(1 + name.len() + 4 + 8);
-    data.push(name.len() as u8);
-    data.extend_from_slice(name);
-    data.extend_from_slice(&attributes);
-    data.extend_from_slice(&created_at.to_le_bytes());
-    data
-}
-
-fn udt_amount_data(amount: u128) -> Vec<u8> {
-    amount.to_le_bytes().to_vec()
 }
 
 pub fn failed_txs_count() -> usize {

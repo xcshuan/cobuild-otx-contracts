@@ -4,7 +4,10 @@ use ckb_testtool::ckb_types::{
     packed::{CellDep, CellInput},
     prelude::*,
 };
-use cobuild_types::entity::{core::OtxStart, witness::WitnessLayout};
+use cobuild_types::entity::{
+    core::{Message as CobuildMessage, OtxStart, SighashAll},
+    witness::WitnessLayout,
+};
 
 use super::cells::TestCellOutput;
 use super::cobuild::BuiltOtx;
@@ -34,6 +37,7 @@ pub struct OtxTransactionBuilder {
     base_outputs: Vec<TestCellOutput>,
     append_outputs: Vec<TestCellOutput>,
     remainder_outputs: Vec<TestCellOutput>,
+    tx_level_message: Option<CobuildMessage>,
     otxs: Vec<BuiltOtx>,
 }
 
@@ -79,6 +83,11 @@ impl OtxTransactionBuilder {
 
     pub fn otx(mut self, otx: BuiltOtx) -> Self {
         self.otxs.push(otx);
+        self
+    }
+
+    pub fn tx_level_message(mut self, message: CobuildMessage) -> Self {
+        self.tx_level_message = Some(message);
         self
     }
 
@@ -169,6 +178,15 @@ impl OtxTransactionBuilder {
             )
             .pack(),
         );
+        if let Some(message) = self.tx_level_message {
+            let witness = WitnessLayout::from(
+                SighashAll::new_builder()
+                    .seal(Vec::<u8>::new())
+                    .message(message)
+                    .build(),
+            );
+            builder = builder.witness(Bytes::copy_from_slice(witness.as_slice()).pack());
+        }
         for otx in self.otxs {
             let witness = WitnessLayout::from(otx.otx);
             builder = builder.witness(Bytes::copy_from_slice(witness.as_slice()).pack());

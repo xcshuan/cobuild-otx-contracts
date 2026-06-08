@@ -41,6 +41,12 @@ impl CobuildMessageBuilder {
         self
     }
 
+    pub fn output_type_action(mut self, script_hash: [u8; 32]) -> Self {
+        self.script_hash = script_hash;
+        self.script_role = 2;
+        self
+    }
+
     pub fn action_data(mut self, action_data: Vec<u8>) -> Self {
         self.action_data = action_data;
         self
