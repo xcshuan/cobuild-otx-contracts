@@ -779,6 +779,12 @@ the ignored local build directory, the same make command -> PASS and copied
 `cargo test -p limit-order-lock --offline` -> PASS with 15 passed, 0 failed;
 final same make build -> PASS; `git diff --check` -> PASS with no output.
 
+Review fix: `cargo test -p limit-order-lock --offline payment_output_matches_order_identity_requires_owner_and_asset -- --nocapture`
+-> RED first with unresolved `payment_output_matches_order`, then PASS after
+filtering payment outputs by order owner and requested asset before parsing
+amount data. `cargo fmt` -> PASS. `cargo test -p limit-order-lock --offline`
+-> PASS with 16 passed, 0 failed. `git diff --check` -> PASS with no output.
+
 - [x] **Step 1: Write failing entry unit tests for input index helper**
 
 Add these tests to `entry.rs` test module:

@@ -19,7 +19,7 @@ use cobuild_core::{
 use crate::{
     error::Error,
     types::{
-        UDT_PAYMENT_DATA_LEN, UdtPayment, parse_fill_order_action, parse_order_args,
+        OrderArgs, UDT_PAYMENT_DATA_LEN, UdtPayment, parse_fill_order_action, parse_order_args,
         parse_udt_payment, validate_fill,
     },
 };
@@ -43,7 +43,7 @@ pub fn main() -> Result<(), Error> {
     let layout = otx_fill_layout(&related.origin, input_index)?;
     let action_data = cursor_bytes(&related.action.data)?;
     let action = parse_fill_order_action(&action_data)?;
-    let payments = collect_payments(layout)?;
+    let payments = collect_payments(&order, layout)?;
 
     validate_fill(&order, &action, &payments)
 }
@@ -94,28 +94,36 @@ pub fn otx_fill_layout(
     Ok(*layout)
 }
 
-fn collect_payments(layout: OtxMessageLayout) -> Result<Vec<UdtPayment>, Error> {
+fn collect_payments(order: &OrderArgs, layout: OtxMessageLayout) -> Result<Vec<UdtPayment>, Error> {
     let mut payments = Vec::new();
-    collect_payments_from_range(layout.base_outputs, &mut payments)?;
-    collect_payments_from_range(layout.append_outputs, &mut payments)?;
+    collect_payments_from_range(order, layout.base_outputs, &mut payments)?;
+    collect_payments_from_range(order, layout.append_outputs, &mut payments)?;
     Ok(payments)
 }
 
-fn collect_payments_from_range(range: Range, payments: &mut Vec<UdtPayment>) -> Result<(), Error> {
+fn collect_payments_from_range(
+    order: &OrderArgs,
+    range: Range,
+    payments: &mut Vec<UdtPayment>,
+) -> Result<(), Error> {
     let end = range
         .start
         .checked_add(range.count)
         .ok_or(Error::InvalidCobuild)?;
 
     for index in range.start..end {
-        let data = load_cell_data(index, Source::Output)?;
-        if data.len() != UDT_PAYMENT_DATA_LEN {
-            continue;
-        }
         let Some(asset_id) = load_cell_type_hash(index, Source::Output)? else {
             continue;
         };
         let owner_lock_hash = load_cell_lock_hash(index, Source::Output)?;
+        if !payment_output_matches_order(order, owner_lock_hash, asset_id) {
+            continue;
+        }
+
+        let data = load_cell_data(index, Source::Output)?;
+        if data.len() != UDT_PAYMENT_DATA_LEN {
+            continue;
+        }
         payments.push(UdtPayment {
             owner_lock_hash,
             asset_id,
@@ -124,6 +132,14 @@ fn collect_payments_from_range(range: Range, payments: &mut Vec<UdtPayment>) -> 
     }
 
     Ok(())
+}
+
+fn payment_output_matches_order(
+    order: &OrderArgs,
+    owner_lock_hash: [u8; 32],
+    asset_id: [u8; 32],
+) -> bool {
+    owner_lock_hash == order.owner_lock_hash && asset_id == order.requested_asset_id
 }
 
 fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
@@ -206,5 +222,19 @@ mod tests {
             ),
             Err(Error::InvalidCobuild)
         );
+    }
+
+    #[test]
+    fn payment_output_matches_order_identity_requires_owner_and_asset() {
+        let order = crate::types::OrderArgs {
+            owner_lock_hash: [2; 32],
+            offered_nft_type_hash: [3; 32],
+            requested_asset_id: [4; 32],
+            min_requested_amount: 30,
+        };
+
+        assert!(payment_output_matches_order(&order, [2; 32], [4; 32]));
+        assert!(!payment_output_matches_order(&order, [9; 32], [4; 32]));
+        assert!(!payment_output_matches_order(&order, [2; 32], [9; 32]));
     }
 }
