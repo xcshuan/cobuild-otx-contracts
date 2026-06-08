@@ -1396,17 +1396,18 @@ git commit -m "test: support nft for udt limit order fills"
 **Verification Record:**
 
 ```text
-cargo fmt:
-make limit-order-type:
-make vendor input-type-proxy-lock:
-make test-udt:
-make test-nft:
-cargo test -p tests --test limit_order --offline:
-cargo test -p tests --lib --offline:
-cargo test --workspace --offline:
-cargo fmt --check:
-git diff --check:
-failed_txs:
+cargo fmt: passed
+make limit-order-type: make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed
+make vendor input-type-proxy-lock: CARGO_TARGET_DIR=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/target make -e -C tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CUSTOM_RUSTFLAGS='-C debug-assertions' CARGO_ARGS=--offline -> passed with one upstream dead_code warning
+make test-udt: make -e -C tests/contracts/test-udt build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed
+make test-nft: make -e -C tests/contracts/test-nft build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed
+cargo test -p tests --test limit_order --offline: passed, 13 tests
+cargo test -p tests --lib --offline: passed, 21 tests
+cargo test --workspace --offline: passed
+cargo fmt --check: passed
+git diff --check: passed
+git status --short: clean before final verification-record commit
+failed_txs: find tests/failed_txs -maxdepth 1 -type f 2>/dev/null | wc -l -> 4 ignored files, all pre-existing from Jun 7; no tracked failed_txs added
 ```
 
 ## Plan Self-Review
