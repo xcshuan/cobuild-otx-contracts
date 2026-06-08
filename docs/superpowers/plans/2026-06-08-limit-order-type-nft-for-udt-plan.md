@@ -934,8 +934,15 @@ git commit -m "test: add nft for udt limit order fixture"
 **Red/Green Record:**
 
 ```text
-Red:
-Green:
+Red: cargo test -p tests --test limit_order --offline limit_order_type_accepts_nft_for_udt_otx_fill -- --nocapture -> failed to compile: unresolved import limit_order_nft_for_udt_case
+Green: make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed
+Green: make -e -C tests/contracts/test-udt build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed
+Green: make -e -C tests/contracts/test-nft build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed
+Green: CARGO_TARGET_DIR=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/target make -e -C tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CUSTOM_RUSTFLAGS='-C debug-assertions' CARGO_ARGS=--offline -> passed after using the vendored contract's required rustflags override
+Green: cargo test -p tests --lib --offline otx_builder_allows_append_inputs_and_outputs -- --nocapture -> passed after setting base output masks when OtxBuilder::base_output_cells is used
+Green: cargo test -p tests --lib --offline otx_transaction_builder_supports_base_append_and_remainder_outputs -- --nocapture -> passed
+Green: cargo test -p tests --test limit_order --offline limit_order_type_accepts_nft_for_udt_otx_fill -- --nocapture -> passed
+Note: one diagnostic failed transaction from the invalid base-output-mask attempt was removed; no expected-failure dump was added.
 ```
 
 ## Task 7: Add NFT-for-UDT Payment Failure Cases

@@ -135,6 +135,11 @@ impl OtxBuilder {
 
     pub fn base_output_cells(mut self, count: u32) -> Self {
         self.base_output_cells = count;
+        self.base_output_masks = if count == 0 {
+            Vec::new()
+        } else {
+            full_base_output_masks(count as usize)
+        };
         self
     }
 
@@ -221,4 +226,17 @@ impl Default for OtxBuilder {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn full_base_output_masks(output_count: usize) -> Vec<u8> {
+    let bits = output_count * 4;
+    let bytes = bits.div_ceil(8);
+    let mut masks = vec![0xff; bytes];
+    let extra_bits = bytes * 8 - bits;
+    if extra_bits > 0 {
+        let keep_bits = 8 - extra_bits;
+        let last = masks.last_mut().expect("non-empty output mask");
+        *last = (1u8 << keep_bits) - 1;
+    }
+    masks
 }

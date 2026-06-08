@@ -1,4 +1,6 @@
-use tests::fixtures::limit_order::{failed_txs_count, limit_order_case};
+use tests::fixtures::limit_order::{
+    failed_txs_count, limit_order_case, limit_order_nft_for_udt_case,
+};
 
 #[test]
 fn limit_order_accepts_otx_append_settlement_at_limit_price() {
@@ -17,4 +19,11 @@ fn limit_order_rejects_otx_append_settlement_below_limit_price() {
     if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
         assert_eq!(failed_txs_count(), failed_txs_before);
     }
+}
+
+#[test]
+fn limit_order_type_accepts_nft_for_udt_otx_fill() {
+    let (fixture, tx) = limit_order_nft_for_udt_case();
+
+    fixture.assert_pass(&tx);
 }
