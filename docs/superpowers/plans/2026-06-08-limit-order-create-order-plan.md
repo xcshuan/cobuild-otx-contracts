@@ -808,7 +808,11 @@ git commit -m "test: update limit order action abi"
 
 ```text
 Red:
+- cargo test -p limit-order-type --offline parse_create_order_action_reads_state_payload -- --nocapture -> failed to compile as expected; missing CREATE_ORDER_TAG, CreateOrderAction, LimitOrderAction, parse_limit_order_action, parse_create_order_action, validate_create, and new order/fill fields.
+- cargo test -p limit-order-type --offline parse_fill_order_action_reads_requested_asset_and_amount -- --nocapture -> failed to compile as expected with the same missing new ABI symbols and old FillOrderAction fields.
 Green:
+- cargo test -p limit-order-type --offline -> passed; 23 unit tests, 0 doctests.
+- cargo test -p tests --lib --offline -> passed; 24 unit tests.
 ```
 
 ## Task 4: Split Entry Validation by Create and Fill Group Shape

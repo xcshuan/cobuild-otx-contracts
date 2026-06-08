@@ -6,8 +6,10 @@ use ckb_testtool::{
     context::Context,
 };
 
+#[cfg(not(test))]
 mod nft_for_udt;
 
+#[cfg(not(test))]
 pub use nft_for_udt::{
     FillActionCase, NftForUdtPaymentCase, limit_order_action_failure_case,
     limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with,
@@ -21,32 +23,39 @@ use crate::framework::{
     scripts::script_hash,
 };
 
-pub(crate) const FILL_ORDER_TAG: u8 = 1;
+pub(crate) const CREATE_ORDER_TAG: u8 = 1;
+pub(crate) const FILL_ORDER_TAG: u8 = 2;
+#[cfg(not(test))]
 pub(crate) const ORDER_ID: [u8; 32] = [1; 32];
 const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
 const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
+#[cfg(not(test))]
 pub(crate) const NFT_TYPE_ARGS: [u8; 32] = [5; 32];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LimitOrderState {
-    pub order_id: [u8; 32],
     pub owner_lock_hash: [u8; 32],
-    pub offered_asset_id: [u8; 32],
+    pub offered_nft_type_hash: [u8; 32],
     pub requested_asset_id: [u8; 32],
-    pub offered_remaining: u64,
-    pub min_requested_per_offered: u64,
-    pub nonce: u64,
+    pub min_requested_amount: u64,
 }
 
 pub fn order_data(order: LimitOrderState) -> Vec<u8> {
-    let mut data = Vec::with_capacity(152);
-    data.extend_from_slice(&order.order_id);
+    let mut data = Vec::with_capacity(104);
     data.extend_from_slice(&order.owner_lock_hash);
-    data.extend_from_slice(&order.offered_asset_id);
+    data.extend_from_slice(&order.offered_nft_type_hash);
     data.extend_from_slice(&order.requested_asset_id);
-    data.extend_from_slice(&order.offered_remaining.to_le_bytes());
-    data.extend_from_slice(&order.min_requested_per_offered.to_le_bytes());
-    data.extend_from_slice(&order.nonce.to_le_bytes());
+    data.extend_from_slice(&order.min_requested_amount.to_le_bytes());
+    data
+}
+
+pub fn create_order_action_data(order: LimitOrderState) -> Vec<u8> {
+    let mut data = Vec::with_capacity(105);
+    data.push(CREATE_ORDER_TAG);
+    data.extend_from_slice(&order.owner_lock_hash);
+    data.extend_from_slice(&order.offered_nft_type_hash);
+    data.extend_from_slice(&order.requested_asset_id);
+    data.extend_from_slice(&order.min_requested_amount.to_le_bytes());
     data
 }
 
@@ -67,10 +76,9 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
     let order_input = fixture
         .limit_order()
         .owner(owner_lock.clone())
-        .offered_asset_id(OFFERED_ASSET_ID)
+        .offered_nft_type_hash(OFFERED_ASSET_ID)
         .requested_asset_id(REQUESTED_ASSET_ID)
-        .offered_remaining(10)
-        .min_requested_per_offered(3)
+        .min_requested_amount(30)
         .build_input(&limit_order.script);
 
     let settlement_output = LimitOrderBuilder::settlement_output(
@@ -83,7 +91,7 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
     let message = fixture
         .cobuild()
         .input_type_action(limit_order.script_hash)
-        .limit_order_fill(ORDER_ID, REQUESTED_ASSET_ID, 10, 30)
+        .limit_order_fill(REQUESTED_ASSET_ID, 30)
         .build();
     let otx = fixture
         .limit_order_append_settlement_otx()
@@ -114,29 +122,20 @@ pub fn failed_txs_count() -> usize {
 }
 
 pub trait LimitOrderCobuildMessageExt {
-    fn limit_order_fill(
-        self,
-        order_id: [u8; 32],
-        requested_asset_id: [u8; 32],
-        offered_amount: u64,
-        requested_amount: u64,
-    ) -> Self;
+    fn limit_order_create(self, order: LimitOrderState) -> Self;
+    fn limit_order_fill(self, requested_asset_id: [u8; 32], min_requested_amount: u64) -> Self;
 }
 
 impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
-    fn limit_order_fill(
-        self,
-        order_id: [u8; 32],
-        requested_asset_id: [u8; 32],
-        offered_amount: u64,
-        requested_amount: u64,
-    ) -> Self {
-        let mut data = Vec::with_capacity(81);
+    fn limit_order_create(self, order: LimitOrderState) -> Self {
+        self.action_data(create_order_action_data(order))
+    }
+
+    fn limit_order_fill(self, requested_asset_id: [u8; 32], min_requested_amount: u64) -> Self {
+        let mut data = Vec::with_capacity(41);
         data.push(FILL_ORDER_TAG);
-        data.extend_from_slice(&order_id);
         data.extend_from_slice(&requested_asset_id);
-        data.extend_from_slice(&offered_amount.to_le_bytes());
-        data.extend_from_slice(&requested_amount.to_le_bytes());
+        data.extend_from_slice(&min_requested_amount.to_le_bytes());
         self.action_data(data)
     }
 }
@@ -167,12 +166,9 @@ impl LimitOrderFixtureExt for CobuildTestFixture {
 pub struct LimitOrderBuilder<'a> {
     context: &'a mut Context,
     owner: Option<Script>,
-    order_id: [u8; 32],
-    offered_asset_id: [u8; 32],
+    offered_nft_type_hash: [u8; 32],
     requested_asset_id: [u8; 32],
-    offered_remaining: u64,
-    min_requested_per_offered: u64,
-    nonce: u64,
+    min_requested_amount: u64,
     capacity: u64,
 }
 
@@ -181,12 +177,9 @@ impl<'a> LimitOrderBuilder<'a> {
         Self {
             context,
             owner: None,
-            order_id: [1; 32],
-            offered_asset_id: [3; 32],
+            offered_nft_type_hash: [3; 32],
             requested_asset_id: [4; 32],
-            offered_remaining: 10,
-            min_requested_per_offered: 3,
-            nonce: 9,
+            min_requested_amount: 30,
             capacity: 100_000_000_000,
         }
     }
@@ -196,9 +189,13 @@ impl<'a> LimitOrderBuilder<'a> {
         self
     }
 
-    pub fn offered_asset_id(mut self, asset_id: [u8; 32]) -> Self {
-        self.offered_asset_id = asset_id;
+    pub fn offered_nft_type_hash(mut self, type_hash: [u8; 32]) -> Self {
+        self.offered_nft_type_hash = type_hash;
         self
+    }
+
+    pub fn offered_asset_id(self, asset_id: [u8; 32]) -> Self {
+        self.offered_nft_type_hash(asset_id)
     }
 
     pub fn requested_asset_id(mut self, asset_id: [u8; 32]) -> Self {
@@ -206,13 +203,17 @@ impl<'a> LimitOrderBuilder<'a> {
         self
     }
 
-    pub fn offered_remaining(mut self, amount: u64) -> Self {
-        self.offered_remaining = amount;
+    pub fn offered_remaining(self, _amount: u64) -> Self {
         self
     }
 
     pub fn min_requested_per_offered(mut self, price: u64) -> Self {
-        self.min_requested_per_offered = price;
+        self.min_requested_amount = price.saturating_mul(10);
+        self
+    }
+
+    pub fn min_requested_amount(mut self, amount: u64) -> Self {
+        self.min_requested_amount = amount;
         self
     }
 
@@ -221,13 +222,10 @@ impl<'a> LimitOrderBuilder<'a> {
         let owner_lock_hash = script_hash(&owner);
         let output = typed_output(owner, limit_order_type.clone(), self.capacity);
         let data = order_data(LimitOrderState {
-            order_id: self.order_id,
             owner_lock_hash,
-            offered_asset_id: self.offered_asset_id,
+            offered_nft_type_hash: self.offered_nft_type_hash,
             requested_asset_id: self.requested_asset_id,
-            offered_remaining: self.offered_remaining,
-            min_requested_per_offered: self.min_requested_per_offered,
-            nonce: self.nonce,
+            min_requested_amount: self.min_requested_amount,
         });
         live_input(self.context, output, data)
     }

@@ -39,26 +39,20 @@ mod tests {
     #[test]
     fn limit_order_helpers_encode_fixed_width_order_and_settlement_data() {
         let order = LimitOrderState {
-            order_id: [1; 32],
             owner_lock_hash: [2; 32],
-            offered_asset_id: [3; 32],
+            offered_nft_type_hash: [3; 32],
             requested_asset_id: [4; 32],
-            offered_remaining: 10,
-            min_requested_per_offered: 3,
-            nonce: 9,
+            min_requested_amount: 30,
         };
 
         let data = order_data(order);
         let settlement = settlement_data([4; 32], 30);
 
-        assert_eq!(data.len(), 152);
-        assert_eq!(&data[0..32], &[1; 32]);
-        assert_eq!(&data[32..64], &[2; 32]);
-        assert_eq!(&data[64..96], &[3; 32]);
-        assert_eq!(&data[96..128], &[4; 32]);
-        assert_eq!(&data[128..136], &10u64.to_le_bytes());
-        assert_eq!(&data[136..144], &3u64.to_le_bytes());
-        assert_eq!(&data[144..152], &9u64.to_le_bytes());
+        assert_eq!(data.len(), 104);
+        assert_eq!(&data[0..32], &[2; 32]);
+        assert_eq!(&data[32..64], &[3; 32]);
+        assert_eq!(&data[64..96], &[4; 32]);
+        assert_eq!(&data[96..104], &30u64.to_le_bytes());
         assert_eq!(settlement.len(), 40);
         assert_eq!(&settlement[0..32], &[4; 32]);
         assert_eq!(&settlement[32..40], &30u64.to_le_bytes());
@@ -68,7 +62,7 @@ mod tests {
     fn limit_order_fixture_encodes_fill_action_and_default_otx_layout() {
         let message = CobuildMessageBuilder::new()
             .input_type_action([9; 32])
-            .limit_order_fill([1; 32], [4; 32], 10, 30)
+            .limit_order_fill([4; 32], 30)
             .build();
 
         let fixture = CobuildTestFixture::new();

@@ -1,20 +1,19 @@
 use crate::error::Error;
 
-pub const ORDER_DATA_LEN: usize = 152;
+pub const ORDER_DATA_LEN: usize = 104;
 pub const SETTLEMENT_DATA_LEN: usize = 40;
 pub const UDT_PAYMENT_DATA_LEN: usize = 16;
-pub const FILL_ORDER_TAG: u8 = 1;
-const FILL_ORDER_DATA_LEN: usize = 81;
+pub const CREATE_ORDER_TAG: u8 = 1;
+pub const FILL_ORDER_TAG: u8 = 2;
+const CREATE_ORDER_DATA_LEN: usize = 105;
+const FILL_ORDER_DATA_LEN: usize = 41;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OrderState {
-    pub order_id: [u8; 32],
     pub owner_lock_hash: [u8; 32],
-    pub offered_asset_id: [u8; 32],
+    pub offered_nft_type_hash: [u8; 32],
     pub requested_asset_id: [u8; 32],
-    pub offered_remaining: u64,
-    pub min_requested_per_offered: u64,
-    pub nonce: u64,
+    pub min_requested_amount: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -25,11 +24,23 @@ pub struct SettlementCell {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct FillOrderAction {
-    pub order_id: [u8; 32],
+pub struct CreateOrderAction {
+    pub owner_lock_hash: [u8; 32],
+    pub offered_nft_type_hash: [u8; 32],
     pub requested_asset_id: [u8; 32],
-    pub offered_amount: u64,
     pub min_requested_amount: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FillOrderAction {
+    pub requested_asset_id: [u8; 32],
+    pub min_requested_amount: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LimitOrderAction {
+    Create(CreateOrderAction),
+    Fill(FillOrderAction),
 }
 
 pub fn parse_order_state(data: &[u8]) -> Result<OrderState, Error> {
@@ -38,13 +49,10 @@ pub fn parse_order_state(data: &[u8]) -> Result<OrderState, Error> {
     }
 
     Ok(OrderState {
-        order_id: read_bytes32(data, 0),
-        owner_lock_hash: read_bytes32(data, 32),
-        offered_asset_id: read_bytes32(data, 64),
-        requested_asset_id: read_bytes32(data, 96),
-        offered_remaining: read_u64(data, 128),
-        min_requested_per_offered: read_u64(data, 136),
-        nonce: read_u64(data, 144),
+        owner_lock_hash: read_bytes32(data, 0),
+        offered_nft_type_hash: read_bytes32(data, 32),
+        requested_asset_id: read_bytes32(data, 64),
+        min_requested_amount: read_u64(data, 96),
     })
 }
 
@@ -79,27 +87,51 @@ pub fn parse_udt_payment(
     })
 }
 
+pub fn parse_limit_order_action(data: &[u8]) -> Result<LimitOrderAction, Error> {
+    let Some((&tag, _)) = data.split_first() else {
+        return Err(Error::InvalidActionData);
+    };
+
+    match tag {
+        CREATE_ORDER_TAG => parse_create_order_action(data).map(LimitOrderAction::Create),
+        FILL_ORDER_TAG => parse_fill_order_action(data).map(LimitOrderAction::Fill),
+        _ => Err(Error::UnsupportedAction),
+    }
+}
+
+pub fn parse_create_order_action(data: &[u8]) -> Result<CreateOrderAction, Error> {
+    if data.len() != CREATE_ORDER_DATA_LEN {
+        return Err(Error::InvalidActionData);
+    }
+
+    Ok(CreateOrderAction {
+        owner_lock_hash: read_bytes32(data, 1),
+        offered_nft_type_hash: read_bytes32(data, 33),
+        requested_asset_id: read_bytes32(data, 65),
+        min_requested_amount: read_u64(data, 97),
+    })
+}
+
 pub fn parse_fill_order_action(data: &[u8]) -> Result<FillOrderAction, Error> {
     if data.len() != FILL_ORDER_DATA_LEN {
         return Err(Error::InvalidActionData);
     }
-    if data[0] != FILL_ORDER_TAG {
-        return Err(Error::UnsupportedAction);
-    }
 
     Ok(FillOrderAction {
-        order_id: read_bytes32(data, 1),
-        requested_asset_id: read_bytes32(data, 33),
-        offered_amount: read_u64(data, 65),
-        min_requested_amount: read_u64(data, 73),
+        requested_asset_id: read_bytes32(data, 1),
+        min_requested_amount: read_u64(data, 33),
     })
 }
 
-pub fn required_requested_amount(order: &OrderState) -> Result<u64, Error> {
-    order
-        .offered_remaining
-        .checked_mul(order.min_requested_per_offered)
-        .ok_or(Error::AmountOverflow)
+pub fn validate_create(order: &OrderState, action: &CreateOrderAction) -> Result<(), Error> {
+    if order.owner_lock_hash != action.owner_lock_hash
+        || order.offered_nft_type_hash != action.offered_nft_type_hash
+        || order.requested_asset_id != action.requested_asset_id
+        || order.min_requested_amount != action.min_requested_amount
+    {
+        return Err(Error::ActionMismatch);
+    }
+    Ok(())
 }
 
 pub fn validate_fill(
@@ -107,15 +139,11 @@ pub fn validate_fill(
     action: &FillOrderAction,
     settlements: &[SettlementCell],
 ) -> Result<(), Error> {
-    if action.order_id != order.order_id
-        || action.requested_asset_id != order.requested_asset_id
-        || action.offered_amount != order.offered_remaining
-    {
+    if action.requested_asset_id != order.requested_asset_id {
         return Err(Error::ActionMismatch);
     }
 
-    let required = required_requested_amount(order)?;
-    if action.min_requested_amount < required {
+    if action.min_requested_amount < order.min_requested_amount {
         return Err(Error::InsufficientPayment);
     }
 
@@ -160,39 +188,47 @@ mod tests {
     use super::*;
     use alloc::vec::Vec;
 
-    const ORDER_ID: [u8; 32] = [1; 32];
     const OWNER_LOCK_HASH: [u8; 32] = [2; 32];
     const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
     const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
 
-    fn order_data(offered_remaining: u64, min_requested_per_offered: u64) -> Vec<u8> {
+    fn order_data(min_requested_amount: u64) -> Vec<u8> {
         let mut data = Vec::new();
-        data.extend_from_slice(&ORDER_ID);
         data.extend_from_slice(&OWNER_LOCK_HASH);
         data.extend_from_slice(&OFFERED_ASSET_ID);
         data.extend_from_slice(&REQUESTED_ASSET_ID);
-        data.extend_from_slice(&offered_remaining.to_le_bytes());
-        data.extend_from_slice(&min_requested_per_offered.to_le_bytes());
-        data.extend_from_slice(&9u64.to_le_bytes());
-        data
-    }
-
-    fn fill_action_data(offered_amount: u64, min_requested_amount: u64) -> Vec<u8> {
-        let mut data = Vec::new();
-        data.push(FILL_ORDER_TAG);
-        data.extend_from_slice(&ORDER_ID);
-        data.extend_from_slice(&REQUESTED_ASSET_ID);
-        data.extend_from_slice(&offered_amount.to_le_bytes());
         data.extend_from_slice(&min_requested_amount.to_le_bytes());
         data
     }
 
-    fn order_state() -> OrderState {
-        parse_order_state(&order_data(10, 3)).expect("order data")
+    fn create_action_data(min_requested_amount: u64) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.push(CREATE_ORDER_TAG);
+        data.extend_from_slice(&OWNER_LOCK_HASH);
+        data.extend_from_slice(&OFFERED_ASSET_ID);
+        data.extend_from_slice(&REQUESTED_ASSET_ID);
+        data.extend_from_slice(&min_requested_amount.to_le_bytes());
+        data
+    }
+
+    fn fill_action_data(min_requested_amount: u64) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.push(FILL_ORDER_TAG);
+        data.extend_from_slice(&REQUESTED_ASSET_ID);
+        data.extend_from_slice(&min_requested_amount.to_le_bytes());
+        data
+    }
+
+    fn order_state(min_requested_amount: u64) -> OrderState {
+        parse_order_state(&order_data(min_requested_amount)).expect("order data")
+    }
+
+    fn create_action(min_requested_amount: u64) -> CreateOrderAction {
+        parse_create_order_action(&create_action_data(min_requested_amount)).expect("create action")
     }
 
     fn fill_action(min_requested_amount: u64) -> FillOrderAction {
-        parse_fill_order_action(&fill_action_data(10, min_requested_amount)).expect("fill action")
+        parse_fill_order_action(&fill_action_data(min_requested_amount)).expect("fill action")
     }
 
     fn settlement(owner_lock_hash: [u8; 32], asset_id: [u8; 32], amount: u64) -> SettlementCell {
@@ -216,21 +252,18 @@ mod tests {
     }
 
     #[test]
-    fn parse_order_state_reads_fixed_width_fields() {
-        let order = parse_order_state(&order_data(10, 3)).expect("order data");
+    fn parse_order_state_reads_nft_order_fields() {
+        let order = parse_order_state(&order_data(30)).expect("order data");
 
-        assert_eq!(order.order_id, ORDER_ID);
         assert_eq!(order.owner_lock_hash, OWNER_LOCK_HASH);
-        assert_eq!(order.offered_asset_id, OFFERED_ASSET_ID);
+        assert_eq!(order.offered_nft_type_hash, OFFERED_ASSET_ID);
         assert_eq!(order.requested_asset_id, REQUESTED_ASSET_ID);
-        assert_eq!(order.offered_remaining, 10);
-        assert_eq!(order.min_requested_per_offered, 3);
-        assert_eq!(order.nonce, 9);
+        assert_eq!(order.min_requested_amount, 30);
     }
 
     #[test]
     fn parse_order_state_rejects_truncated_data() {
-        let data = order_data(10, 3);
+        let data = order_data(30);
 
         assert_eq!(
             parse_order_state(&data[..ORDER_DATA_LEN - 1]).unwrap_err(),
@@ -239,24 +272,59 @@ mod tests {
     }
 
     #[test]
-    fn parse_fill_order_action_reads_fixed_width_fields() {
-        let action = parse_fill_order_action(&fill_action_data(10, 30)).expect("fill action");
+    fn parse_create_order_action_reads_state_payload() {
+        let action = parse_limit_order_action(&create_action_data(30)).expect("create action");
 
-        assert_eq!(action.order_id, ORDER_ID);
-        assert_eq!(action.requested_asset_id, REQUESTED_ASSET_ID);
-        assert_eq!(action.offered_amount, 10);
-        assert_eq!(action.min_requested_amount, 30);
+        assert_eq!(
+            action,
+            LimitOrderAction::Create(CreateOrderAction {
+                owner_lock_hash: OWNER_LOCK_HASH,
+                offered_nft_type_hash: OFFERED_ASSET_ID,
+                requested_asset_id: REQUESTED_ASSET_ID,
+                min_requested_amount: 30,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_fill_order_action_reads_requested_asset_and_amount() {
+        let action = parse_limit_order_action(&fill_action_data(30)).expect("fill action");
+
+        assert_eq!(
+            action,
+            LimitOrderAction::Fill(FillOrderAction {
+                requested_asset_id: REQUESTED_ASSET_ID,
+                min_requested_amount: 30,
+            })
+        );
     }
 
     #[test]
     fn parse_fill_order_action_rejects_unknown_variant() {
-        let mut data = fill_action_data(10, 30);
+        let mut data = fill_action_data(30);
         data[0] = 99;
 
         assert_eq!(
-            parse_fill_order_action(&data).unwrap_err(),
+            parse_limit_order_action(&data).unwrap_err(),
             Error::UnsupportedAction
         );
+    }
+
+    #[test]
+    fn validate_create_accepts_matching_state() {
+        let order = order_state(30);
+        let action = create_action(30);
+
+        assert_eq!(validate_create(&order, &action), Ok(()));
+    }
+
+    #[test]
+    fn validate_create_rejects_state_mismatch() {
+        let order = order_state(30);
+        let mut action = create_action(30);
+        action.min_requested_amount = 31;
+
+        assert_eq!(validate_create(&order, &action), Err(Error::ActionMismatch));
     }
 
     #[test]
@@ -278,28 +346,11 @@ mod tests {
     }
 
     #[test]
-    fn required_requested_amount_multiplies_remaining_by_limit_price() {
-        let order = parse_order_state(&order_data(10, 3)).expect("order data");
-
-        assert_eq!(required_requested_amount(&order), Ok(30));
-    }
-
-    #[test]
-    fn required_requested_amount_rejects_overflow() {
-        let order = parse_order_state(&order_data(u64::MAX, 2)).expect("order data");
-
-        assert_eq!(
-            required_requested_amount(&order),
-            Err(Error::AmountOverflow)
-        );
-    }
-
-    #[test]
     fn validate_fill_accepts_exact_owner_payment() {
         let settlements = [settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30)];
 
         assert_eq!(
-            validate_fill(&order_state(), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30), &settlements),
             Ok(())
         );
     }
@@ -309,7 +360,7 @@ mod tests {
         let settlements = [settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 31)];
 
         assert_eq!(
-            validate_fill(&order_state(), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30), &settlements),
             Ok(())
         );
     }
@@ -319,7 +370,7 @@ mod tests {
         let settlements = [settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 29)];
 
         assert_eq!(
-            validate_fill(&order_state(), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30), &settlements),
             Err(Error::InsufficientPayment)
         );
     }
@@ -329,7 +380,7 @@ mod tests {
         let settlements = [settlement([9; 32], REQUESTED_ASSET_ID, 30)];
 
         assert_eq!(
-            validate_fill(&order_state(), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30), &settlements),
             Err(Error::InsufficientPayment)
         );
     }
@@ -339,19 +390,19 @@ mod tests {
         let settlements = [settlement(OWNER_LOCK_HASH, [9; 32], 30)];
 
         assert_eq!(
-            validate_fill(&order_state(), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30), &settlements),
             Err(Error::InsufficientPayment)
         );
     }
 
     #[test]
-    fn validate_fill_rejects_action_that_does_not_match_order() {
+    fn validate_fill_rejects_action_min_below_order_minimum() {
         let mut action = fill_action(30);
-        action.order_id = [9; 32];
+        action.min_requested_amount = 29;
 
         assert_eq!(
-            validate_fill(&order_state(), &action, &[]),
-            Err(Error::ActionMismatch)
+            validate_fill(&order_state(30), &action, &[]),
+            Err(Error::InsufficientPayment)
         );
     }
 
@@ -361,18 +412,7 @@ mod tests {
         action.requested_asset_id = [9; 32];
 
         assert_eq!(
-            validate_fill(&order_state(), &action, &[]),
-            Err(Error::ActionMismatch)
-        );
-    }
-
-    #[test]
-    fn validate_fill_rejects_offered_amount_mismatch() {
-        let mut action = fill_action(30);
-        action.offered_amount = 9;
-
-        assert_eq!(
-            validate_fill(&order_state(), &action, &[]),
+            validate_fill(&order_state(30), &action, &[]),
             Err(Error::ActionMismatch)
         );
     }
@@ -382,7 +422,7 @@ mod tests {
         let settlements = [settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30)];
 
         assert_eq!(
-            validate_fill(&order_state(), &fill_action(29), &settlements),
+            validate_fill(&order_state(30), &fill_action(29), &settlements),
             Err(Error::InsufficientPayment)
         );
     }
@@ -395,7 +435,7 @@ mod tests {
         ];
 
         assert_eq!(
-            validate_fill(&order_state(), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30), &settlements),
             Err(Error::AmountOverflow)
         );
     }
