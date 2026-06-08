@@ -868,6 +868,26 @@ fn cobuild_core_type_plan_names_otx_scope_relevance_and_action_delivery() {
 }
 
 #[test]
+fn cobuild_core_type_plan_names_tx_scope_relevance_and_action_delivery() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+    let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs");
+
+    assert!(
+        engine_rs.contains("fn add_tx_level_actions("),
+        "TypePlanBuilder should name tx-level action discovery like LockPlanBuilder"
+    );
+    assert!(
+        engine_rs.contains("fn add_tx_related_actions("),
+        "TypePlanBuilder should handle one tx-level message in a named helper"
+    );
+    assert!(
+        engine_rs.contains("fn push_tx_related_actions("),
+        "TypePlanBuilder should separate tx-level action delivery from scope relevance"
+    );
+}
+
+#[test]
 fn cobuild_core_scans_cobuild_witness_layout_once() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let core_src = workspace_root.join("crates/cobuild-core/src");

@@ -370,7 +370,7 @@ impl<'a> TypePlanBuilder<'a> {
 
     fn build(mut self) -> Result<TypeValidationPlan, CoreError> {
         self.add_otx_related_actions()?;
-        self.add_tx_level_actions_if_relevant()?;
+        self.add_tx_level_actions()?;
         Ok(TypeValidationPlan {
             type_script_hash: self.type_script_hash,
             related_actions: self.related_actions,
@@ -396,7 +396,8 @@ impl<'a> TypePlanBuilder<'a> {
     ) -> Result<(), CoreError> {
         let relation = self.context.script_context.type_relation_for_otx(otx)?;
         let scope_related = otx_type_relation_mentions_type(&relation);
-        let actions = type_actions_for_message(&otx.witness.message, self.type_script_hash)?;
+        let actions: Vec<ActionView> =
+            type_actions_for_message(&otx.witness.message, self.type_script_hash)?;
         if !scope_related && actions.is_empty() {
             return Ok(());
         }
@@ -423,7 +424,7 @@ impl<'a> TypePlanBuilder<'a> {
         }
     }
 
-    fn add_tx_level_actions_if_relevant(&mut self) -> Result<(), CoreError> {
+    fn add_tx_level_actions(&mut self) -> Result<(), CoreError> {
         let Some((witness_index, message)) = self
             .context
             .witnesses
@@ -432,22 +433,35 @@ impl<'a> TypePlanBuilder<'a> {
             return Ok(());
         };
 
+        self.add_tx_related_actions(witness_index, &message)?;
+        Ok(())
+    }
+
+    fn add_tx_related_actions(
+        &mut self,
+        witness_index: usize,
+        message: &Cursor,
+    ) -> Result<(), CoreError> {
         let scope_related = self.tx_level_scope_mentions_type()?;
-        let actions = type_actions_for_message(&message, self.type_script_hash)?;
+        let actions = type_actions_for_message(message, self.type_script_hash)?;
         if !scope_related && actions.is_empty() {
             return Ok(());
         }
 
         self.context
             .script_context
-            .validate_message_targets(&message)?;
+            .validate_message_targets(message)?;
+        self.push_tx_related_actions(witness_index, actions);
+        Ok(())
+    }
+
+    fn push_tx_related_actions(&mut self, witness_index: usize, actions: Vec<ActionView>) {
         for action in actions {
             self.related_actions.push(TypeRelatedAction {
                 action: related_tx_action(witness_index, action),
                 otx_type_scope: TypeActionOtxScope::TargetOnly,
             });
         }
-        Ok(())
     }
 
     fn tx_level_scope_mentions_type(&self) -> Result<bool, CoreError> {
