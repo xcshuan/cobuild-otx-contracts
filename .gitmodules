@@ -1,0 +1,3 @@
+[submodule "tests/vendor/ckb-proxy-locks"]
+	path = tests/vendor/ckb-proxy-locks
+	url = https://github.com/ckb-devrel/ckb-proxy-locks

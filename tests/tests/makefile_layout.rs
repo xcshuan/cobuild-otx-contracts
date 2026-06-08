@@ -38,7 +38,6 @@ fn root_makefile_builds_test_only_contracts() {
         "tests/contracts/limit-order-type",
         "tests/contracts/test-nft",
         "tests/contracts/test-udt",
-        "tests/contracts/test-input-type-proxy-lock",
     ] {
         assert!(
             stdout.contains(contract),

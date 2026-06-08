@@ -57,12 +57,12 @@ Expected: no output. If the worktree is dirty, inspect the changes and do not ov
   - Add generic support for base outputs, append inputs, and tx-level remainder outputs.
 - Modify: `tests/src/framework/cells.rs`
   - No planned change; existing `typed_output`, `live_input`, and `live_resolved_typed_input` are sufficient.
-- Create: `tests/contracts/test-input-type-proxy-lock`
+- Use: `tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock`
   - Minimal tests-only lock contract that unlocks when any transaction input type hash equals the first 32 bytes of its args.
 - Modify: root `Cargo.toml`
-  - Add `tests/contracts/test-input-type-proxy-lock` as a workspace member.
+  - Add `tests/vendor/ckb-proxy-locks` as a git submodule; do not add its crates to this workspace.
 - Modify: `tests/tests/workspace_layout.rs`
-  - Include `test-input-type-proxy-lock` as a test-only contract.
+  - Include `ckb-proxy-locks` under tests/vendor as the source of proxy lock contracts.
 - Modify: `tests/contracts/limit-order-type/src/types.rs`
   - Add pure UDT payment parsing and validation support.
 - Modify: `tests/contracts/limit-order-type/src/entry.rs`
@@ -237,202 +237,103 @@ Green: cargo test -p tests --test makefile_layout --offline root_makefile_builds
 Green: cargo test -p limit-order-type --offline -> passed after updating src/main.rs crate path
 ```
 
-## Task 2: Add Tests-Only Input Type Proxy Lock
+## Task 2: Vendor ckb-proxy-locks for Input Type Proxy Lock
 
 **Files:**
-- Create: `tests/contracts/test-input-type-proxy-lock`
-- Modify: `Cargo.toml`
+- Use: `tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock`
+- Create: `.gitmodules`
+- Add submodule gitlink: `tests/vendor/ckb-proxy-locks`
 - Modify: `tests/tests/workspace_layout.rs`
-- Modify: `tests/tests/makefile_layout.rs`
-- Modify: `tests/src/fixtures/limit_order.rs` to deploy the lock in later tasks
+- Modify: `docs/superpowers/plans/2026-06-08-limit-order-type-nft-for-udt-plan.md`
+- Delete: `tests/contracts/test-input-type-proxy-lock`
+- Modify: `Cargo.toml`
+- Modify: `Cargo.lock`
 
-- [ ] **Step 1: Write failing workspace/layout tests**
+- [ ] **Step 1: Write failing vendor layout test**
 
-In `tests/tests/workspace_layout.rs`, update `test_asset_contracts_live_under_tests_directory` to include the proxy lock:
+In `tests/tests/workspace_layout.rs`, add:
 
 ```rust
-for contract in ["test-udt", "test-nft", "test-input-type-proxy-lock"] {
-    let test_contract_dir = workspace_root.join("tests/contracts").join(contract);
+#[test]
+fn proxy_locks_live_under_tests_vendor_submodule() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let vendor_dir = workspace_root.join("tests/vendor/ckb-proxy-locks");
+    let input_type_proxy_lock = vendor_dir.join("contracts/input-type-proxy-lock");
+
     assert!(
-        test_contract_dir.join("Cargo.toml").is_file(),
-        "missing test-only contract manifest for {contract}"
+        vendor_dir.join(".git").exists() || vendor_dir.join(".git").is_file(),
+        "ckb-proxy-locks must be checked out as a tests/vendor submodule"
     );
     assert!(
-        test_contract_dir.join("Makefile").is_file(),
-        "missing test-only contract Makefile for {contract}"
+        input_type_proxy_lock.join("Cargo.toml").is_file(),
+        "missing vendored input-type-proxy-lock manifest"
     );
     assert!(
-        !workspace_root.join("contracts").join(contract).exists(),
-        "{contract} must stay under tests/contracts, not production contracts"
+        input_type_proxy_lock.join("Makefile").is_file(),
+        "missing vendored input-type-proxy-lock Makefile"
+    );
+    assert!(
+        !workspace_root
+            .join("tests/contracts/test-input-type-proxy-lock")
+            .exists(),
+        "input-type-proxy-lock must be reused from tests/vendor/ckb-proxy-locks"
     );
 }
 ```
 
-In `tests/tests/makefile_layout.rs`, add `"tests/contracts/test-input-type-proxy-lock"` to the expected contract list.
+Remove `"tests/contracts/test-input-type-proxy-lock"` from root workspace layout tests and Makefile dry-run expectations.
 
 - [ ] **Step 2: Run red**
 
 Run:
 
 ```bash
-cargo test -p tests --test workspace_layout --offline test_asset_contracts_live_under_tests_directory -- --nocapture
-cargo test -p tests --test makefile_layout --offline root_makefile_builds_test_only_contracts -- --nocapture
+cargo test -p tests --test workspace_layout --offline proxy_locks_live_under_tests_vendor_submodule -- --nocapture
 ```
 
-Expected: fail because the proxy lock contract does not exist.
+Expected: fail until the submodule is present and the in-repo `tests/contracts/test-input-type-proxy-lock` fixture is removed.
 
-- [ ] **Step 3: Create minimal contract**
+- [ ] **Step 3: Add submodule and remove in-repo proxy lock**
 
-Create `tests/contracts/test-input-type-proxy-lock/Cargo.toml`:
+Run:
 
-```toml
-[package]
-name = "test-input-type-proxy-lock"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-ckb-std = "1.1"
-
-[features]
-library = []
-native-simulator = ["library", "ckb-std/native-simulator"]
+```bash
+git submodule add https://github.com/ckb-devrel/ckb-proxy-locks tests/vendor/ckb-proxy-locks
 ```
 
-Create `tests/contracts/test-input-type-proxy-lock/README.md`:
+If `tests/vendor/ckb-proxy-locks` already exists as a clean checkout, use:
 
-```markdown
-# test-input-type-proxy-lock
+```bash
+git submodule add --force https://github.com/ckb-devrel/ckb-proxy-locks tests/vendor/ckb-proxy-locks
 ```
 
-Create `tests/contracts/test-input-type-proxy-lock/Makefile` by copying the test contract Makefile pattern from `tests/contracts/test-udt/Makefile`.
+Remove the in-repo test contract:
 
-Create `tests/contracts/test-input-type-proxy-lock/src/main.rs`:
-
-```rust
-#![cfg_attr(not(feature = "library"), no_std)]
-#![cfg_attr(not(feature = "library"), no_main)]
-
-#[cfg(not(feature = "library"))]
-ckb_std::entry!(program_entry);
-#[cfg(not(feature = "library"))]
-ckb_std::default_alloc!();
-
-#[cfg(not(feature = "library"))]
-fn program_entry() -> i8 {
-    match test_input_type_proxy_lock::entry::main() {
-        Ok(()) => 0,
-        Err(err) => err as i8,
-    }
-}
+```bash
+git rm -r tests/contracts/test-input-type-proxy-lock
 ```
 
-Create `tests/contracts/test-input-type-proxy-lock/src/lib.rs`:
-
-```rust
-#![cfg_attr(not(test), no_std)]
-
-extern crate alloc;
-
-pub mod entry;
-pub mod error;
-```
-
-Create `tests/contracts/test-input-type-proxy-lock/src/error.rs`:
-
-```rust
-use ckb_std::error::SysError;
-
-#[repr(i8)]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum Error {
-    IndexOutOfBound = 1,
-    ItemMissing = 2,
-    LengthNotEnough = 3,
-    Encoding = 4,
-    InvalidUnlock = 5,
-    UnexpectedSyscall = 6,
-}
-
-impl From<SysError> for Error {
-    fn from(err: SysError) -> Self {
-        match err {
-            SysError::IndexOutOfBound => Self::IndexOutOfBound,
-            SysError::ItemMissing => Self::ItemMissing,
-            SysError::LengthNotEnough(_) => Self::LengthNotEnough,
-            SysError::Encoding => Self::Encoding,
-            SysError::Unknown(code) => panic!("unknown syscall error {code}"),
-            SysError::WaitFailure
-            | SysError::InvalidFd
-            | SysError::OtherEndClosed
-            | SysError::MaxVmsSpawned
-            | SysError::MaxFdsCreated => Self::UnexpectedSyscall,
-            #[allow(unreachable_patterns)]
-            _ => Self::UnexpectedSyscall,
-        }
-    }
-}
-```
-
-Create `tests/contracts/test-input-type-proxy-lock/src/entry.rs`:
-
-```rust
-use alloc::vec::Vec;
-
-use ckb_std::{
-    ckb_constants::Source,
-    ckb_types::prelude::Unpack,
-    high_level::{QueryIter, load_cell_type_hash, load_script},
-};
-
-use crate::error::Error;
-
-const TYPE_HASH_LEN: usize = 32;
-
-pub fn main() -> Result<(), Error> {
-    let script = load_script()?;
-    let args: Vec<u8> = script.args().unpack();
-    if args.len() < TYPE_HASH_LEN {
-        return Err(Error::Encoding);
-    }
-    if has_matching_input_type(&args[..TYPE_HASH_LEN]) {
-        return Ok(());
-    }
-    Err(Error::InvalidUnlock)
-}
-
-fn has_matching_input_type(owner_type_hash: &[u8]) -> bool {
-    QueryIter::new(load_cell_type_hash, Source::Input).any(|cell_type_hash| {
-        cell_type_hash
-            .as_ref()
-            .is_some_and(|cell_type_hash| owner_type_hash == cell_type_hash.as_slice())
-    })
-}
-
-#[cfg(test)]
-mod tests {
-    const TYPE_HASH_LEN: usize = super::TYPE_HASH_LEN;
-
-    #[test]
-    fn type_hash_len_is_32_bytes() {
-        assert_eq!(TYPE_HASH_LEN, 32);
-    }
-}
-```
-
-Add the workspace member in root `Cargo.toml`:
+Remove the root workspace member:
 
 ```toml
 "tests/contracts/test-input-type-proxy-lock",
 ```
+
+After removing the member, run:
+
+```bash
+cargo check -p tests --offline
+```
+
+Expected: `Cargo.lock` no longer contains a `test-input-type-proxy-lock` package entry.
 
 - [ ] **Step 4: Run green**
 
 Run:
 
 ```bash
-cargo test -p test-input-type-proxy-lock --offline
-cargo test -p tests --test workspace_layout --offline test_asset_contracts_live_under_tests_directory -- --nocapture
+cargo test -p tests --test workspace_layout --offline proxy_locks_live_under_tests_vendor_submodule -- --nocapture
+cargo test -p tests --test workspace_layout --offline workspace_declares_clean_cobuild_members -- --nocapture
 cargo test -p tests --test makefile_layout --offline root_makefile_builds_test_only_contracts -- --nocapture
 ```
 
@@ -443,18 +344,20 @@ Expected: all pass.
 Run:
 
 ```bash
-git add Cargo.toml tests/contracts/test-input-type-proxy-lock tests/tests/workspace_layout.rs tests/tests/makefile_layout.rs
-git commit -m "test: add input type proxy lock fixture"
+git add .gitmodules Cargo.toml Cargo.lock docs/superpowers/plans/2026-06-08-limit-order-type-nft-for-udt-plan.md tests/vendor/ckb-proxy-locks tests/tests/workspace_layout.rs tests/tests/makefile_layout.rs
+git add -u tests/contracts/test-input-type-proxy-lock
+git commit -m "test: vendor ckb proxy locks"
 ```
 
 **Red/Green Record:**
 
 ```text
-Red: cargo test -p tests --test workspace_layout --offline test_asset_contracts_live_under_tests_directory -- --nocapture -> failed: missing test-only contract manifest for test-input-type-proxy-lock
-Red: cargo test -p tests --test makefile_layout --offline root_makefile_builds_test_only_contracts -- --nocapture -> failed: root Makefile dry-run did not include tests/contracts/test-input-type-proxy-lock
-Green: cargo test -p test-input-type-proxy-lock --offline -> passed
+Red: cargo test -p tests --test workspace_layout --offline test_asset_contracts_live_under_tests_directory -- --nocapture -> failed: missing test-only contract manifest for input-type-proxy-lock
+Red: cargo test -p tests --test makefile_layout --offline root_makefile_builds_test_only_contracts -- --nocapture -> failed: root Makefile dry-run did not include tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock
+Green: cargo test -p input-type-proxy-lock --offline -> passed
 Green: cargo test -p tests --test workspace_layout --offline test_asset_contracts_live_under_tests_directory -- --nocapture -> passed
 Green: cargo test -p tests --test makefile_layout --offline root_makefile_builds_test_only_contracts -- --nocapture -> passed
+Superseded: in-repo tests/contracts/test-input-type-proxy-lock was replaced by tests/vendor/ckb-proxy-locks submodule after user direction.
 ```
 
 ## Task 3: Extend Generic OTX Transaction Builder Layout
@@ -960,7 +863,7 @@ fn deploy_input_type_proxy_lock(
 ) -> DeployedScript {
     deploy_data2_script(
         fixture.context_mut(),
-        "test-input-type-proxy-lock",
+        "input-type-proxy-lock",
         owner_type_hash.to_vec(),
     )
 }
@@ -972,7 +875,7 @@ Build this transaction:
 
 - Deploy:
   - `limit-order-type`
-  - `test-input-type-proxy-lock` with args = `limit_order.script_hash`
+  - `input-type-proxy-lock` with args = `limit_order.script_hash`
   - `test-nft` with fixed 32-byte args
   - `test-udt` with owner args = issuer lock hash
   - `always_success` for maker, buyer, and issuer where needed
@@ -1004,7 +907,7 @@ Run:
 
 ```bash
 make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
-make -e -C tests/contracts/test-input-type-proxy-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
+make -e -C tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
 make -e -C tests/contracts/test-udt build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
 make -e -C tests/contracts/test-nft build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
 cargo test -p tests --test limit_order --offline limit_order_type_accepts_nft_for_udt_otx_fill -- --nocapture
@@ -1406,7 +1309,7 @@ Run:
 
 ```bash
 make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
-make -e -C tests/contracts/test-input-type-proxy-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
+make -e -C tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
 make -e -C tests/contracts/test-udt build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
 make -e -C tests/contracts/test-nft build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
 ```
@@ -1465,7 +1368,7 @@ git commit -m "test: support nft for udt limit order fills"
 ```text
 cargo fmt:
 make limit-order-type:
-make test-input-type-proxy-lock:
+make vendor input-type-proxy-lock:
 make test-udt:
 make test-nft:
 cargo test -p tests --test limit_order --offline:
@@ -1489,5 +1392,5 @@ failed_txs:
 - Placeholder scan: no `TBD`/`TODO` placeholders are intentional task content.
 - Type consistency:
   - Contract package and binary name are `limit-order-type`.
-  - New proxy lock package is `test-input-type-proxy-lock`.
+  - Proxy lock source is vendored at `tests/vendor/ckb-proxy-locks`.
   - Fixture public functions are `limit_order_nft_for_udt_case`, `limit_order_nft_for_udt_case_with`, and `limit_order_action_failure_case`.

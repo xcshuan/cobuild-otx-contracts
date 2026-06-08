@@ -12,7 +12,6 @@ fn workspace_declares_clean_cobuild_members() {
         "\"contracts/cobuild-otx-lock\"",
         "\"tests/contracts/test-nft\"",
         "\"tests/contracts/test-udt\"",
-        "\"tests/contracts/test-input-type-proxy-lock\"",
         "\"tests\"",
     ] {
         assert!(
@@ -29,7 +28,7 @@ fn workspace_declares_clean_cobuild_members() {
 #[test]
 fn test_asset_contracts_live_under_tests_directory() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    for contract in ["test-udt", "test-nft", "test-input-type-proxy-lock"] {
+    for contract in ["test-udt", "test-nft"] {
         let test_contract_dir = workspace_root.join("tests/contracts").join(contract);
         assert!(
             test_contract_dir.join("Cargo.toml").is_file(),
@@ -44,4 +43,30 @@ fn test_asset_contracts_live_under_tests_directory() {
             "{contract} must stay under tests/contracts, not production contracts"
         );
     }
+}
+
+#[test]
+fn proxy_locks_live_under_tests_vendor_submodule() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let vendor_dir = workspace_root.join("tests/vendor/ckb-proxy-locks");
+    let input_type_proxy_lock = vendor_dir.join("contracts/input-type-proxy-lock");
+
+    assert!(
+        vendor_dir.join(".git").exists() || vendor_dir.join(".git").is_file(),
+        "ckb-proxy-locks must be checked out as a tests/vendor submodule"
+    );
+    assert!(
+        input_type_proxy_lock.join("Cargo.toml").is_file(),
+        "missing vendored input-type-proxy-lock manifest"
+    );
+    assert!(
+        input_type_proxy_lock.join("Makefile").is_file(),
+        "missing vendored input-type-proxy-lock Makefile"
+    );
+    assert!(
+        !workspace_root
+            .join("tests/contracts/test-input-type-proxy-lock")
+            .exists(),
+        "input-type-proxy-lock must be reused from tests/vendor/ckb-proxy-locks"
+    );
 }
