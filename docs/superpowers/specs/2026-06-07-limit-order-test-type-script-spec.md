@@ -1,5 +1,9 @@
 # Limit Order Type Test Script Spec
 
+> Superseded for the CreateOrder stage by
+> `docs/superpowers/specs/2026-06-08-limit-order-create-order-design.md`.
+> The original fill-only MVP semantics remain useful historical context.
+
 ## Status
 
 This spec defines the first Cobuild OTX test type script. The contract name is

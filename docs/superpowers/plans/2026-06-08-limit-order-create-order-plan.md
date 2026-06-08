@@ -1726,7 +1726,10 @@ git commit -m "docs: mark limit order fill spec superseded"
 
 ```text
 Red:
+grep -n "Superseded for the CreateOrder stage" docs/superpowers/specs/2026-06-07-limit-order-test-type-script-spec.md -> failed: no superseded note present.
 Green:
+cargo test -p tests --lib --offline fixtures_live_in_dedicated_module_files -- --nocapture -> passed, 1 test.
+cargo test -p tests --lib --offline limit_order_test_file_contains_no_fixture_scenario_builder -- --nocapture -> passed, 1 test.
 ```
 
 ## Task 10: Final Verification
