@@ -30,22 +30,24 @@ fn joined_rust_source_text(dirs: &[&Path]) -> String {
 }
 
 #[test]
-fn limit_order_fixture_contract_lives_under_tests() {
+fn limit_order_type_fixture_contract_lives_under_tests() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let workspace_manifest =
         fs::read_to_string(workspace_root.join("Cargo.toml")).expect("workspace manifest");
 
     assert!(
-        workspace_root.join("tests/contracts/limit-order").is_dir(),
-        "limit-order must be a test fixture contract under tests/contracts"
+        workspace_root
+            .join("tests/contracts/limit-order-type")
+            .is_dir(),
+        "limit-order-type must be a test fixture contract under tests/contracts"
     );
     assert!(
-        workspace_manifest.contains("\"tests/contracts/limit-order\""),
-        "limit-order must be compiled as a workspace test contract"
+        workspace_manifest.contains("\"tests/contracts/limit-order-type\""),
+        "limit-order-type must be compiled as a workspace test contract"
     );
     assert!(
-        !workspace_root.join("contracts/limit-order").exists(),
-        "limit-order fixture must not be placed under production contracts"
+        !workspace_root.join("contracts/limit-order-type").exists(),
+        "limit-order-type fixture must not be placed under production contracts"
     );
 }
 

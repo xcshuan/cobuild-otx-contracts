@@ -34,7 +34,11 @@ fn root_makefile_builds_test_only_contracts() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    for contract in ["tests/contracts/test-udt", "tests/contracts/test-nft"] {
+    for contract in [
+        "tests/contracts/limit-order-type",
+        "tests/contracts/test-udt",
+        "tests/contracts/test-nft",
+    ] {
         assert!(
             stdout.contains(contract),
             "root Makefile must build test-only contract {contract}"

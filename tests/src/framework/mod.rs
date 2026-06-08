@@ -112,7 +112,7 @@ mod tests {
     fn contract_helpers_deploy_scripts_and_record_script_hashes() {
         let mut context = Context::default();
 
-        let limit_order = deploy_data2_script(&mut context, "limit-order", Vec::new());
+        let limit_order = deploy_data2_script(&mut context, "limit-order-type", Vec::new());
         let always_success = deploy_always_success(&mut context, Vec::new());
 
         assert_eq!(limit_order.script_hash, script_hash(&limit_order.script));

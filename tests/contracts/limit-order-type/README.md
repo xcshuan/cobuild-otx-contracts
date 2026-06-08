@@ -1,4 +1,4 @@
-# limit-order
+# limit-order-type
 
 TODO: Write this readme
 

@@ -230,8 +230,11 @@ git commit -m "test: rename limit order fixture contract"
 **Red/Green Record:**
 
 ```text
-Red:
-Green:
+Red: cargo test -p tests --test contract_template_layout --offline limit_order_type_fixture_contract_lives_under_tests -- --nocapture -> failed: missing tests/contracts/limit-order-type
+Red: cargo test -p tests --test makefile_layout --offline root_makefile_builds_test_only_contracts -- --nocapture -> failed: root Makefile dry-run did not include tests/contracts/limit-order-type
+Green: cargo test -p tests --test contract_template_layout --offline limit_order_type_fixture_contract_lives_under_tests -- --nocapture -> passed
+Green: cargo test -p tests --test makefile_layout --offline root_makefile_builds_test_only_contracts -- --nocapture -> passed
+Green: cargo test -p limit-order-type --offline -> passed after updating src/main.rs crate path
 ```
 
 ## Task 2: Add Tests-Only Input Type Proxy Lock

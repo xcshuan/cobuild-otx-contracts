@@ -141,7 +141,7 @@ pub trait LimitOrderFixtureExt {
 
 impl LimitOrderFixtureExt for CobuildTestFixture {
     fn deploy_limit_order(&mut self) -> DeployedScript {
-        deploy_data2_script(self.context_mut(), "limit-order", Vec::new())
+        deploy_data2_script(self.context_mut(), "limit-order-type", Vec::new())
     }
 
     fn limit_order(&mut self) -> LimitOrderBuilder<'_> {

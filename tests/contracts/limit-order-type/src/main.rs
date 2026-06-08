@@ -16,7 +16,7 @@ ckb_std::entry!(program_entry);
 ckb_std::default_alloc!(16384, 1258306, 64);
 
 pub fn program_entry() -> i8 {
-    match limit_order::entry::main() {
+    match limit_order_type::entry::main() {
         Ok(()) => 0,
         Err(err) => err.into(),
     }

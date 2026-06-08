@@ -1117,7 +1117,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "limit-order"
+name = "limit-order-type"
 version = "0.1.0"
 dependencies = [
  "ckb-std",
