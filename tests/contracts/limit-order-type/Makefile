@@ -36,7 +36,7 @@ default: build test
 
 build:
 	@if [ -f "$(TOP)/build/debug/input-type-proxy-lock" ]; then \
-		cargo run -p xtask -- proxy-lock-code-hash limit-order-type; \
+		cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type; \
 	else \
 		echo "Skipping proxy lock hash generation; $(TOP)/build/debug/input-type-proxy-lock is missing"; \
 	fi

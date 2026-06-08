@@ -459,6 +459,11 @@ CARGO_TARGET_DIR=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/target make -
 cargo run -p xtask --offline -- proxy-lock-code-hash limit-order-type -> passed; generated non-zero 32-byte proxy lock code hash.
 cargo test -p limit-order-type --offline generated_proxy_lock_code_hash_is_32_bytes -- --nocapture -> passed; 1 test passed, 22 filtered out.
 make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed; regenerated stable constant and built limit-order-type.
+Review fix red:
+grep -n "cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type" tests/contracts/limit-order-type/Makefile -> failed: no match, Makefile xtask generation was not forced offline
+Review fix green:
+grep -n "cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type" tests/contracts/limit-order-type/Makefile -> passed: Makefile uses offline xtask invocation
+make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed; offline xtask generation and limit-order-type build passed
 ```
 
 ## Task 3: Replace Order and Action ABI
