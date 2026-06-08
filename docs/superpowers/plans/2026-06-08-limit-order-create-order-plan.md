@@ -1173,7 +1173,11 @@ git commit -m "test: validate limit order creation helpers"
 
 ```text
 Red:
+- cargo test -p limit-order-type --offline expected_proxy_lock_hash_changes_with_order_type_hash -- --nocapture -> failed to compile: cannot find function `expected_proxy_lock_hash` in this scope.
 Green:
+- cargo test -p limit-order-type --offline expected_proxy_lock_hash_changes_with_order_type_hash -- --nocapture -> passed: 1 test passed in src/lib.rs, 0 tests in src/main.rs.
+- cargo test -p limit-order-type --offline -> passed: 29 tests passed in src/lib.rs, 0 tests in src/main.rs, 0 doc-tests.
+- make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed: riscv64imac-unknown-none-elf debug build completed and copied binary.
 ```
 
 ## Task 6: Add Type-ID CreateOrder Fixture Happy Path
