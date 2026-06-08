@@ -764,9 +764,22 @@ git commit -m "test: add limit order lock fill validation"
 - Modify: `tests/contracts/limit-order-lock/src/entry.rs`
 - Modify: `docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md`
 
-**Red/Green Record:** Record after Step 2 and Step 4.
+**Red/Green Record:**
 
-- [ ] **Step 1: Write failing entry unit tests for input index helper**
+Red: `cargo test -p limit-order-lock --offline range_contains -- --nocapture`
+-> PASS before full entry implementation; 2 `range_contains` tests passed
+because the existing helper already used checked addition.
+
+Green: `cargo test -p limit-order-lock --offline` -> PASS; 15 unit tests
+passed, 0 failed. Initial contract build
+`make -e -C tests/contracts/limit-order-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/.worktrees/limit-order-lock BUILD_DIR=build/debug CARGO_ARGS=--offline`
+compiled but failed copying because `build/debug` did not exist. After creating
+the ignored local build directory, the same make command -> PASS and copied
+`limit-order-lock`. Final `cargo fmt` -> PASS; final
+`cargo test -p limit-order-lock --offline` -> PASS with 15 passed, 0 failed;
+final same make build -> PASS; `git diff --check` -> PASS with no output.
+
+- [x] **Step 1: Write failing entry unit tests for input index helper**
 
 Add these tests to `entry.rs` test module:
 
@@ -795,7 +808,7 @@ Add these tests to `entry.rs` test module:
 
 If `Range.start` and `Range.count` are `u32` in this checkout, use `u32::MAX as usize` in the expected overflow test and adjust the range literal to `Range { start: u32::MAX, count: 1 }`.
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run:
 
@@ -805,7 +818,7 @@ cargo test -p limit-order-lock --offline range_contains -- --nocapture
 
 Expected: FAIL if the overflow test exposes an incorrect cast or if helper visibility/signature needs correction.
 
-- [ ] **Step 3: Implement entry validation**
+- [x] **Step 3: Implement entry validation**
 
 Replace `entry.rs` with:
 
@@ -937,7 +950,7 @@ fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
 
 Keep the existing `#[cfg(test)] mod tests` and adjust imports if `cargo fmt` moves them.
 
-- [ ] **Step 4: Run green**
+- [x] **Step 4: Run green**
 
 Run:
 
@@ -947,7 +960,7 @@ cargo test -p limit-order-lock --offline
 
 Expected: PASS.
 
-- [ ] **Step 5: Build contract binary**
+- [x] **Step 5: Build contract binary**
 
 Run:
 
@@ -957,7 +970,7 @@ make -e -C tests/contracts/limit-order-lock build MODE=debug TOP=/home/xcshuan/c
 
 Expected: PASS and copies `build/debug/limit-order-lock`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 

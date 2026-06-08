@@ -1,13 +1,84 @@
-use ckb_std::ckb_constants::Source;
+use alloc::vec::Vec;
+
+use ckb_std::{
+    ckb_constants::Source,
+    ckb_types::{bytes::Bytes, prelude::*},
+    high_level::{
+        QueryIter, load_cell_data, load_cell_lock_hash, load_cell_type_hash, load_script,
+        load_script_hash,
+    },
+};
 use cobuild_core::{
+    context::CurrentScript,
+    engine::CobuildContext,
     layout::Range,
     plan::{ActionOrigin, OtxMessageLayout},
+    reader::cursor_bytes,
 };
 
-use crate::error::Error;
+use crate::{
+    error::Error,
+    types::{
+        UDT_PAYMENT_DATA_LEN, UdtPayment, parse_fill_order_action, parse_order_args,
+        parse_udt_payment, validate_fill,
+    },
+};
 
 pub fn main() -> Result<(), Error> {
-    Err(Error::InvalidCobuild)
+    let script = load_script()?;
+    let args: Bytes = script.args().unpack();
+    let order = parse_order_args(&args)?;
+
+    let current_lock_hash = load_script_hash()?;
+    let input_index = single_group_input_index(current_lock_hash)?;
+    verify_offered_nft_input(input_index, order.offered_nft_type_hash)?;
+
+    let plan = CobuildContext::build(CurrentScript::InputLock(current_lock_hash))?
+        .plan_lock_validation()?;
+    if plan.related_actions.len() != 1 {
+        return Err(Error::InvalidCobuild);
+    }
+
+    let related = &plan.related_actions[0];
+    let layout = otx_fill_layout(&related.origin, input_index)?;
+    let action_data = cursor_bytes(&related.action.data)?;
+    let action = parse_fill_order_action(&action_data)?;
+    let payments = collect_payments(layout)?;
+
+    validate_fill(&order, &action, &payments)
+}
+
+fn single_group_input_index(current_lock_hash: [u8; 32]) -> Result<usize, Error> {
+    let group_count = QueryIter::new(load_cell_data, Source::GroupInput).count();
+    if group_count != 1 {
+        return Err(Error::InvalidNftInput);
+    }
+
+    let mut matching_inputs = QueryIter::new(load_cell_lock_hash, Source::Input)
+        .enumerate()
+        .filter_map(|(index, lock_hash)| (lock_hash == current_lock_hash).then_some(index));
+
+    let Some(input_index) = matching_inputs.next() else {
+        return Err(Error::InvalidNftInput);
+    };
+    if matching_inputs.next().is_some() {
+        return Err(Error::InvalidNftInput);
+    }
+
+    Ok(input_index)
+}
+
+fn verify_offered_nft_input(
+    input_index: usize,
+    offered_nft_type_hash: [u8; 32],
+) -> Result<(), Error> {
+    let Some(type_hash) = load_cell_type_hash(input_index, Source::Input)? else {
+        return Err(Error::InvalidNftInput);
+    };
+    if type_hash != offered_nft_type_hash {
+        return Err(Error::InvalidNftInput);
+    }
+    Ok(())
 }
 
 pub fn otx_fill_layout(
@@ -21,6 +92,38 @@ pub fn otx_fill_layout(
         return Err(Error::InvalidCobuild);
     }
     Ok(*layout)
+}
+
+fn collect_payments(layout: OtxMessageLayout) -> Result<Vec<UdtPayment>, Error> {
+    let mut payments = Vec::new();
+    collect_payments_from_range(layout.base_outputs, &mut payments)?;
+    collect_payments_from_range(layout.append_outputs, &mut payments)?;
+    Ok(payments)
+}
+
+fn collect_payments_from_range(range: Range, payments: &mut Vec<UdtPayment>) -> Result<(), Error> {
+    let end = range
+        .start
+        .checked_add(range.count)
+        .ok_or(Error::InvalidCobuild)?;
+
+    for index in range.start..end {
+        let data = load_cell_data(index, Source::Output)?;
+        if data.len() != UDT_PAYMENT_DATA_LEN {
+            continue;
+        }
+        let Some(asset_id) = load_cell_type_hash(index, Source::Output)? else {
+            continue;
+        };
+        let owner_lock_hash = load_cell_lock_hash(index, Source::Output)?;
+        payments.push(UdtPayment {
+            owner_lock_hash,
+            asset_id,
+            amount: parse_udt_payment(&data)?,
+        });
+    }
+
+    Ok(())
 }
 
 fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
@@ -82,5 +185,26 @@ mod tests {
         };
 
         assert_eq!(otx_fill_layout(&origin, 2), Err(Error::InvalidCobuild));
+    }
+
+    #[test]
+    fn range_contains_accepts_start_and_last_index() {
+        assert_eq!(range_contains(Range { start: 3, count: 2 }, 3), Ok(true));
+        assert_eq!(range_contains(Range { start: 3, count: 2 }, 4), Ok(true));
+        assert_eq!(range_contains(Range { start: 3, count: 2 }, 5), Ok(false));
+    }
+
+    #[test]
+    fn range_contains_rejects_overflowing_range() {
+        assert_eq!(
+            range_contains(
+                Range {
+                    start: usize::MAX,
+                    count: 1,
+                },
+                usize::MAX
+            ),
+            Err(Error::InvalidCobuild)
+        );
     }
 }
