@@ -450,8 +450,11 @@ git commit -m "test: add input type proxy lock fixture"
 **Red/Green Record:**
 
 ```text
-Red:
-Green:
+Red: cargo test -p tests --test workspace_layout --offline test_asset_contracts_live_under_tests_directory -- --nocapture -> failed: missing test-only contract manifest for test-input-type-proxy-lock
+Red: cargo test -p tests --test makefile_layout --offline root_makefile_builds_test_only_contracts -- --nocapture -> failed: root Makefile dry-run did not include tests/contracts/test-input-type-proxy-lock
+Green: cargo test -p test-input-type-proxy-lock --offline -> passed
+Green: cargo test -p tests --test workspace_layout --offline test_asset_contracts_live_under_tests_directory -- --nocapture -> passed
+Green: cargo test -p tests --test makefile_layout --offline root_makefile_builds_test_only_contracts -- --nocapture -> passed
 ```
 
 ## Task 3: Extend Generic OTX Transaction Builder Layout

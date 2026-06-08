@@ -36,8 +36,9 @@ fn root_makefile_builds_test_only_contracts() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     for contract in [
         "tests/contracts/limit-order-type",
-        "tests/contracts/test-udt",
         "tests/contracts/test-nft",
+        "tests/contracts/test-udt",
+        "tests/contracts/test-input-type-proxy-lock",
     ] {
         assert!(
             stdout.contains(contract),
