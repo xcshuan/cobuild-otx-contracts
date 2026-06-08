@@ -108,9 +108,23 @@ Expected-failure integration tests must not dump tracked `tests/failed_txs` unle
 - Modify: `Cargo.toml`
 - Modify: `docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md`
 
-**Red/Green Record:** Record after Step 4 and Step 7.
+**Red/Green Record:**
 
-- [ ] **Step 1: Add minimal crate scaffold**
+Scaffold: `cargo test -p limit-order-lock --offline` -> PASS; compiled
+`limit-order-lock`, ran 0 lib tests, 0 main tests, 0 doc tests. Initial
+placeholder `types.rs` emitted one unused-import warning before parser
+implementation.
+
+Red: `cargo test -p limit-order-lock --offline` -> FAIL as expected with
+unresolved parser symbols: `parse_order_args`, `parse_fill_order_action`, and
+`parse_udt_payment`.
+
+Green: `cargo test -p limit-order-lock --offline` -> PASS; 6 parser unit tests
+passed, 0 failed. `cargo fmt` -> PASS. `git diff --check` -> PASS with no
+output. `git status --short` -> showed only Task 1 changes after restoring the
+generated `Cargo.lock` package entry.
+
+- [x] **Step 1: Add minimal crate scaffold**
 
 Add `tests/contracts/limit-order-lock` to workspace members in `Cargo.toml` after `tests/contracts/limit-order-type`.
 
@@ -248,7 +262,7 @@ pub const FILL_ORDER_TAG: u8 = 2;
 pub const FILL_ORDER_DATA_LEN: usize = 41;
 ```
 
-- [ ] **Step 2: Verify scaffold compiles**
+- [x] **Step 2: Verify scaffold compiles**
 
 Run:
 
@@ -258,7 +272,7 @@ cargo test -p limit-order-lock --offline
 
 Expected: PASS with zero or few tests.
 
-- [ ] **Step 3: Write failing parser tests**
+- [x] **Step 3: Write failing parser tests**
 
 Append to `tests/contracts/limit-order-lock/src/types.rs`:
 
@@ -351,7 +365,7 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Run red**
+- [x] **Step 4: Run red**
 
 Run:
 
@@ -361,7 +375,7 @@ cargo test -p limit-order-lock --offline
 
 Expected: FAIL with unresolved items such as `parse_order_args`, `parse_fill_order_action`, `parse_udt_payment`, `OrderArgs`, and `FillOrderAction`.
 
-- [ ] **Step 5: Implement minimal parser types**
+- [x] **Step 5: Implement minimal parser types**
 
 Replace the top of `tests/contracts/limit-order-lock/src/types.rs` with:
 
@@ -442,7 +456,7 @@ fn read_u64(data: &[u8], offset: usize) -> u64 {
 
 Keep the tests added in Step 3 below this code.
 
-- [ ] **Step 6: Run green**
+- [x] **Step 6: Run green**
 
 Run:
 
@@ -452,7 +466,7 @@ cargo test -p limit-order-lock --offline
 
 Expected: PASS for parser tests.
 
-- [ ] **Step 7: Format and commit**
+- [x] **Step 7: Format and commit**
 
 Run:
 

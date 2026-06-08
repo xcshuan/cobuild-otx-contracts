@@ -9,6 +9,7 @@ members = [
   "crates/cobuild-core",
   "crates/cobuild-types",
   "tests/contracts/limit-order-type",
+  "tests/contracts/limit-order-lock",
   "tests/contracts/test-nft",
   "tests/contracts/test-udt",
   "tests",

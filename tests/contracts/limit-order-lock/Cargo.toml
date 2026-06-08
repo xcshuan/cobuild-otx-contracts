@@ -1,0 +1,12 @@
+[package]
+name = "limit-order-lock"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ckb-std = { version = "1.1", default-features = false, features = ["allocator", "ckb-types", "dummy-atomic"] }
+cobuild-core = { path = "../../../crates/cobuild-core" }
+
+[features]
+library = []
+native-simulator = ["library", "ckb-std/native-simulator"]
