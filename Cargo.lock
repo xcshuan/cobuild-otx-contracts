@@ -1117,6 +1117,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "limit-order-lock"
+version = "0.1.0"
+dependencies = [
+ "ckb-std",
+ "cobuild-core",
+]
+
+[[package]]
 name = "limit-order-type"
 version = "0.1.0"
 dependencies = [
