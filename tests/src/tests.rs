@@ -106,13 +106,13 @@ fn limit_order_test_file_contains_no_fixture_scenario_builder() {
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap();
-    let test_file = repo.join("tests/tests/limit_order.rs");
-    let source = std::fs::read_to_string(&test_file).expect("read limit_order test file");
+    let test_file = repo.join("tests/tests/limit_order_type.rs");
+    let source = std::fs::read_to_string(&test_file).expect("read limit_order_type test file");
 
     for forbidden in ["fn limit_order_case", "fn failed_txs_count"] {
         assert!(
             !source.contains(forbidden),
-            "`{forbidden}` belongs in fixtures/framework, not in tests/limit_order.rs"
+            "`{forbidden}` belongs in fixtures/framework, not in tests/limit_order_type.rs"
         );
     }
 }

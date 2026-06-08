@@ -4,7 +4,7 @@
 
 **Goal:** Build a tests-only `limit-order-lock` contract that represents an NFT-for-UDT order directly in lock args and validates OTX-scoped fill settlement when the NFT input is unlocked.
 
-**Architecture:** Add a new test contract crate under `tests/contracts/limit-order-lock` and a thin integration fixture under `tests/src/fixtures/limit_order/lock_for_udt.rs`. The contract parses fixed-width lock args, requires a single current lock input with the offered NFT type, uses `plan_lock_validation()` to find one OTX-level `FillOrder` input-lock action, and counts only same-OTX `test-udt` outputs to the maker.
+**Architecture:** Add a new test contract crate under `tests/contracts/limit-order-lock` and a thin integration fixture under `tests/src/fixtures/limit_order/lock_nft_for_udt.rs`. The contract parses fixed-width lock args, requires a single current lock input with the offered NFT type, uses `plan_lock_validation()` to find one OTX-level `FillOrder` input-lock action, and counts only same-OTX `test-udt` outputs to the maker.
 
 **Tech Stack:** Rust 2024, `ckb-std` 1.1, `cobuild-core`, `cobuild-types` action readers through `cobuild-core`, `ckb-testtool`, tests-only RISC-V contract Makefiles, offline Cargo.
 
@@ -23,14 +23,14 @@ Read these before executing:
 - `tests/contracts/test-nft/src/entry.rs`
 - `tests/contracts/test-udt/src/entry.rs`
 - `tests/src/fixtures/limit_order.rs`
-- `tests/src/fixtures/limit_order/nft_for_udt.rs`
+- `tests/src/fixtures/limit_order/type_nft_for_udt.rs`
 - `tests/src/framework/tx.rs`
 - `tests/src/framework/cobuild.rs`
 - `tests/src/framework/assertions.rs`
 - `tests/src/framework/fixture.rs`
 - `tests/src/framework/contracts.rs`
 - `tests/src/framework/cells.rs`
-- `tests/tests/limit_order.rs`
+- `tests/tests/limit_order_type.rs`
 - `crates/cobuild-core/src/plan.rs`
 - `crates/cobuild-core/src/engine.rs`
 
@@ -60,7 +60,7 @@ Create:
   - Lock args, action, UDT payment parser, and pure validation helpers.
 - `tests/contracts/limit-order-lock/src/entry.rs`
   - Syscall entry validation, Cobuild plan integration, OTX scope checks.
-- `tests/src/fixtures/limit_order/lock_for_udt.rs`
+- `tests/src/fixtures/limit_order/lock_nft_for_udt.rs`
   - Scenario builders for the lock-shaped NFT-for-UDT order.
 - `tests/tests/limit_order_lock.rs`
   - Thin integration tests that call fixture scenarios and assertions.
@@ -999,7 +999,7 @@ git commit -m "test: validate limit order lock entry"
 ## Task 4: Add Happy Path Integration Fixture
 
 **Files:**
-- Create: `tests/src/fixtures/limit_order/lock_for_udt.rs`
+- Create: `tests/src/fixtures/limit_order/lock_nft_for_udt.rs`
 - Modify: `tests/src/fixtures/limit_order.rs`
 - Create: `tests/tests/limit_order_lock.rs`
 - Modify: `docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md`
@@ -1031,10 +1031,10 @@ In `tests/src/fixtures/limit_order.rs`, add:
 
 ```rust
 #[cfg(not(test))]
-mod lock_for_udt;
+mod lock_nft_for_udt;
 
 #[cfg(not(test))]
-pub use lock_for_udt::{
+pub use lock_nft_for_udt::{
     LimitOrderLockFillCase, limit_order_lock_nft_for_udt_case,
     limit_order_lock_nft_for_udt_case_with,
 };
@@ -1052,7 +1052,7 @@ Expected: FAIL because `lock_for_udt.rs` or exported fixture functions do not ex
 
 - [x] **Step 3: Add lock fixture scenario**
 
-Create `tests/src/fixtures/limit_order/lock_for_udt.rs`:
+Create `tests/src/fixtures/limit_order/lock_nft_for_udt.rs`:
 
 ```rust
 use ckb_testtool::ckb_types::{
@@ -1245,14 +1245,14 @@ Expected: all pass.
 Commit:
 
 ```bash
-git add tests/src/fixtures/limit_order.rs tests/src/fixtures/limit_order/lock_for_udt.rs tests/src/framework/cobuild.rs tests/tests/limit_order_lock.rs docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md
+git add tests/src/fixtures/limit_order.rs tests/src/fixtures/limit_order/lock_nft_for_udt.rs tests/src/framework/cobuild.rs tests/tests/limit_order_lock.rs docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md
 git commit -m "test: add limit order lock happy path"
 ```
 
 ## Task 5: Add Integration Failure Matrix
 
 **Files:**
-- Modify: `tests/src/fixtures/limit_order/lock_for_udt.rs`
+- Modify: `tests/src/fixtures/limit_order/lock_nft_for_udt.rs`
 - Modify: `tests/tests/limit_order_lock.rs`
 - Modify: `docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md`
 
@@ -1472,7 +1472,7 @@ Update the fixture builder with these concrete knobs:
 - `UnknownActionTag`: action data is `vec![1]` plus 40 bytes of payload.
 - `MalformedAction`: action data is valid FillOrder data with the final byte removed.
 
-Use existing helpers from `nft_for_udt.rs` as a model, but keep all lock-order business scenarios in `lock_for_udt.rs`.
+Use existing helpers from `type_nft_for_udt.rs` as a model, but keep all lock-order business scenarios in `lock_nft_for_udt.rs`.
 
 - [x] **Step 5: Run green**
 
@@ -1502,7 +1502,7 @@ Expected: tests pass, diff check clean, failed tx output shows no new tracked fi
 Commit:
 
 ```bash
-git add tests/src/framework/assertions.rs tests/src/framework/fixture.rs tests/src/fixtures/limit_order/lock_for_udt.rs tests/tests/limit_order_lock.rs docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md
+git add tests/src/framework/assertions.rs tests/src/framework/fixture.rs tests/src/fixtures/limit_order/lock_nft_for_udt.rs tests/tests/limit_order_lock.rs docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md
 git commit -m "test: cover limit order lock failures"
 ```
 
@@ -1577,7 +1577,7 @@ Run:
 
 ```bash
 git diff --stat HEAD
-git diff HEAD -- tests/contracts/limit-order-lock tests/src/fixtures/limit_order.rs tests/src/fixtures/limit_order/lock_for_udt.rs tests/tests/limit_order_lock.rs tests/src/framework Cargo.toml
+git diff HEAD -- tests/contracts/limit-order-lock tests/src/fixtures/limit_order.rs tests/src/fixtures/limit_order/lock_nft_for_udt.rs tests/tests/limit_order_lock.rs tests/src/framework Cargo.toml
 ```
 
 Expected: diff is limited to tests-only contract, fixtures, framework helpers if needed, workspace member, and this plan's records. Confirm no changes to `contracts/cobuild-otx-lock`, `crates/cobuild-core`, or `crates/cobuild-types`.

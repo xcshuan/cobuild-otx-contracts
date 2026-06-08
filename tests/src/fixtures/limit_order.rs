@@ -7,17 +7,17 @@ use ckb_testtool::{
 };
 
 #[cfg(not(test))]
-mod lock_for_udt;
+mod lock_nft_for_udt;
 #[cfg(not(test))]
-mod nft_for_udt;
+mod type_nft_for_udt;
 
 #[cfg(not(test))]
-pub use lock_for_udt::{
+pub use lock_nft_for_udt::{
     LimitOrderLockFillCase, limit_order_lock_nft_for_udt_case,
     limit_order_lock_nft_for_udt_case_with,
 };
 #[cfg(not(test))]
-pub use nft_for_udt::{
+pub use type_nft_for_udt::{
     CreateOrderCase, FillActionCase, NftForUdtPaymentCase, limit_order_action_failure_case,
     limit_order_create_nft_order_case, limit_order_create_nft_order_case_with,
     limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with,

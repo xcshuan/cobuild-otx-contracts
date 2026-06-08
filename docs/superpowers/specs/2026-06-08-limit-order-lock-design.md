@@ -259,7 +259,7 @@ Planned implementation files:
 - `tests/contracts/limit-order-lock/src/types.rs`
 - `Cargo.toml`
 - `tests/src/fixtures/limit_order.rs`
-- `tests/src/fixtures/limit_order/lock_for_udt.rs`
+- `tests/src/fixtures/limit_order/lock_nft_for_udt.rs`
 - `tests/tests/limit_order_lock.rs`
 
 Potential helper additions may go in `tests/src/framework` only if they are
