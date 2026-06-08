@@ -493,7 +493,11 @@ git commit -m "test: scaffold limit order lock parser"
 - Modify: `tests/contracts/limit-order-lock/src/entry.rs`
 - Modify: `docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md`
 
-**Red/Green Record:** Record after Step 2 and Step 5.
+**Red/Green Record:**
+
+Red: `cargo test -p limit-order-lock --offline validate_fill -- --nocapture` -> FAIL as expected with unresolved `UdtPayment` type/struct and unresolved `validate_fill` function in `types.rs` validation tests.
+
+Green: `cargo test -p limit-order-lock --offline` -> PASS; 13 unit tests passed, including parser, pure fill validation, and OTX helper tests. `cargo fmt` -> PASS. `cargo test -p limit-order-lock --offline` -> PASS; 13 passed, 0 failed. `git diff --check` -> PASS with no output.
 
 - [ ] **Step 1: Write failing pure validation tests**
 

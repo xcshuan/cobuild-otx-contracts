@@ -19,6 +19,13 @@ pub struct FillOrderAction {
     pub min_requested_amount: u64,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct UdtPayment {
+    pub owner_lock_hash: [u8; 32],
+    pub asset_id: [u8; 32],
+    pub amount: u64,
+}
+
 pub fn parse_order_args(data: &[u8]) -> Result<OrderArgs, Error> {
     if data.len() != ORDER_ARGS_LEN {
         return Err(Error::InvalidArgs);
@@ -57,6 +64,36 @@ pub fn parse_udt_payment(data: &[u8]) -> Result<u64, Error> {
     let mut bytes = [0u8; 16];
     bytes.copy_from_slice(data);
     u64::try_from(u128::from_le_bytes(bytes)).map_err(|_| Error::AmountOverflow)
+}
+
+pub fn validate_fill(
+    order: &OrderArgs,
+    action: &FillOrderAction,
+    payments: &[UdtPayment],
+) -> Result<(), Error> {
+    if action.requested_asset_id != order.requested_asset_id {
+        return Err(Error::ActionMismatch);
+    }
+    if action.min_requested_amount < order.min_requested_amount {
+        return Err(Error::InsufficientPayment);
+    }
+
+    let paid = payments.iter().try_fold(0u64, |paid, payment| {
+        if payment.owner_lock_hash == order.owner_lock_hash
+            && payment.asset_id == order.requested_asset_id
+        {
+            paid.checked_add(payment.amount)
+                .ok_or(Error::AmountOverflow)
+        } else {
+            Ok(paid)
+        }
+    })?;
+
+    if paid < action.min_requested_amount {
+        return Err(Error::InsufficientPayment);
+    }
+
+    Ok(())
 }
 
 fn read_bytes32(data: &[u8], offset: usize) -> [u8; 32] {
@@ -162,6 +199,87 @@ mod tests {
         assert_eq!(parse_udt_payment(&[0u8; 15]), Err(Error::InvalidActionData));
         assert_eq!(
             parse_udt_payment(&(u128::from(u64::MAX) + 1).to_le_bytes()),
+            Err(Error::AmountOverflow)
+        );
+    }
+
+    fn order(min_requested_amount: u64) -> OrderArgs {
+        parse_order_args(&order_args(min_requested_amount)).expect("order args")
+    }
+
+    fn action(asset_id: [u8; 32], min_requested_amount: u64) -> FillOrderAction {
+        parse_fill_order_action(&fill_action_data(asset_id, min_requested_amount))
+            .expect("fill action")
+    }
+
+    fn payment(owner_lock_hash: [u8; 32], asset_id: [u8; 32], amount: u64) -> UdtPayment {
+        UdtPayment {
+            owner_lock_hash,
+            asset_id,
+            amount,
+        }
+    }
+
+    #[test]
+    fn validate_fill_accepts_exact_and_over_payment() {
+        assert_eq!(
+            validate_fill(
+                &order(30),
+                &action(REQUESTED_ASSET_ID, 30),
+                &[payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30)]
+            ),
+            Ok(())
+        );
+
+        assert_eq!(
+            validate_fill(
+                &order(30),
+                &action(REQUESTED_ASSET_ID, 31),
+                &[payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 40)]
+            ),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn validate_fill_rejects_action_mismatch_and_amount_below_order_minimum() {
+        assert_eq!(
+            validate_fill(&order(30), &action([9; 32], 30), &[]),
+            Err(Error::ActionMismatch)
+        );
+        assert_eq!(
+            validate_fill(&order(30), &action(REQUESTED_ASSET_ID, 29), &[]),
+            Err(Error::InsufficientPayment)
+        );
+    }
+
+    #[test]
+    fn validate_fill_counts_only_matching_owner_and_asset() {
+        assert_eq!(
+            validate_fill(
+                &order(30),
+                &action(REQUESTED_ASSET_ID, 30),
+                &[
+                    payment([9; 32], REQUESTED_ASSET_ID, 30),
+                    payment(OWNER_LOCK_HASH, [8; 32], 30),
+                    payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 29),
+                ],
+            ),
+            Err(Error::InsufficientPayment)
+        );
+    }
+
+    #[test]
+    fn validate_fill_detects_payment_sum_overflow() {
+        assert_eq!(
+            validate_fill(
+                &order(30),
+                &action(REQUESTED_ASSET_ID, 30),
+                &[
+                    payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, u64::MAX),
+                    payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 1),
+                ],
+            ),
             Err(Error::AmountOverflow)
         );
     }
