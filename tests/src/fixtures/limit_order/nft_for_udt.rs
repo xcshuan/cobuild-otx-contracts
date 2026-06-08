@@ -41,6 +41,17 @@ pub enum FillActionCase {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CreateOrderCase {
+    Valid,
+    MissingNftProxyOutput,
+    WrongNftType,
+    WrongProxyOrder,
+    StateActionMismatch,
+    InvalidTypeId,
+    InputAndOutputGroupShape,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct NftForUdtScenario {
     payment_case: NftForUdtPaymentCase,
     action_case: Option<FillActionCase>,
@@ -259,6 +270,12 @@ fn limit_order_nft_for_udt_scenario(
 }
 
 pub fn limit_order_create_nft_order_case() -> (CobuildTestFixture, TransactionView) {
+    limit_order_create_nft_order_case_with(CreateOrderCase::Valid)
+}
+
+pub fn limit_order_create_nft_order_case_with(
+    case: CreateOrderCase,
+) -> (CobuildTestFixture, TransactionView) {
     let mut fixture = CobuildTestFixture::new();
 
     let limit_order_code = fixture.deploy_limit_order();
@@ -271,9 +288,19 @@ pub fn limit_order_create_nft_order_case() -> (CobuildTestFixture, TransactionVi
     );
     let nft_type_id = type_id_args(&funding_input, 1);
     let nft = deploy_test_nft(&mut fixture, nft_type_id);
+    let output_nft = if case == CreateOrderCase::WrongNftType {
+        deploy_test_nft(&mut fixture, type_id_args(&funding_input, 2))
+    } else {
+        nft.clone()
+    };
     let udt = deploy_test_udt_with_owner(&mut fixture, script_hash(&always_success.script));
 
-    let order_type_id = type_id_args(&funding_input, 0);
+    let computed_order_type_id = type_id_args(&funding_input, 0);
+    let order_type_id = if case == CreateOrderCase::InvalidTypeId {
+        [9; 32]
+    } else {
+        computed_order_type_id
+    };
     let order_type = fixture
         .context_mut()
         .build_script_with_hash_type(
@@ -283,21 +310,52 @@ pub fn limit_order_create_nft_order_case() -> (CobuildTestFixture, TransactionVi
         )
         .expect("build order type-id script");
     let order_type_hash = script_hash(&order_type);
-    let proxy_lock = deploy_input_type_proxy_lock(&mut fixture, order_type_hash);
+    let proxy_owner_type_hash = if case == CreateOrderCase::WrongProxyOrder {
+        [8; 32]
+    } else {
+        order_type_hash
+    };
+    let proxy_lock = deploy_input_type_proxy_lock(&mut fixture, proxy_owner_type_hash);
     let order_state = LimitOrderState {
         owner_lock_hash: script_hash(&owner_lock),
         offered_nft_type_hash: nft.script_hash,
         requested_asset_id: udt.script_hash,
         min_requested_amount: 30,
     };
+    let action_state = LimitOrderState {
+        min_requested_amount: if case == CreateOrderCase::StateActionMismatch {
+            31
+        } else {
+            order_state.min_requested_amount
+        },
+        ..order_state
+    };
     let order_output = TestCellOutput::new(
-        typed_output(owner_lock, order_type, 100_000_000_000),
+        typed_output(owner_lock.clone(), order_type.clone(), 100_000_000_000),
         order_data(order_state),
     );
+    let wrong_nft_padding_output = if case == CreateOrderCase::WrongNftType {
+        Some(TestCellOutput::new(
+            normal_output(always_success.script.clone(), 10_000_000_000),
+            Vec::new(),
+        ))
+    } else {
+        None
+    };
+    let order_input =
+        if case == CreateOrderCase::InputAndOutputGroupShape {
+            Some(live_input(
+                fixture.context_mut(),
+                typed_output(owner_lock, order_type.clone(), 100_000_000_000),
+                order_data(order_state),
+            ))
+        } else {
+            None
+        };
     let nft_output = TestCellOutput::new(
         typed_output(
             proxy_lock.script.clone(),
-            nft.script.clone(),
+            output_nft.script.clone(),
             90_000_000_000,
         ),
         nft_data(b"order-nft", [1, 2, 3, 4], 1_717_171_717),
@@ -305,21 +363,33 @@ pub fn limit_order_create_nft_order_case() -> (CobuildTestFixture, TransactionVi
     let message = fixture
         .cobuild()
         .output_type_action(order_type_hash)
-        .limit_order_create(order_state)
+        .limit_order_create(action_state)
         .build();
-    let tx = fixture
+    let mut tx = fixture
         .tx()
         .allow_no_otx()
         .cell_dep(cell_dep_for_script(&limit_order_code))
         .cell_dep(cell_dep_for_script(&always_success))
         .cell_dep(cell_dep_for_script(&proxy_lock))
         .cell_dep(cell_dep_for_script(&nft))
-        .cell_dep(cell_dep_for_script(&udt))
-        .base_input(funding_input)
-        .base_output(order_output)
-        .base_output(nft_output)
-        .tx_level_message(message)
-        .build();
+        .cell_dep(cell_dep_for_script(&output_nft))
+        .cell_dep(cell_dep_for_script(&udt));
+    if let Some(order_input) = order_input {
+        tx = tx.base_input(order_input).base_input(funding_input);
+    } else {
+        tx = tx.base_input(funding_input);
+    }
+    tx = tx.base_output(order_output);
+    if let Some(output) = wrong_nft_padding_output {
+        tx = tx.base_output(output);
+    }
+    if !matches!(
+        case,
+        CreateOrderCase::MissingNftProxyOutput | CreateOrderCase::InputAndOutputGroupShape
+    ) {
+        tx = tx.base_output(nft_output);
+    }
+    let tx = tx.tx_level_message(message).build();
 
     (fixture, tx)
 }

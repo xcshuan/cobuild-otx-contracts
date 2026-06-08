@@ -1,7 +1,8 @@
 use tests::fixtures::limit_order::{
     failed_txs_count, limit_order_action_failure_case, limit_order_case,
     limit_order_create_nft_order_case, limit_order_nft_for_udt_case,
-    limit_order_nft_for_udt_case_with, FillActionCase, NftForUdtPaymentCase,
+    limit_order_create_nft_order_case_with, limit_order_nft_for_udt_case_with, CreateOrderCase,
+    FillActionCase, NftForUdtPaymentCase,
 };
 
 #[test]
@@ -35,6 +36,81 @@ fn limit_order_type_accepts_create_order_with_nft_proxy_output() {
     let (fixture, tx) = limit_order_create_nft_order_case();
 
     fixture.assert_pass(&tx);
+}
+
+#[test]
+fn limit_order_type_rejects_create_order_without_nft_proxy_output() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_create_nft_order_case_with(CreateOrderCase::MissingNftProxyOutput);
+
+    fixture.assert_output_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_create_order_wrong_nft_type() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_create_nft_order_case_with(CreateOrderCase::WrongNftType);
+
+    fixture.assert_output_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_create_order_wrong_proxy_order() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_create_nft_order_case_with(CreateOrderCase::WrongProxyOrder);
+
+    fixture.assert_output_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_create_order_state_action_mismatch() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_create_nft_order_case_with(CreateOrderCase::StateActionMismatch);
+
+    fixture.assert_output_type_script_exit(&tx, 0, 10);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_create_order_invalid_type_id() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_create_nft_order_case_with(CreateOrderCase::InvalidTypeId);
+
+    fixture.assert_output_type_script_exit(&tx, 0, 14);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_order_input_and_output_group_shape() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_create_nft_order_case_with(CreateOrderCase::InputAndOutputGroupShape);
+
+    fixture.assert_type_script_exit(&tx, 0, 5);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
 }
 
 #[test]

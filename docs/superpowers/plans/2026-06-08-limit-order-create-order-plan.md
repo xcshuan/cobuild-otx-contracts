@@ -1566,7 +1566,21 @@ git commit -m "test: cover limit order create failures"
 
 ```text
 Red:
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_without_nft_proxy_output -- --nocapture -> failed to compile with E0432 unresolved imports: no CreateOrderCase and no limit_order_create_nft_order_case_with.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_wrong_nft_type -- --nocapture -> failed to compile with E0432 unresolved imports: no CreateOrderCase and no limit_order_create_nft_order_case_with.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_wrong_proxy_order -- --nocapture -> failed to compile with E0432 unresolved imports: no CreateOrderCase and no limit_order_create_nft_order_case_with.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_state_action_mismatch -- --nocapture -> failed to compile with E0432 unresolved imports: no CreateOrderCase and no limit_order_create_nft_order_case_with.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_invalid_type_id -- --nocapture -> failed: transaction must fail closed.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_order_input_and_output_group_shape -- --nocapture -> failed: transaction must fail closed.
 Green:
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_without_nft_proxy_output -- --nocapture -> passed, 1 test.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_wrong_nft_type -- --nocapture -> passed, 1 test.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_wrong_proxy_order -- --nocapture -> passed, 1 test.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_state_action_mismatch -- --nocapture -> passed, 1 test.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_create_order_invalid_type_id -- --nocapture -> passed, 1 test.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_order_input_and_output_group_shape -- --nocapture -> passed, 1 test.
+cargo test -p tests --test limit_order --offline create_order -- --nocapture -> passed, 6 tests.
+cargo test -p tests --test limit_order --offline -- --nocapture -> failed, 19 passed and 1 failed: limit_order_type_rejects_offered_amount_mismatch panicked with "transaction must fail closed: 2105124" (legacy fill ABI regression left for Task 8).
 ```
 
 ## Task 8: Update Fill Fixtures to New ABI and Preserve Regressions

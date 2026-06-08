@@ -12,8 +12,8 @@ mod nft_for_udt;
 #[cfg(not(test))]
 pub use nft_for_udt::{
     limit_order_action_failure_case, limit_order_create_nft_order_case,
-    limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with, FillActionCase,
-    NftForUdtPaymentCase,
+    limit_order_create_nft_order_case_with, limit_order_nft_for_udt_case,
+    limit_order_nft_for_udt_case_with, CreateOrderCase, FillActionCase, NftForUdtPaymentCase,
 };
 
 use crate::framework::{
