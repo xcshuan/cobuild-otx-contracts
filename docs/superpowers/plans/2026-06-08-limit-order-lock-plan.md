@@ -1511,9 +1511,45 @@ git commit -m "test: cover limit order lock failures"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md`
 
-**Red/Green Record:** Record final command results in Step 2.
+**Red/Green Record:**
 
-- [ ] **Step 1: Run required verification**
+Verification setup:
+`cargo test -p tests --lib --offline` initially failed because
+`build/debug/limit-order-type` and `build/debug/cobuild-otx-lock` were missing
+in the isolated worktree. Built both missing fixture binaries, then reran the
+command successfully.
+
+Workspace setup:
+`cargo test --workspace --offline` initially failed because the existing
+`limit_order` tests needed `build/debug/input-type-proxy-lock`. The vendored
+`tests/vendor/ckb-proxy-locks` submodule was uninitialized in the worktree;
+`git submodule update --init tests/vendor/ckb-proxy-locks` required escalation
+because Git had to write module metadata under the shared `.git` directory.
+After initializing the submodule, built `input-type-proxy-lock` with
+`CARGO_TARGET_DIR=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/.worktrees/limit-order-lock/target make -e -C tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/.worktrees/limit-order-lock BUILD_DIR=build/debug CUSTOM_RUSTFLAGS='-C debug-assertions' CARGO_ARGS=--offline`
+-> PASS with one existing upstream dead_code warning, then rebuilt
+`limit-order-type` so `generated_proxy_lock.rs` matched the vendored binary.
+
+Final verification:
+`cargo fmt` -> PASS.
+`make -e -C tests/contracts/limit-order-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/.worktrees/limit-order-lock BUILD_DIR=build/debug CARGO_ARGS=--offline` -> PASS.
+`make -e -C tests/contracts/test-udt build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/.worktrees/limit-order-lock BUILD_DIR=build/debug CARGO_ARGS=--offline` -> PASS.
+`make -e -C tests/contracts/test-nft build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/.worktrees/limit-order-lock BUILD_DIR=build/debug CARGO_ARGS=--offline` -> PASS.
+`cargo test -p limit-order-lock --offline` -> PASS; 16 unit tests passed.
+`cargo test -p tests --test limit_order_lock --offline` -> PASS; 15 integration tests passed.
+`cargo test -p tests --lib --offline` -> PASS after building missing existing fixture binaries; 24 tests passed.
+`cargo test --workspace --offline` -> PASS after initializing/building the vendored proxy lock prerequisite.
+`cargo fmt --check` initially reported formatting for regenerated
+`tests/contracts/limit-order-type/src/generated_proxy_lock.rs`; after
+`cargo fmt`, `cargo fmt --check` -> PASS.
+`git diff --check` -> PASS.
+`git status --short` -> showed modified plan plus regenerated
+`tests/contracts/limit-order-type/src/generated_proxy_lock.rs`.
+`find tests/failed_txs -maxdepth 1 -type f 2>/dev/null | wc -l` -> `1`.
+`git status --short --ignored tests/failed_txs` -> `!! tests/failed_txs/`;
+no tracked `tests/failed_txs` files were added.
+
+- [x] **Step 1: Run required verification**
 
 Run:
 
