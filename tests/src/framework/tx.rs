@@ -106,7 +106,7 @@ impl OtxTransactionBuilder {
             !self.base_inputs.is_empty(),
             "transaction requires non-zero base inputs"
         );
-        if !self.allow_no_otx {
+        if !self.otxs.is_empty() {
             assert!(
                 self.otxs.iter().all(|otx| otx.base_input_cells > 0),
                 "each OTX requires non-zero base inputs"

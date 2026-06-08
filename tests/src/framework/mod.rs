@@ -320,4 +320,20 @@ mod tests {
             .otx(otx)
             .build();
     }
+
+    #[test]
+    #[should_panic(expected = "each OTX requires non-zero base inputs")]
+    fn tx_builder_still_rejects_zero_base_inputs_when_no_otx_is_allowed() {
+        let otx = OtxBuilder::new().base_input_cells(0).build_with_layout();
+        let input = CellInput::new_builder()
+            .previous_output(OutPoint::new([1u8; 32].pack(), 0))
+            .build();
+
+        CobuildTestFixture::new()
+            .tx()
+            .allow_no_otx()
+            .base_input(input)
+            .otx(otx)
+            .build();
+    }
 }

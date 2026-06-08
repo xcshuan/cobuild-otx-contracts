@@ -295,6 +295,13 @@ Green:
 cargo test -p tests --lib --offline tx_builder_supports_sighash_all_message_without_otx -- --nocapture -> passed: 1 test
 cargo test -p tests --lib --offline output_type_script_exit_assertion_matches_index_and_exit_code -- --nocapture -> passed: 1 test
 cargo test -p tests --lib --offline -> passed: 23 tests
+Review fix red:
+cargo test -p tests --lib --offline tx_builder_still_rejects_zero_base_inputs_when_no_otx_is_allowed -- --nocapture -> failed: test did not panic, allow_no_otx bypassed OTX base input validation
+Review fix green:
+cargo test -p tests --lib --offline tx_builder_still_rejects_zero_base_inputs_when_no_otx_is_allowed -- --nocapture -> passed: 1 should-panic test
+cargo test -p tests --lib --offline tx_builder_supports_sighash_all_message_without_otx -- --nocapture -> passed: 1 test
+cargo test -p tests --lib --offline output_type_script_exit_assertion_matches_index_and_exit_code -- --nocapture -> passed: 1 test
+cargo test -p tests --lib --offline -> passed: 24 tests
 ```
 
 ## Task 2: Generate Proxy Lock Code Hash Constant
