@@ -453,7 +453,12 @@ git commit -m "test: generate proxy lock hash for limit order"
 
 ```text
 Red:
+cargo test -p limit-order-type --offline generated_proxy_lock_code_hash_is_32_bytes -- --nocapture -> failed as expected with E0433: could not find `generated_proxy_lock` in the crate root.
 Green:
+CARGO_TARGET_DIR=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/target make -e -C tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CUSTOM_RUSTFLAGS='-C debug-assertions' CARGO_ARGS=--offline -> passed; built and copied input-type-proxy-lock with one existing dead_code warning.
+cargo run -p xtask --offline -- proxy-lock-code-hash limit-order-type -> passed; generated non-zero 32-byte proxy lock code hash.
+cargo test -p limit-order-type --offline generated_proxy_lock_code_hash_is_32_bytes -- --nocapture -> passed; 1 test passed, 22 filtered out.
+make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed; regenerated stable constant and built limit-order-type.
 ```
 
 ## Task 3: Replace Order and Action ABI

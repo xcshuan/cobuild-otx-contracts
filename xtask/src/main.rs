@@ -18,8 +18,38 @@ fn main() -> Result<()> {
         {
             codegen(true)
         }
-        _ => bail!("usage: cargo run -p xtask -- codegen cobuild-types [--check]"),
+        [cmd, target] if cmd == "proxy-lock-code-hash" && target == "limit-order-type" => {
+            write_limit_order_proxy_lock_hash()
+        }
+        _ => bail!(
+            "usage: cargo run -p xtask -- codegen cobuild-types [--check] | proxy-lock-code-hash limit-order-type"
+        ),
     }
+}
+
+fn write_limit_order_proxy_lock_hash() -> Result<()> {
+    let root = workspace_root()?;
+    let binary = root.join("build/debug/input-type-proxy-lock");
+    let output = root.join("tests/contracts/limit-order-type/src/generated_proxy_lock.rs");
+    let data = fs::read(&binary)
+        .with_context(|| format!("read proxy lock binary {}", binary.display()))?;
+    let hash = ckb_hash::blake2b_256(&data);
+    let source = format!(
+        "pub const INPUT_TYPE_PROXY_LOCK_CODE_HASH: [u8; 32] = {};\n",
+        rust_byte_array(&hash)
+    );
+    fs::write(&output, source)
+        .with_context(|| format!("write generated proxy lock hash {}", output.display()))?;
+    Ok(())
+}
+
+fn rust_byte_array(bytes: &[u8; 32]) -> String {
+    let items = bytes
+        .iter()
+        .map(|byte| format!("0x{byte:02x}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("[{items}]")
 }
 
 fn codegen(check: bool) -> Result<()> {

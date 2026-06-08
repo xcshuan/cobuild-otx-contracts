@@ -204,6 +204,18 @@ mod tests {
     }
 
     #[test]
+    fn generated_proxy_lock_code_hash_is_32_bytes() {
+        assert_eq!(
+            crate::generated_proxy_lock::INPUT_TYPE_PROXY_LOCK_CODE_HASH.len(),
+            32
+        );
+        assert_ne!(
+            crate::generated_proxy_lock::INPUT_TYPE_PROXY_LOCK_CODE_HASH,
+            [0u8; 32]
+        );
+    }
+
+    #[test]
     fn parse_order_state_reads_fixed_width_fields() {
         let order = parse_order_state(&order_data(10, 3)).expect("order data");
 
