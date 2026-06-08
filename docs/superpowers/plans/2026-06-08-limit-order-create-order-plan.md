@@ -994,6 +994,13 @@ Green:
 - cargo test -p limit-order-type --offline order_mode -- --nocapture -> passed; 3 order_mode tests passed.
 - cargo test -p limit-order-type --offline type_id_sys_error_maps_to_stable_exit_code -- --nocapture -> passed; stable TypeId exit code test passed.
 - cargo test -p limit-order-type --offline -> passed; 27 unit tests, 0 main tests, and 0 doc tests passed.
+Review fix red:
+- cargo test -p limit-order-type --offline type_id_sys_error_maps_to_stable_exit_code --features type-id -- --nocapture -> failed: package did not contain `type-id` feature.
+- make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> failed: ckb-std default features invoked libc build script without CLANG.
+Review fix green:
+- cargo test -p limit-order-type --offline type_id_sys_error_maps_to_stable_exit_code --features type-id -- --nocapture -> passed; TypeIDError maps to TypeId.
+- cargo test -p limit-order-type --offline -> passed; 27 unit tests, 0 main tests, and 0 doc tests passed.
+- make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed; limit-order-type contract built with ckb-std type-id feature and no default libc feature.
 ```
 
 ## Task 5: Add CreateOrder Validation Helpers

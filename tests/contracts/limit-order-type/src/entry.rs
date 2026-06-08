@@ -1,5 +1,3 @@
-#![allow(unexpected_cfgs)]
-
 use alloc::vec::Vec;
 
 use ckb_std::{
@@ -246,7 +244,6 @@ mod tests {
 
     #[test]
     fn type_id_sys_error_maps_to_stable_exit_code() {
-        #[cfg(feature = "type-id")]
         assert_eq!(
             Error::from(ckb_std::error::SysError::TypeIDError),
             Error::TypeId

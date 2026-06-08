@@ -1,5 +1,3 @@
-#![allow(unexpected_cfgs)]
-
 use ckb_std::error::SysError;
 use cobuild_core::error::CoreError;
 
@@ -29,7 +27,6 @@ impl From<SysError> for Error {
             SysError::ItemMissing => Self::ItemMissing,
             SysError::LengthNotEnough(_) => Self::LengthNotEnough,
             SysError::Encoding => Self::Encoding,
-            #[cfg(feature = "type-id")]
             SysError::TypeIDError => Self::TypeId,
             SysError::Unknown(code) => panic!("unknown syscall error {code}"),
             SysError::WaitFailure
