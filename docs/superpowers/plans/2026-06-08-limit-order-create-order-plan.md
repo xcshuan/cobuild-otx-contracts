@@ -1366,7 +1366,20 @@ git commit -m "test: add limit order create fixture"
 
 ```text
 Red:
+- cargo test -p tests --test limit_order --offline limit_order_type_accepts_create_order_with_nft_proxy_output -- --nocapture
+  -> failed before intended missing create helper: existing nft_for_udt fill fixture called limit_order_fill with 4 args after Task 3 changed it to 2 args (E0061). Applied minimal compatibility change, then continued implementation.
+
 Green:
+- CARGO_TARGET_DIR=/home/xcshuan/contracts/ckb/cobuild-otx-contracts/target make -e -C tests/vendor/ckb-proxy-locks/contracts/input-type-proxy-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CUSTOM_RUSTFLAGS='-C debug-assertions' CARGO_ARGS=--offline
+  -> pass; existing dead-code warning for input-type-proxy-lock::Error::Overflow.
+- make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
+  -> pass.
+- make -e -C tests/contracts/test-nft build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
+  -> pass.
+- make -e -C tests/contracts/test-udt build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline
+  -> pass.
+- cargo test -p tests --test limit_order --offline limit_order_type_accepts_create_order_with_nft_proxy_output -- --nocapture
+  -> pass; 1 passed, 0 failed, 13 filtered out. Existing unused ORDER_ID warning remains.
 ```
 
 ## Task 7: Add CreateOrder Failure Cases

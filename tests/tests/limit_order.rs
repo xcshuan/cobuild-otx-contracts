@@ -1,6 +1,7 @@
 use tests::fixtures::limit_order::{
-    FillActionCase, NftForUdtPaymentCase, failed_txs_count, limit_order_action_failure_case,
-    limit_order_case, limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with,
+    failed_txs_count, limit_order_action_failure_case, limit_order_case,
+    limit_order_create_nft_order_case, limit_order_nft_for_udt_case,
+    limit_order_nft_for_udt_case_with, FillActionCase, NftForUdtPaymentCase,
 };
 
 #[test]
@@ -25,6 +26,13 @@ fn limit_order_rejects_otx_append_settlement_below_limit_price() {
 #[test]
 fn limit_order_type_accepts_nft_for_udt_otx_fill() {
     let (fixture, tx) = limit_order_nft_for_udt_case();
+
+    fixture.assert_pass(&tx);
+}
+
+#[test]
+fn limit_order_type_accepts_create_order_with_nft_proxy_output() {
+    let (fixture, tx) = limit_order_create_nft_order_case();
 
     fixture.assert_pass(&tx);
 }

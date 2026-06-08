@@ -1,14 +1,22 @@
-use ckb_testtool::ckb_types::core::TransactionView;
+use ckb_hash::new_blake2b;
+use ckb_testtool::ckb_types::{
+    bytes::Bytes,
+    core::{ScriptHashType, TransactionView},
+    packed::CellInput,
+    prelude::*,
+};
 
 use crate::framework::{
-    cells::{TestCellOutput, live_input, normal_output, typed_output},
+    cells::{live_input, normal_output, typed_output, TestCellOutput},
     cobuild::empty_message,
-    contracts::{DeployedScript, cell_dep_for_script, deploy_always_success, deploy_data2_script},
+    contracts::{cell_dep_for_script, deploy_always_success, deploy_data2_script, DeployedScript},
     fixture::CobuildTestFixture,
     scripts::script_hash,
 };
 
-use super::{LimitOrderCobuildMessageExt, LimitOrderFixtureExt, NFT_TYPE_ARGS, ORDER_ID};
+use super::{
+    order_data, LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, NFT_TYPE_ARGS,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NftForUdtPaymentCase {
@@ -183,13 +191,9 @@ fn limit_order_nft_for_udt_scenario(
         Some(FillActionCase::MinRequestedBelowRequired) => 29,
         _ => 30,
     };
+    let _action_offered_amount = action_offered_amount;
     let fill_order_message = action_target
-        .limit_order_fill(
-            ORDER_ID,
-            action_requested_asset,
-            action_offered_amount,
-            action_requested_amount,
-        )
+        .limit_order_fill(action_requested_asset, action_requested_amount)
         .build();
     let otx_message = if scenario.action_case == Some(FillActionCase::TxLevelFillOrder) {
         empty_message()
@@ -252,6 +256,81 @@ fn limit_order_nft_for_udt_scenario(
     let tx = tx.build();
 
     (fixture, tx)
+}
+
+pub fn limit_order_create_nft_order_case() -> (CobuildTestFixture, TransactionView) {
+    let mut fixture = CobuildTestFixture::new();
+
+    let limit_order_code = fixture.deploy_limit_order();
+    let always_success = fixture.deploy_always_success();
+    let owner_lock = always_success.script.clone();
+    let funding_input = live_input(
+        fixture.context_mut(),
+        normal_output(owner_lock.clone(), 200_000_000_000),
+        Vec::new(),
+    );
+    let nft_type_id = type_id_args(&funding_input, 1);
+    let nft = deploy_test_nft(&mut fixture, nft_type_id);
+    let udt = deploy_test_udt_with_owner(&mut fixture, script_hash(&always_success.script));
+
+    let order_type_id = type_id_args(&funding_input, 0);
+    let order_type = fixture
+        .context_mut()
+        .build_script_with_hash_type(
+            &limit_order_code.out_point,
+            ScriptHashType::Data2,
+            Bytes::copy_from_slice(&order_type_id),
+        )
+        .expect("build order type-id script");
+    let order_type_hash = script_hash(&order_type);
+    let proxy_lock = deploy_input_type_proxy_lock(&mut fixture, order_type_hash);
+    let order_state = LimitOrderState {
+        owner_lock_hash: script_hash(&owner_lock),
+        offered_nft_type_hash: nft.script_hash,
+        requested_asset_id: udt.script_hash,
+        min_requested_amount: 30,
+    };
+    let order_output = TestCellOutput::new(
+        typed_output(owner_lock, order_type, 100_000_000_000),
+        order_data(order_state),
+    );
+    let nft_output = TestCellOutput::new(
+        typed_output(
+            proxy_lock.script.clone(),
+            nft.script.clone(),
+            90_000_000_000,
+        ),
+        nft_data(b"order-nft", [1, 2, 3, 4], 1_717_171_717),
+    );
+    let message = fixture
+        .cobuild()
+        .output_type_action(order_type_hash)
+        .limit_order_create(order_state)
+        .build();
+    let tx = fixture
+        .tx()
+        .allow_no_otx()
+        .cell_dep(cell_dep_for_script(&limit_order_code))
+        .cell_dep(cell_dep_for_script(&always_success))
+        .cell_dep(cell_dep_for_script(&proxy_lock))
+        .cell_dep(cell_dep_for_script(&nft))
+        .cell_dep(cell_dep_for_script(&udt))
+        .base_input(funding_input)
+        .base_output(order_output)
+        .base_output(nft_output)
+        .tx_level_message(message)
+        .build();
+
+    (fixture, tx)
+}
+
+fn type_id_args(first_input: &CellInput, output_index: u64) -> [u8; 32] {
+    let mut blake2b = new_blake2b();
+    blake2b.update(first_input.as_slice());
+    blake2b.update(&output_index.to_le_bytes());
+    let mut out = [0u8; 32];
+    blake2b.finalize(&mut out);
+    out
 }
 
 fn deploy_wrong_owner_lock(fixture: &mut CobuildTestFixture) -> DeployedScript {
