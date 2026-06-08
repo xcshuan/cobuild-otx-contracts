@@ -26,8 +26,6 @@ use crate::framework::{
 
 pub(crate) const CREATE_ORDER_TAG: u8 = 1;
 pub(crate) const FILL_ORDER_TAG: u8 = 2;
-#[cfg(not(test))]
-pub(crate) const ORDER_ID: [u8; 32] = [1; 32];
 const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
 const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
 #[cfg(not(test))]
@@ -195,21 +193,8 @@ impl<'a> LimitOrderBuilder<'a> {
         self
     }
 
-    pub fn offered_asset_id(self, asset_id: [u8; 32]) -> Self {
-        self.offered_nft_type_hash(asset_id)
-    }
-
     pub fn requested_asset_id(mut self, asset_id: [u8; 32]) -> Self {
         self.requested_asset_id = asset_id;
-        self
-    }
-
-    pub fn offered_remaining(self, _amount: u64) -> Self {
-        self
-    }
-
-    pub fn min_requested_per_offered(mut self, price: u64) -> Self {
-        self.min_requested_amount = price.saturating_mul(10);
         self
     }
 

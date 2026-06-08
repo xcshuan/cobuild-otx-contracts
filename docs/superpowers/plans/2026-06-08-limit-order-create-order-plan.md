@@ -1676,7 +1676,12 @@ git commit -m "test: migrate limit order fill fixtures"
 
 ```text
 Red:
+cargo test -p tests --test limit_order --offline limit_order_type_accepts_nft_for_udt_otx_fill -- --nocapture -> passed, 1 test; current compatibility already encoded enough new FillOrder ABI for this acceptance case.
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_offered_amount_mismatch -- --nocapture -> failed, 0 passed and 1 failed: limit_order_type_rejects_offered_amount_mismatch panicked with "transaction must fail closed: 2105124" because offered amount is no longer meaningful in FillOrder.
 Green:
+cargo test -p tests --test limit_order --offline limit_order_type_rejects_fill_amount_below_order_minimum -- --nocapture -> passed, 1 test.
+cargo test -p tests --test limit_order --offline -- --nocapture -> passed, 19 tests.
+cargo test -p tests --lib --offline -> passed, 24 tests.
 ```
 
 ## Task 9: Update Docs and Boundary Tests

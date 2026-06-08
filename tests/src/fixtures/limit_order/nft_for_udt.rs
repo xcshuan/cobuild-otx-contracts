@@ -31,7 +31,6 @@ pub enum NftForUdtPaymentCase {
 pub enum FillActionCase {
     TxLevelFillOrder,
     OutputTypeTarget,
-    OfferedAmountMismatch,
     RequestedAssetMismatch,
     MinRequestedBelowRequired,
     NoRelatedAction,
@@ -143,10 +142,9 @@ fn limit_order_nft_for_udt_scenario(
     let order_input = fixture
         .limit_order()
         .owner(owner_lock.clone())
-        .offered_asset_id(nft.script_hash)
+        .offered_nft_type_hash(nft.script_hash)
         .requested_asset_id(udt.script_hash)
-        .offered_remaining(10)
-        .min_requested_per_offered(3)
+        .min_requested_amount(30)
         .build_input(&limit_order.script);
     let nft_input = live_input(
         fixture.context_mut(),
@@ -194,15 +192,10 @@ fn limit_order_nft_for_udt_scenario(
         Some(FillActionCase::RequestedAssetMismatch) => wrong_udt.script_hash,
         _ => udt.script_hash,
     };
-    let action_offered_amount = match scenario.action_case {
-        Some(FillActionCase::OfferedAmountMismatch) => 9,
-        _ => 10,
-    };
     let action_requested_amount = match scenario.action_case {
         Some(FillActionCase::MinRequestedBelowRequired) => 29,
         _ => 30,
     };
-    let _action_offered_amount = action_offered_amount;
     let fill_order_message = action_target
         .limit_order_fill(action_requested_asset, action_requested_amount)
         .build();

@@ -1,7 +1,7 @@
 use tests::fixtures::limit_order::{
     failed_txs_count, limit_order_action_failure_case, limit_order_case,
-    limit_order_create_nft_order_case, limit_order_nft_for_udt_case,
-    limit_order_create_nft_order_case_with, limit_order_nft_for_udt_case_with, CreateOrderCase,
+    limit_order_create_nft_order_case, limit_order_create_nft_order_case_with,
+    limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with, CreateOrderCase,
     FillActionCase, NftForUdtPaymentCase,
 };
 
@@ -187,18 +187,6 @@ fn limit_order_type_rejects_output_type_fill_order_target() {
 }
 
 #[test]
-fn limit_order_type_rejects_offered_amount_mismatch() {
-    let failed_txs_before = failed_txs_count();
-    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::OfferedAmountMismatch);
-
-    fixture.assert_type_script_exit(&tx, 0, 10);
-
-    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
-        assert_eq!(failed_txs_count(), failed_txs_before);
-    }
-}
-
-#[test]
 fn limit_order_type_rejects_requested_asset_mismatch() {
     let failed_txs_before = failed_txs_count();
     let (fixture, tx) = limit_order_action_failure_case(FillActionCase::RequestedAssetMismatch);
@@ -211,7 +199,7 @@ fn limit_order_type_rejects_requested_asset_mismatch() {
 }
 
 #[test]
-fn limit_order_type_rejects_min_requested_below_required() {
+fn limit_order_type_rejects_fill_amount_below_order_minimum() {
     let failed_txs_before = failed_txs_count();
     let (fixture, tx) = limit_order_action_failure_case(FillActionCase::MinRequestedBelowRequired);
 
