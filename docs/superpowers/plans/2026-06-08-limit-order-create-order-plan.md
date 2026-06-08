@@ -1178,6 +1178,12 @@ Green:
 - cargo test -p limit-order-type --offline expected_proxy_lock_hash_changes_with_order_type_hash -- --nocapture -> passed: 1 test passed in src/lib.rs, 0 tests in src/main.rs.
 - cargo test -p limit-order-type --offline -> passed: 29 tests passed in src/lib.rs, 0 tests in src/main.rs, 0 doc-tests.
 - make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed: riscv64imac-unknown-none-elf debug build completed and copied binary.
+Review fix red:
+- grep -n "fn ckb_blake2b_256\\|blake2b_compress\\|blake2b_g" tests/contracts/limit-order-type/src/entry.rs -> found hand-written Blake2b helpers instead of using official script hash support.
+Review fix green:
+- cargo test -p limit-order-type --offline expected_proxy_lock_hash_changes_with_order_type_hash -- --nocapture -> passed with `script.calc_script_hash()`.
+- cargo test -p limit-order-type --offline -> passed: 29 tests passed in src/lib.rs, 0 tests in src/main.rs, 0 doc-tests.
+- make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline -> passed with ckb-std calc-hash feature.
 ```
 
 ## Task 6: Add Type-ID CreateOrder Fixture Happy Path
