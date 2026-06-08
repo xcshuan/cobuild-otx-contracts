@@ -1089,8 +1089,14 @@ git commit -m "test: cover nft order udt payment failures"
 **Red/Green Record:**
 
 ```text
-Red:
-Green:
+Red: cargo test -p tests --test limit_order --offline limit_order_type_rejects_nft_for_udt_insufficient_udt -- --nocapture -> failed to compile: unresolved imports NftForUdtPaymentCase and limit_order_nft_for_udt_case_with
+Red: cargo test -p tests --test limit_order --offline limit_order_type_rejects_nft_for_udt_wrong_udt -- --nocapture -> failed to compile: unresolved imports NftForUdtPaymentCase and limit_order_nft_for_udt_case_with
+Red: cargo test -p tests --test limit_order --offline limit_order_type_rejects_nft_for_udt_wrong_owner -- --nocapture -> failed to compile: unresolved imports NftForUdtPaymentCase and limit_order_nft_for_udt_case_with
+Green: cargo test -p tests --test limit_order --offline limit_order_type_rejects_nft_for_udt_insufficient_udt -- --nocapture -> passed
+Green: cargo test -p tests --test limit_order --offline limit_order_type_rejects_nft_for_udt_wrong_udt -- --nocapture -> passed after funding the wrong UDT payment with a matching wrong UDT input so test-UDT does not fail before limit-order-type
+Green: cargo test -p tests --test limit_order --offline limit_order_type_rejects_nft_for_udt_wrong_owner -- --nocapture -> passed
+Red: cargo test -p tests --test limit_order --offline limit_order_type_does_not_count_tx_level_remainder_udt -- --nocapture -> failed because the transaction passed before TxLevelRemainderOnly moved the final 1 UDT outside OTX append scope
+Green: cargo test -p tests --test limit_order --offline limit_order_type_does_not_count_tx_level_remainder_udt -- --nocapture -> passed
 ```
 
 ## Task 8: Add Cobuild Action and Relation Failure Cases

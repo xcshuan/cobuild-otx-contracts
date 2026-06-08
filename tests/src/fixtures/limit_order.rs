@@ -9,7 +9,7 @@ use ckb_testtool::{
 use crate::framework::{
     cells::{TestCellOutput, live_input, normal_output, typed_output},
     cobuild::{CobuildMessageBuilder, OtxBuilder},
-    contracts::{DeployedScript, cell_dep_for_script, deploy_data2_script},
+    contracts::{DeployedScript, cell_dep_for_script, deploy_always_success, deploy_data2_script},
     fixture::CobuildTestFixture,
     scripts::script_hash,
 };
@@ -19,6 +19,15 @@ const ORDER_ID: [u8; 32] = [1; 32];
 const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
 const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
 const NFT_TYPE_ARGS: [u8; 32] = [5; 32];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NftForUdtPaymentCase {
+    Valid,
+    InsufficientUdt,
+    WrongUdt,
+    WrongOwner,
+    TxLevelRemainderOnly,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LimitOrderState {
@@ -96,6 +105,12 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
 }
 
 pub fn limit_order_nft_for_udt_case() -> (CobuildTestFixture, TransactionView) {
+    limit_order_nft_for_udt_case_with(NftForUdtPaymentCase::Valid)
+}
+
+pub fn limit_order_nft_for_udt_case_with(
+    case: NftForUdtPaymentCase,
+) -> (CobuildTestFixture, TransactionView) {
     let mut fixture = CobuildTestFixture::new();
 
     let limit_order = fixture.deploy_limit_order();
@@ -103,9 +118,35 @@ pub fn limit_order_nft_for_udt_case() -> (CobuildTestFixture, TransactionView) {
     let owner_lock = always_success.script.clone();
     let buyer_lock = always_success.script.clone();
     let issuer_lock_hash = script_hash(&always_success.script);
+    let wrong_owner_lock = deploy_wrong_owner_lock(&mut fixture).script;
     let proxy_lock = deploy_input_type_proxy_lock(&mut fixture, limit_order.script_hash);
     let nft = deploy_test_nft(&mut fixture, NFT_TYPE_ARGS);
     let udt = deploy_test_udt_with_owner(&mut fixture, issuer_lock_hash);
+    let wrong_udt = deploy_test_udt_with_owner(&mut fixture, [9; 32]);
+    let payment_udt = if case == NftForUdtPaymentCase::WrongUdt {
+        wrong_udt.clone()
+    } else {
+        udt.clone()
+    };
+    let payment_lock = if case == NftForUdtPaymentCase::WrongOwner {
+        wrong_owner_lock
+    } else {
+        owner_lock.clone()
+    };
+    let payment_amount = match case {
+        NftForUdtPaymentCase::InsufficientUdt | NftForUdtPaymentCase::TxLevelRemainderOnly => 29,
+        NftForUdtPaymentCase::Valid
+        | NftForUdtPaymentCase::WrongUdt
+        | NftForUdtPaymentCase::WrongOwner => 30,
+    };
+    let remainder_payment_output = if case == NftForUdtPaymentCase::TxLevelRemainderOnly {
+        Some(TestCellOutput::new(
+            typed_output(owner_lock.clone(), udt.script.clone(), 90_000_000_000),
+            udt_amount_data(1),
+        ))
+    } else {
+        None
+    };
 
     let nft_payload = nft_data(b"order-nft", [1, 2, 3, 4], 1_717_171_717);
     let order_input = fixture
@@ -127,7 +168,11 @@ pub fn limit_order_nft_for_udt_case() -> (CobuildTestFixture, TransactionView) {
     );
     let udt_input = live_input(
         fixture.context_mut(),
-        typed_output(buyer_lock.clone(), udt.script.clone(), 100_000_000_000),
+        typed_output(
+            buyer_lock.clone(),
+            payment_udt.script.clone(),
+            100_000_000_000,
+        ),
         udt_amount_data(30),
     );
     let nft_output = TestCellOutput::new(
@@ -135,8 +180,8 @@ pub fn limit_order_nft_for_udt_case() -> (CobuildTestFixture, TransactionView) {
         nft_payload,
     );
     let udt_payment_output = TestCellOutput::new(
-        typed_output(owner_lock, udt.script.clone(), 90_000_000_000),
-        udt_amount_data(30),
+        typed_output(payment_lock, payment_udt.script.clone(), 90_000_000_000),
+        udt_amount_data(payment_amount),
     );
 
     let message = fixture
@@ -155,22 +200,29 @@ pub fn limit_order_nft_for_udt_case() -> (CobuildTestFixture, TransactionView) {
         .message(message)
         .build_with_layout();
 
-    let tx = fixture
+    let mut tx = fixture
         .tx()
         .cell_dep(cell_dep_for_script(&limit_order))
         .cell_dep(cell_dep_for_script(&always_success))
         .cell_dep(cell_dep_for_script(&proxy_lock))
         .cell_dep(cell_dep_for_script(&nft))
         .cell_dep(cell_dep_for_script(&udt))
+        .cell_dep(cell_dep_for_script(&wrong_udt))
         .base_input(order_input)
         .base_input(nft_input)
         .append_input(udt_input)
         .base_output(nft_output)
-        .append_output(udt_payment_output)
-        .otx(otx)
-        .build();
+        .append_output(udt_payment_output);
+    if let Some(output) = remainder_payment_output {
+        tx = tx.remainder_output(output);
+    }
+    let tx = tx.otx(otx).build();
 
     (fixture, tx)
+}
+
+fn deploy_wrong_owner_lock(fixture: &mut CobuildTestFixture) -> DeployedScript {
+    deploy_always_success(fixture.context_mut(), b"wrong-owner".to_vec())
 }
 
 fn deploy_test_udt_with_owner(
