@@ -133,7 +133,7 @@ pub fn limit_order_lock_nft_for_udt_case_with(
     let dummy_base_input = if case == LimitOrderLockFillCase::OrderInputInAppendScope {
         Some(live_input(
             fixture.context_mut(),
-            normal_output(order_lock.clone(), 100_000_000_000),
+            normal_output(always_success.script.clone(), 100_000_000_000),
             Vec::new(),
         ))
     } else if case == LimitOrderLockFillCase::PaymentInAnotherOtx {
@@ -196,6 +196,11 @@ pub fn limit_order_lock_nft_for_udt_case_with(
     } else {
         1
     };
+    let seal_scope = if case == LimitOrderLockFillCase::OrderInputInAppendScope {
+        1
+    } else {
+        0
+    };
     let otx = fixture
         .otx()
         .base_input_cells(1)
@@ -205,7 +210,7 @@ pub fn limit_order_lock_nft_for_udt_case_with(
         .allow_append_inputs()
         .allow_append_outputs()
         .message(otx_message)
-        .seals(vec![seal_pair(order_lock_hash, 0, Vec::new())])
+        .seals(vec![seal_pair(order_lock_hash, seal_scope, Vec::new())])
         .build_with_layout();
     let other_otx = if case == LimitOrderLockFillCase::PaymentInAnotherOtx {
         Some(

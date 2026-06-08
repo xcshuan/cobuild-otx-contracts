@@ -57,7 +57,7 @@ fn limit_order_lock_rejects_append_scope_input() {
     let before = failed_txs_count();
     let (fixture, tx) =
         limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::OrderInputInAppendScope);
-    fixture.assert_lock_script_exit(&tx, 0, 8);
+    fixture.assert_lock_script_exit(&tx, 1, 12);
     assert_no_expected_failure_dump(before);
 }
 

@@ -1260,6 +1260,7 @@ git commit -m "test: add limit order lock happy path"
 - RED: `cargo test -p tests --test limit_order_lock --offline -- --nocapture` failed at compile time with 28 `E0599` errors: missing `LimitOrderLockFillCase` variants and missing `CobuildTestFixture::assert_lock_script_exit`.
 - GREEN: `cargo test -p tests --test limit_order_lock --offline -- --nocapture` initially compiled and ran 15 tests with 13 passed / 2 failed: `OrderInputInAppendScope` reached `Inputs[0].Lock` exit 8 before cobuild layout validation, and `WrongNftType` initially failed from `Outputs[0].Type`. After fixture correction and expected append-scope exit update, the command passed with 15 passed / 0 failed.
 - VERIFY: `cargo fmt` exit 0; `cargo test -p limit-order-lock --offline` passed 16 unit tests plus 0 main/doc tests; `cargo test -p tests --test limit_order_lock --offline -- --nocapture` passed 15 integration tests; `git diff --check` exit 0; `find tests/failed_txs -maxdepth 1 -type f 2>/dev/null | wc -l` printed `1`; `git status --short --ignored tests/failed_txs` printed `!! tests/failed_txs/`. The passing failure-matrix tests checked no new expected-failure dumps were added during each case.
+- FOLLOW-UP FIX: `OrderInputInAppendScope` was corrected to use an always-success dummy base input and put the only limit-order-lock input in append scope with an append seal. `cargo test -p tests --test limit_order_lock --offline limit_order_lock_rejects_append_scope_input -- --nocapture` first observed `Inputs[1].Lock`; after updating the assertion to input index 1 and exit 12, it passed with 1 passed / 0 failed. `cargo test -p tests --test limit_order_lock --offline -- --nocapture` passed with 15 passed / 0 failed; `git diff --check` exit 0; failed_txs count remained `1` ignored file.
 
 - [x] **Step 1: Write failing thin tests**
 
@@ -1313,7 +1314,7 @@ fn limit_order_lock_rejects_wrong_action_target() {
 fn limit_order_lock_rejects_append_scope_input() {
     let before = failed_txs_count();
     let (fixture, tx) = limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::OrderInputInAppendScope);
-    fixture.assert_lock_script_exit(&tx, 0, 8);
+    fixture.assert_lock_script_exit(&tx, 1, 12);
     assert_no_expected_failure_dump(before);
 }
 
