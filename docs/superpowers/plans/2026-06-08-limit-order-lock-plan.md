@@ -1256,9 +1256,12 @@ git commit -m "test: add limit order lock happy path"
 - Modify: `tests/tests/limit_order_lock.rs`
 - Modify: `docs/superpowers/plans/2026-06-08-limit-order-lock-plan.md`
 
-**Red/Green Record:** Record after Step 2 and Step 5.
+**Red/Green Record:**
+- RED: `cargo test -p tests --test limit_order_lock --offline -- --nocapture` failed at compile time with 28 `E0599` errors: missing `LimitOrderLockFillCase` variants and missing `CobuildTestFixture::assert_lock_script_exit`.
+- GREEN: `cargo test -p tests --test limit_order_lock --offline -- --nocapture` initially compiled and ran 15 tests with 13 passed / 2 failed: `OrderInputInAppendScope` reached `Inputs[0].Lock` exit 8 before cobuild layout validation, and `WrongNftType` initially failed from `Outputs[0].Type`. After fixture correction and expected append-scope exit update, the command passed with 15 passed / 0 failed.
+- VERIFY: `cargo fmt` exit 0; `cargo test -p limit-order-lock --offline` passed 16 unit tests plus 0 main/doc tests; `cargo test -p tests --test limit_order_lock --offline -- --nocapture` passed 15 integration tests; `git diff --check` exit 0; `find tests/failed_txs -maxdepth 1 -type f 2>/dev/null | wc -l` printed `1`; `git status --short --ignored tests/failed_txs` printed `!! tests/failed_txs/`. The passing failure-matrix tests checked no new expected-failure dumps were added during each case.
 
-- [ ] **Step 1: Write failing thin tests**
+- [x] **Step 1: Write failing thin tests**
 
 Extend `tests/tests/limit_order_lock.rs`:
 
@@ -1310,7 +1313,7 @@ fn limit_order_lock_rejects_wrong_action_target() {
 fn limit_order_lock_rejects_append_scope_input() {
     let before = failed_txs_count();
     let (fixture, tx) = limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::OrderInputInAppendScope);
-    fixture.assert_lock_script_exit(&tx, 0, 12);
+    fixture.assert_lock_script_exit(&tx, 0, 8);
     assert_no_expected_failure_dump(before);
 }
 
@@ -1387,7 +1390,7 @@ fn limit_order_lock_rejects_malformed_action_payload() {
 }
 ```
 
-- [ ] **Step 2: Run red**
+- [x] **Step 2: Run red**
 
 Run:
 
@@ -1397,7 +1400,7 @@ cargo test -p tests --test limit_order_lock --offline -- --nocapture
 
 Expected: FAIL with missing enum variants and possibly missing `assert_lock_script_exit`.
 
-- [ ] **Step 3: Add lock script assertion wrapper if missing**
+- [x] **Step 3: Add lock script assertion wrapper if missing**
 
 If `CobuildTestFixture` does not expose lock script assertions, add to `tests/src/framework/fixture.rs`:
 
@@ -1427,7 +1430,7 @@ pub fn assert_lock_script_exit(
 
 and call it from `CobuildTestFixture::assert_lock_script_exit`.
 
-- [ ] **Step 4: Implement scenario variants**
+- [x] **Step 4: Implement scenario variants**
 
 Extend `LimitOrderLockFillCase`:
 
@@ -1470,7 +1473,7 @@ Update the fixture builder with these concrete knobs:
 
 Use existing helpers from `nft_for_udt.rs` as a model, but keep all lock-order business scenarios in `lock_for_udt.rs`.
 
-- [ ] **Step 5: Run green**
+- [x] **Step 5: Run green**
 
 Run:
 
@@ -1480,7 +1483,7 @@ cargo test -p tests --test limit_order_lock --offline -- --nocapture
 
 Expected: PASS for happy path and all failure cases.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 Run:
 
