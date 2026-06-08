@@ -35,6 +35,27 @@ pub fn assert_type_script_exit_result(result: Result<Cycle, Error>, input_index:
     assert_script_exit_result(result, format!("Inputs[{input_index}].Type"), code);
 }
 
+pub fn assert_output_type_script_exit(
+    context: &Context,
+    tx: &TransactionView,
+    output_index: usize,
+    code: i8,
+) {
+    let result = context.verify_tx(tx, MAX_CYCLES);
+    if result.is_err() && dump_expected_failures() {
+        let _ = verify_and_dump_failed_tx(context, tx, MAX_CYCLES);
+    }
+    assert_output_type_script_exit_result(result, output_index, code);
+}
+
+pub fn assert_output_type_script_exit_result(
+    result: Result<Cycle, Error>,
+    output_index: usize,
+    code: i8,
+) {
+    assert_script_exit_result(result, format!("Outputs[{output_index}].Type"), code);
+}
+
 pub fn assert_lock_script_exit_result(result: Result<Cycle, Error>, input_index: usize, code: i8) {
     assert_script_exit_result(result, format!("Inputs[{input_index}].Lock"), code);
 }

@@ -39,6 +39,7 @@ pub struct OtxTransactionBuilder {
     remainder_outputs: Vec<TestCellOutput>,
     tx_level_message: Option<CobuildMessage>,
     otxs: Vec<BuiltOtx>,
+    allow_no_otx: bool,
 }
 
 impl OtxTransactionBuilder {
@@ -91,16 +92,26 @@ impl OtxTransactionBuilder {
         self
     }
 
+    pub fn allow_no_otx(mut self) -> Self {
+        self.allow_no_otx = true;
+        self
+    }
+
     pub fn build(self) -> TransactionView {
-        assert!(!self.otxs.is_empty(), "OTX transaction requires one Otx");
+        assert!(
+            self.allow_no_otx || !self.otxs.is_empty(),
+            "OTX transaction requires one Otx unless allow_no_otx is set"
+        );
         assert!(
             !self.base_inputs.is_empty(),
-            "OTX transaction requires non-zero base inputs"
+            "transaction requires non-zero base inputs"
         );
-        assert!(
-            self.otxs.iter().all(|otx| otx.base_input_cells > 0),
-            "each OTX requires non-zero base inputs"
-        );
+        if !self.allow_no_otx {
+            assert!(
+                self.otxs.iter().all(|otx| otx.base_input_cells > 0),
+                "each OTX requires non-zero base inputs"
+            );
+        }
 
         let start_input_cell = 0u32;
         let start_output_cell = 0u32;
@@ -169,15 +180,6 @@ impl OtxTransactionBuilder {
             builder = builder.output(output.cell).output_data(output.data.pack());
         }
 
-        builder = builder.witness(
-            otx_start_witness(
-                start_input_cell,
-                start_output_cell,
-                start_cell_deps,
-                start_header_deps,
-            )
-            .pack(),
-        );
         if let Some(message) = self.tx_level_message {
             let witness = WitnessLayout::from(
                 SighashAll::new_builder()
@@ -186,6 +188,17 @@ impl OtxTransactionBuilder {
                     .build(),
             );
             builder = builder.witness(Bytes::copy_from_slice(witness.as_slice()).pack());
+        }
+        if !self.otxs.is_empty() {
+            builder = builder.witness(
+                otx_start_witness(
+                    start_input_cell,
+                    start_output_cell,
+                    start_cell_deps,
+                    start_header_deps,
+                )
+                .pack(),
+            );
         }
         for otx in self.otxs {
             let witness = WitnessLayout::from(otx.otx);

@@ -49,6 +49,15 @@ impl CobuildTestFixture {
     pub fn assert_type_script_exit(&self, tx: &TransactionView, input_index: usize, code: i8) {
         assertions::assert_type_script_exit(&self.context, tx, input_index, code);
     }
+
+    pub fn assert_output_type_script_exit(
+        &self,
+        tx: &TransactionView,
+        output_index: usize,
+        code: i8,
+    ) {
+        assertions::assert_output_type_script_exit(&self.context, tx, output_index, code);
+    }
 }
 
 impl Default for CobuildTestFixture {

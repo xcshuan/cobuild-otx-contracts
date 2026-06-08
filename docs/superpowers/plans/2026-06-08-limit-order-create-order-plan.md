@@ -289,7 +289,12 @@ git commit -m "test: support tx level fixture transactions"
 
 ```text
 Red:
+cargo test -p tests --lib --offline tx_builder_supports_sighash_all_message_without_otx -- --nocapture -> failed to compile: missing OtxTransactionBuilder::allow_no_otx
+cargo test -p tests --lib --offline output_type_script_exit_assertion_matches_index_and_exit_code -- --nocapture -> failed to compile: missing assert_output_type_script_exit_result, with allow_no_otx still missing from first red test
 Green:
+cargo test -p tests --lib --offline tx_builder_supports_sighash_all_message_without_otx -- --nocapture -> passed: 1 test
+cargo test -p tests --lib --offline output_type_script_exit_assertion_matches_index_and_exit_code -- --nocapture -> passed: 1 test
+cargo test -p tests --lib --offline -> passed: 23 tests
 ```
 
 ## Task 2: Generate Proxy Lock Code Hash Constant

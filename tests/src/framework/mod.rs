@@ -164,6 +164,33 @@ mod tests {
     }
 
     #[test]
+    fn tx_builder_supports_sighash_all_message_without_otx() {
+        let mut fixture = CobuildTestFixture::new();
+        let lock = fixture.deploy_always_success();
+        let input = live_input(
+            fixture.context_mut(),
+            normal_output(lock.script.clone(), 1_000),
+            Vec::new(),
+        );
+        let output = TestCellOutput::new(normal_output(lock.script, 900), Vec::new());
+        let message = CobuildMessageBuilder::new()
+            .output_type_action([9; 32])
+            .action_data(vec![1])
+            .build();
+
+        let tx = OtxTransactionBuilder::new()
+            .allow_no_otx()
+            .base_input(input)
+            .base_output(output)
+            .tx_level_message(message)
+            .build();
+
+        assert_eq!(tx.inputs().len(), 1);
+        assert_eq!(tx.outputs().len(), 1);
+        assert_eq!(tx.witnesses().len(), 1);
+    }
+
+    #[test]
     fn signing_helpers_build_sighash_all_only_witness() {
         let secret_key = fixed_secret_key(1);
         let public_key_hash = public_key_hash20(&secret_key);
@@ -226,6 +253,15 @@ mod tests {
             .into();
 
         assert_type_script_exit_result(Err(error), 0, 11);
+    }
+
+    #[test]
+    fn output_type_script_exit_assertion_matches_index_and_exit_code() {
+        let error = ScriptError::ValidationFailure("by convention".to_owned(), 14)
+            .output_type_script(0)
+            .into();
+
+        super::assertions::assert_output_type_script_exit_result(Err(error), 0, 14);
     }
 
     #[test]
