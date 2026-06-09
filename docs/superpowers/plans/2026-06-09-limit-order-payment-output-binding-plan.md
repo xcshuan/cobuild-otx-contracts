@@ -292,7 +292,11 @@ git commit -m "test: bind type fill action to payment index"
 - Modify: `tests/contracts/limit-order-lock/src/types.rs`
 - Modify: `docs/superpowers/plans/2026-06-09-limit-order-payment-output-binding-plan.md`
 
-**Red/Green Record:** Execution agent must replace this line with exact Red, Green, Review, and Commit results.
+**Red/Green Record:**
+Red: `cargo test -p limit-order-lock --offline` -> FAIL as expected: `FillOrderAction` missing `payment_output_index` and `validate_fill` expected `&[UdtPayment]` but tests passed `UdtPayment`.
+Green: `cargo test -p limit-order-lock --offline` -> PASS: 18 unit tests passed, 0 failed; main/doc tests 0 passed, 0 failed.
+Review: `git diff --check` -> PASS with no output; diff limited to Task 2 owned files. Used the same temporary `BoundPayment` compatibility adapter as Task 1 so unchanged `entry.rs` can keep passing `&Vec<UdtPayment>` until later entry-binding tasks remove old collection flow.
+Commit: pending.
 
 - [ ] **Step 1: Write failing parser and validation tests**
 
