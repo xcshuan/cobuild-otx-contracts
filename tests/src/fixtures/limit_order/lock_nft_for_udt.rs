@@ -271,13 +271,11 @@ pub fn limit_order_lock_nft_for_udt_case_with(
         typed_output(payment_lock, payment_udt.script.clone(), 90_000_000_000),
         udt_amount_data(payment_amount),
     );
-    let dummy_base_input = if case == LimitOrderLockFillCase::OrderInputInAppendScope {
-        Some(live_input(
-            fixture.context_mut(),
-            normal_output(always_success.script.clone(), 100_000_000_000),
-            Vec::new(),
-        ))
-    } else if case == LimitOrderLockFillCase::PaymentInAnotherOtx {
+    let dummy_base_input = if matches!(
+        case,
+        LimitOrderLockFillCase::OrderInputInAppendScope
+            | LimitOrderLockFillCase::PaymentInAnotherOtx
+    ) {
         Some(live_input(
             fixture.context_mut(),
             normal_output(always_success.script.clone(), 100_000_000_000),
