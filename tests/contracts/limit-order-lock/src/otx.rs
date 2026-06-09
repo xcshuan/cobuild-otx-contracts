@@ -18,6 +18,11 @@ pub struct LockOtxFill {
     pub action_target: [u8; 32],
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LimitOrderFillAction {
+    payment_output_index: u32,
+}
+
 pub fn load_lock_otx_fill(
     context: &CobuildContext,
     input_index: usize,
@@ -29,8 +34,7 @@ pub fn load_lock_otx_fill(
     let related = &plan.related_actions[0];
     let (otx_index, layout) = otx_fill_layout(&related.origin, input_index)?;
     let actions = context.otx_actions(otx_index)?;
-    let targets = limit_order_target_hashes(&actions, related.action.script_hash)?;
-    ensure_unique_payment_output_indexes(&actions, &targets)?;
+    ensure_no_reused_payment_outputs_in_otx(&actions)?;
     Ok(LockOtxFill {
         otx_index,
         layout,
@@ -63,23 +67,10 @@ pub fn output_index_in_otx_outputs(
         || range_contains(layout.append_outputs, output_index)?)
 }
 
-pub fn ensure_unique_payment_output_indexes(
-    actions: &[ActionView],
-    limit_order_targets: &[[u8; 32]],
-) -> Result<(), Error> {
+fn ensure_no_reused_payment_outputs_in_otx(actions: &[ActionView]) -> Result<(), Error> {
+    let fills = collect_limit_order_fill_actions(actions)?;
     let mut indexes = Vec::<u32>::new();
-    for action in actions {
-        if !is_limit_order_role(action.script_role) {
-            continue;
-        }
-        if !limit_order_targets.contains(&action.script_hash) {
-            continue;
-        }
-        let data = cursor_bytes(&action.data)?;
-        if data.first().copied() != Some(crate::types::FILL_ORDER_TAG) {
-            continue;
-        }
-        let fill = parse_fill_order_action(&data)?;
+    for fill in fills {
         if indexes.contains(&fill.payment_output_index) {
             return Err(Error::InvalidCobuild);
         }
@@ -88,26 +79,31 @@ pub fn ensure_unique_payment_output_indexes(
     Ok(())
 }
 
-fn limit_order_target_hashes(
+fn collect_limit_order_fill_actions(
     actions: &[ActionView],
-    current_target: [u8; 32],
-) -> Result<Vec<[u8; 32]>, Error> {
-    let mut targets = Vec::<[u8; 32]>::new();
-    targets.push(current_target);
+) -> Result<Vec<LimitOrderFillAction>, Error> {
+    let mut fills = Vec::<LimitOrderFillAction>::new();
     for action in actions {
-        if !is_limit_order_role(action.script_role) {
+        let Some(fill) = parse_limit_order_fill(action)? else {
             continue;
-        }
-        let data = cursor_bytes(&action.data)?;
-        if data.first().copied() != Some(crate::types::FILL_ORDER_TAG) {
-            continue;
-        }
-        parse_fill_order_action(&data)?;
-        if !targets.contains(&action.script_hash) {
-            targets.push(action.script_hash);
-        }
+        };
+        fills.push(fill);
     }
-    Ok(targets)
+    Ok(fills)
+}
+
+fn parse_limit_order_fill(action: &ActionView) -> Result<Option<LimitOrderFillAction>, Error> {
+    if !is_limit_order_role(action.script_role) {
+        return Ok(None);
+    }
+    let data = cursor_bytes(&action.data)?;
+    if data.first().copied() != Some(crate::types::FILL_ORDER_TAG) {
+        return Ok(None);
+    }
+    let fill = parse_fill_order_action(&data)?;
+    Ok(Some(LimitOrderFillAction {
+        payment_output_index: fill.payment_output_index,
+    }))
 }
 
 fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
@@ -213,63 +209,60 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_payment_output_index_accepts_unique_indexes() {
+    fn otx_payment_reuse_check_accepts_unique_indexes() {
         let actions = vec![
             test_action(ScriptRole::InputLock, [7; 32], fill_data(1)),
             test_action(ScriptRole::InputLock, [7; 32], fill_data(2)),
         ];
 
-        assert_eq!(
-            ensure_unique_payment_output_indexes(&actions, &[[7; 32]]),
-            Ok(())
-        );
+        assert_eq!(ensure_no_reused_payment_outputs_in_otx(&actions), Ok(()));
     }
 
     #[test]
-    fn duplicate_payment_output_index_rejects_duplicate_indexes() {
+    fn otx_payment_reuse_check_rejects_duplicate_indexes() {
         let actions = vec![
             test_action(ScriptRole::InputLock, [7; 32], fill_data(1)),
             test_action(ScriptRole::InputLock, [7; 32], fill_data(1)),
         ];
 
         assert_eq!(
-            ensure_unique_payment_output_indexes(&actions, &[[7; 32]]),
+            ensure_no_reused_payment_outputs_in_otx(&actions),
             Err(Error::InvalidCobuild)
         );
     }
 
     #[test]
-    fn duplicate_payment_output_index_rejects_mixed_type_lock_duplicate() {
+    fn otx_payment_reuse_check_rejects_mixed_type_lock_duplicate() {
         let actions = vec![
             test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
             test_action(ScriptRole::InputLock, [8; 32], fill_data(1)),
         ];
 
         assert_eq!(
-            ensure_unique_payment_output_indexes(&actions, &[[7; 32], [8; 32]]),
+            ensure_no_reused_payment_outputs_in_otx(&actions),
             Err(Error::InvalidCobuild)
         );
     }
 
     #[test]
-    fn limit_order_target_hashes_rejects_malformed_tag_two_in_selected_role() {
+    fn collect_limit_order_fill_actions_rejects_malformed_tag_two_in_selected_role() {
         let mut malformed_fill = fill_data(1);
         malformed_fill.pop();
         let actions = vec![test_action(ScriptRole::InputType, [8; 32], malformed_fill)];
 
         assert_eq!(
-            limit_order_target_hashes(&actions, [7; 32]),
+            collect_limit_order_fill_actions(&actions).map(|actions| actions.len()),
             Err(Error::InvalidActionData)
         );
     }
 
     #[test]
-    fn limit_order_target_hashes_ignores_unrelated_non_fill_actions() {
+    fn collect_limit_order_fill_actions_ignores_unrelated_non_fill_actions() {
         let actions = vec![test_action(ScriptRole::InputType, [8; 32], vec![1, 2, 3])];
 
         assert_eq!(
-            limit_order_target_hashes(&actions, [7; 32]),
-            Ok(vec![[7; 32]])
+            collect_limit_order_fill_actions(&actions).map(|actions| actions.len()),
+            Ok(0)
         );
     }
 
