@@ -1,11 +1,14 @@
-use ckb_std::ckb_constants::Source;
+use ckb_std::{
+    ckb_constants::Source,
+    high_level::{QueryIter, load_cell_data},
+};
 use cobuild_core::{engine::CobuildContext, plan::TypeValidationPlan, reader::cursor_bytes};
 
 use crate::{
     error::Error,
     types::{
-        CreateOrderAction, LimitOrderAction, parse_limit_order_action, validate_create,
-        validate_fill,
+        CreateOrderAction, LimitOrderAction, parse_limit_order_action, parse_order_state,
+        validate_create, validate_fill,
     },
 };
 
@@ -14,7 +17,7 @@ pub fn validate_create_order(
     plan: &TypeValidationPlan,
 ) -> Result<(), Error> {
     crate::entry::validate_order_type_id()?;
-    let order = crate::entry::single_group_order(Source::GroupOutput)?;
+    let order = single_group_order(Source::GroupOutput)?;
     let action = single_create_action(plan)?;
     validate_create(&order, &action)?;
     crate::settlement::ensure_create_nft_proxy_output(
@@ -27,7 +30,7 @@ pub fn validate_fill_order(
     context: &CobuildContext,
     plan: &TypeValidationPlan,
 ) -> Result<(), Error> {
-    let order = crate::entry::single_group_order(Source::GroupInput)?;
+    let order = single_group_order(Source::GroupInput)?;
     let fill = crate::otx::load_type_otx_fill(context, plan)?;
     let LimitOrderAction::Fill(action) = parse_limit_order_action(&fill.action_data)? else {
         return Err(Error::UnsupportedAction);
@@ -50,6 +53,18 @@ fn single_create_action(plan: &TypeValidationPlan) -> Result<CreateOrderAction, 
         return Err(Error::UnsupportedAction);
     };
     Ok(action)
+}
+
+fn single_group_order(source: Source) -> Result<crate::types::OrderState, Error> {
+    let mut cells = QueryIter::new(load_cell_data, source);
+    let Some(data) = cells.next() else {
+        return Err(Error::InvalidOrderData);
+    };
+    if cells.next().is_some() {
+        return Err(Error::InvalidOrderData);
+    }
+
+    parse_order_state(&data)
 }
 
 #[cfg(test)]

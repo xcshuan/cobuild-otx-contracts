@@ -9,7 +9,7 @@ use ckb_std::{
 };
 use cobuild_core::{context::CurrentScript, engine::CobuildContext};
 
-use crate::{error::Error, types::parse_order_state};
+use crate::error::Error;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OrderMode {
@@ -37,18 +37,6 @@ pub fn main() -> Result<(), Error> {
         OrderMode::Create => crate::validation::validate_create_order(current_type_hash, &plan),
         OrderMode::Fill => crate::validation::validate_fill_order(&context, &plan),
     }
-}
-
-pub(crate) fn single_group_order(source: Source) -> Result<crate::types::OrderState, Error> {
-    let mut cells = QueryIter::new(load_cell_data, source);
-    let Some(data) = cells.next() else {
-        return Err(Error::InvalidOrderData);
-    };
-    if cells.next().is_some() {
-        return Err(Error::InvalidOrderData);
-    }
-
-    parse_order_state(&data)
 }
 
 #[cfg(feature = "type-id")]
