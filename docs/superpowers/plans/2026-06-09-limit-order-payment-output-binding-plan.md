@@ -1290,7 +1290,7 @@ Green: `cargo test -p limit-order-lock --offline` -> PASS: 24 unit tests passed,
 Green: `cargo test -p tests --test limit_order_type --offline` -> PASS: 25 integration tests passed, 0 failed.
 Green: `cargo test -p tests --test limit_order_lock --offline` -> PASS: 22 integration tests passed, 0 failed, including `limit_order_mixed_type_and_lock_reject_duplicate_payment_output`.
 Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 7 owned files, with mixed InputType/InputLock duplicate coverage, malformed tag-2 fail-closed unit coverage, and non-tag-2 ignore coverage.
-Commit: pending `test: cover mixed limit order payment reuse`.
+Commit: `941ccb2` `test: cover mixed limit order payment reuse`.
 
 - [ ] **Step 1: Write failing mixed duplicate test**
 
