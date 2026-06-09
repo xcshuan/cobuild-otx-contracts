@@ -52,6 +52,20 @@ fn limit_order_type_fixture_contract_lives_under_tests() {
 }
 
 #[test]
+fn test_contract_hash_type_builders_do_not_hardcode_raw_bytes() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let contract_sources = joined_rust_source_text(&[
+        &workspace_root.join("tests/contracts/limit-order-type/src"),
+        &workspace_root.join("tests/contracts/limit-order-lock/src"),
+    ]);
+
+    assert!(
+        !contract_sources.contains(".hash_type(ckb_std::ckb_types::packed::Byte::new("),
+        "test contracts must use ScriptHashType variants instead of raw hash_type bytes"
+    );
+}
+
+#[test]
 fn cobuild_otx_lock_uses_ckb_contract_template_scaffold() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let contract_dir = workspace_root.join("contracts/cobuild-otx-lock");

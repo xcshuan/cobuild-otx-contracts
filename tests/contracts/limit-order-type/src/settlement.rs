@@ -1,6 +1,6 @@
 use ckb_std::{
     ckb_constants::Source,
-    ckb_types::{bytes::Bytes, packed::Script, prelude::*},
+    ckb_types::{bytes::Bytes, core::ScriptHashType, packed::Script, prelude::*},
     high_level::{QueryIter, load_cell_data, load_cell_lock_hash, load_cell_type_hash},
 };
 use cobuild_core::plan::OtxMessageLayout;
@@ -43,7 +43,7 @@ pub fn ensure_nft_delivered_to_buyer(
 fn expected_proxy_lock_hash(order_type_hash: [u8; 32]) -> [u8; 32] {
     let script = Script::new_builder()
         .code_hash(crate::generated_proxy_lock::INPUT_TYPE_PROXY_LOCK_CODE_HASH.pack())
-        .hash_type(ckb_std::ckb_types::packed::Byte::new(4))
+        .hash_type(ScriptHashType::Data2)
         .args(Bytes::copy_from_slice(&order_type_hash).pack())
         .build();
     script.calc_script_hash().unpack()

@@ -1399,7 +1399,7 @@ pub mod fixtures {
             .build();
         let lock = Script::new_builder()
             .code_hash(context.calc_data_hash(&contract_bin.into()))
-            .hash_type(ScriptHashType::Data2.into())
+            .hash_type(ScriptHashType::Data2)
             .args(args.pack())
             .build();
         let input_out_point = context.create_cell(
@@ -1427,7 +1427,7 @@ pub mod fixtures {
         let out_point = context.deploy_cell(ALWAYS_SUCCESS.to_vec().into());
         Script::new_builder()
             .code_hash(context.calc_data_hash(&ALWAYS_SUCCESS.to_vec().into()))
-            .hash_type(ScriptHashType::Data.into())
+            .hash_type(ScriptHashType::Data)
             .args(Bytes::new().pack())
             .build()
     }
