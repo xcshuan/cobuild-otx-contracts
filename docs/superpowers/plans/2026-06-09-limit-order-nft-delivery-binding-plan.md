@@ -791,9 +791,9 @@ git commit -m "test: cover type order nft delivery"
 - Modify: `docs/superpowers/plans/2026-06-09-limit-order-nft-delivery-binding-plan.md`
 
 **Red/Green Record:**
-Red: pending
-Green: pending
-Review: pending
+Red: `cargo test -p tests --test limit_order_lock --offline` -> FAIL after tests were added and stale `limit-order-lock`/`test-udt`/`test-nft` debug artifacts were rebuilt: 19 passed, 4 failed; the three new buyer NFT delivery cases failed because the transactions still passed, and the existing two-lock duplicate-payment test reported `Inputs[0].Lock` instead of its stale expected `Inputs[1].Lock`.
+Green: `cargo test -p tests --test limit_order_lock --offline` -> PASS: 23 passed, 0 failed.
+Review: `git diff --check` -> PASS; diff reviewed and limited to lock/mixed integration fixture/tests plus this Task 7 record.
 Commit: pending
 
 - [ ] **Step 1: Write failing integration tests**

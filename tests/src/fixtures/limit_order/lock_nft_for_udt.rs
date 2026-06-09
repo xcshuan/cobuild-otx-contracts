@@ -30,6 +30,9 @@ pub enum LimitOrderLockFillCase {
     PaymentOutputWrongUdt,
     PaymentOutputWrongOwner,
     PaymentOutputInsufficient,
+    MissingBuyerNftOutput,
+    BuyerNftWrongLock,
+    BuyerNftWrongType,
     TwoLockOrdersReusePaymentOutput,
     TwoLockOrdersUseDistinctPaymentOutputs,
     UnknownActionTag,
@@ -188,6 +191,7 @@ pub fn limit_order_lock_nft_for_udt_case_with(
     let issuer_lock_hash = script_hash(&always_success.script);
     let wrong_owner = deploy_wrong_owner_lock(&mut fixture);
     let wrong_owner_lock = wrong_owner.script.clone();
+    let wrong_buyer_lock = deploy_wrong_owner_lock(&mut fixture).script;
     let nft = deploy_test_nft(&mut fixture, NFT_TYPE_ARGS);
     let wrong_nft = deploy_test_nft(&mut fixture, [6; 32]);
     let udt = deploy_test_udt_with_owner(&mut fixture, issuer_lock_hash);
@@ -261,10 +265,24 @@ pub fn limit_order_lock_nft_for_udt_case_with(
         ),
         udt_amount_data(30),
     );
-    let nft_output = TestCellOutput::new(
-        typed_output(buyer_lock.clone(), input_nft.script.clone(), 90_000_000_000),
-        nft_payload.clone(),
-    );
+    let nft_output = match case {
+        LimitOrderLockFillCase::MissingBuyerNftOutput => TestCellOutput::new(
+            normal_output(always_success.script.clone(), 90_000_000_000),
+            Vec::new(),
+        ),
+        LimitOrderLockFillCase::BuyerNftWrongLock => TestCellOutput::new(
+            typed_output(wrong_buyer_lock, nft.script.clone(), 90_000_000_000),
+            nft_payload.clone(),
+        ),
+        LimitOrderLockFillCase::BuyerNftWrongType => TestCellOutput::new(
+            typed_output(buyer_lock.clone(), wrong_nft.script.clone(), 90_000_000_000),
+            nft_payload.clone(),
+        ),
+        _ => TestCellOutput::new(
+            typed_output(buyer_lock.clone(), input_nft.script.clone(), 90_000_000_000),
+            nft_payload.clone(),
+        ),
+    };
     let udt_payment_output = TestCellOutput::new(
         typed_output(payment_lock, payment_udt.script.clone(), 90_000_000_000),
         udt_amount_data(payment_amount),

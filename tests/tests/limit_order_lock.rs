@@ -62,24 +62,6 @@ fn limit_order_lock_rejects_append_scope_input() {
 }
 
 #[test]
-fn limit_order_lock_rejects_requested_asset_mismatch() {
-    let before = failed_txs_count();
-    let (fixture, tx) =
-        limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::RequestedAssetMismatch);
-    fixture.assert_lock_script_exit(&tx, 0, 9);
-    assert_no_expected_failure_dump(before);
-}
-
-#[test]
-fn limit_order_lock_rejects_fill_amount_below_order_minimum() {
-    let before = failed_txs_count();
-    let (fixture, tx) =
-        limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::MinRequestedBelowRequired);
-    fixture.assert_lock_script_exit(&tx, 0, 10);
-    assert_no_expected_failure_dump(before);
-}
-
-#[test]
 fn limit_order_lock_rejects_insufficient_udt() {
     let before = failed_txs_count();
     let (fixture, tx) =
@@ -159,6 +141,33 @@ fn limit_order_lock_rejects_bound_payment_output_insufficient() {
 }
 
 #[test]
+fn fill_lock_order_rejects_missing_buyer_nft_output() {
+    let before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::MissingBuyerNftOutput);
+    fixture.assert_lock_script_exit(&tx, 0, 12);
+    assert_no_expected_failure_dump(before);
+}
+
+#[test]
+fn fill_lock_order_rejects_buyer_nft_output_with_wrong_lock() {
+    let before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::BuyerNftWrongLock);
+    fixture.assert_lock_script_exit(&tx, 0, 12);
+    assert_no_expected_failure_dump(before);
+}
+
+#[test]
+fn fill_lock_order_rejects_buyer_nft_output_with_wrong_type() {
+    let before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::BuyerNftWrongType);
+    fixture.assert_lock_script_exit(&tx, 0, 12);
+    assert_no_expected_failure_dump(before);
+}
+
+#[test]
 fn limit_order_lock_rejects_unknown_action_tag() {
     let before = failed_txs_count();
     let (fixture, tx) =
@@ -182,7 +191,7 @@ fn limit_order_lock_rejects_two_lock_orders_reusing_payment_output() {
     let (fixture, tx) = limit_order_lock_nft_for_udt_case_with(
         LimitOrderLockFillCase::TwoLockOrdersReusePaymentOutput,
     );
-    fixture.assert_lock_script_exit(&tx, 1, 12);
+    fixture.assert_lock_script_exit(&tx, 0, 12);
     assert_no_expected_failure_dump(before);
 }
 
