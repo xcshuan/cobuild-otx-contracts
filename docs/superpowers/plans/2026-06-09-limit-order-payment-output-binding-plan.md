@@ -689,7 +689,7 @@ Green: `cargo test -p limit-order-type --offline` -> PASS: 32 unit tests passed,
 Green: `make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline` -> PASS: limit-order-type debug contract built and copied to build directory.
 Green: `cargo test -p tests --test limit_order_type --offline` -> PASS: 23 integration tests passed, 0 failed.
 Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 4 owned files after restoring the generated proxy-lock hash build artifact. Follow-up review removed legacy settlement-cell acceptance so Fill now requires the selected payment output to be a typed UDT output.
-Commit: pending `fix: bind type orders to payment output`.
+Commit: `314d32e` `fix: bind type orders to payment output`; review fix `70aaa95` `fix: require udt payment output for type orders`.
 
 - [ ] **Step 1: Write failing integration and range tests**
 
