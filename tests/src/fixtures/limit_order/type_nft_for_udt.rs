@@ -39,6 +39,9 @@ pub enum FillActionCase {
     PaymentOutputWrongUdt,
     PaymentOutputWrongOwner,
     PaymentOutputInsufficient,
+    MissingBuyerNftOutput,
+    BuyerNftWrongLock,
+    BuyerNftWrongType,
     TwoTypeOrdersReusePaymentOutput,
     TwoTypeOrdersUseDistinctPaymentOutputs,
 }
@@ -251,8 +254,10 @@ fn limit_order_nft_for_udt_scenario(
     let buyer_lock = always_success.script.clone();
     let issuer_lock_hash = script_hash(&always_success.script);
     let wrong_owner_lock = deploy_wrong_owner_lock(&mut fixture).script;
+    let wrong_buyer_lock = deploy_wrong_owner_lock(&mut fixture).script;
     let proxy_lock = deploy_input_type_proxy_lock(&mut fixture, limit_order.script_hash);
     let nft = deploy_test_nft(&mut fixture, NFT_TYPE_ARGS);
+    let wrong_nft = deploy_test_nft(&mut fixture, [0x66; 32]);
     let udt = deploy_test_udt_with_owner(&mut fixture, issuer_lock_hash);
     let wrong_udt = deploy_test_udt_with_owner(&mut fixture, [9; 32]);
     let payment_udt = if scenario.payment_case == NftForUdtPaymentCase::WrongUdt
@@ -324,10 +329,24 @@ fn limit_order_nft_for_udt_scenario(
         ),
         udt_amount_data(30),
     );
-    let nft_output = TestCellOutput::new(
-        typed_output(buyer_lock.clone(), nft.script.clone(), 90_000_000_000),
-        nft_payload,
-    );
+    let nft_output = match scenario.action_case {
+        Some(FillActionCase::MissingBuyerNftOutput) => TestCellOutput::new(
+            normal_output(always_success.script.clone(), 90_000_000_000),
+            Vec::new(),
+        ),
+        Some(FillActionCase::BuyerNftWrongLock) => TestCellOutput::new(
+            typed_output(wrong_buyer_lock, nft.script.clone(), 90_000_000_000),
+            nft_payload,
+        ),
+        Some(FillActionCase::BuyerNftWrongType) => TestCellOutput::new(
+            typed_output(buyer_lock.clone(), wrong_nft.script.clone(), 90_000_000_000),
+            nft_payload,
+        ),
+        _ => TestCellOutput::new(
+            typed_output(buyer_lock.clone(), nft.script.clone(), 90_000_000_000),
+            nft_payload,
+        ),
+    };
     let udt_payment_output = TestCellOutput::new(
         typed_output(payment_lock, payment_udt.script.clone(), 90_000_000_000),
         udt_amount_data(payment_amount),
@@ -393,6 +412,7 @@ fn limit_order_nft_for_udt_scenario(
         .cell_dep(cell_dep_for_script(&always_success))
         .cell_dep(cell_dep_for_script(&proxy_lock))
         .cell_dep(cell_dep_for_script(&nft))
+        .cell_dep(cell_dep_for_script(&wrong_nft))
         .cell_dep(cell_dep_for_script(&udt))
         .cell_dep(cell_dep_for_script(&wrong_udt))
         .base_input(order_input)

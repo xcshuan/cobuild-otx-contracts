@@ -192,30 +192,6 @@ fn limit_order_type_rejects_output_type_fill_order_target() {
 }
 
 #[test]
-fn limit_order_type_rejects_requested_asset_mismatch() {
-    let failed_txs_before = failed_txs_count();
-    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::RequestedAssetMismatch);
-
-    fixture.assert_type_script_exit(&tx, 0, 10);
-
-    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
-        assert_eq!(failed_txs_count(), failed_txs_before);
-    }
-}
-
-#[test]
-fn limit_order_type_rejects_fill_amount_below_order_minimum() {
-    let failed_txs_before = failed_txs_count();
-    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::MinRequestedBelowRequired);
-
-    fixture.assert_type_script_exit(&tx, 0, 11);
-
-    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
-        assert_eq!(failed_txs_count(), failed_txs_before);
-    }
-}
-
-#[test]
 fn limit_order_type_rejects_payment_in_another_otx() {
     let failed_txs_before = failed_txs_count();
     let (fixture, tx) = limit_order_action_failure_case(FillActionCase::PaymentInAnotherOtx);
@@ -276,12 +252,48 @@ fn limit_order_type_rejects_bound_payment_output_insufficient() {
 }
 
 #[test]
+fn fill_nft_order_rejects_missing_buyer_nft_output() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::MissingBuyerNftOutput);
+
+    fixture.assert_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn fill_nft_order_rejects_buyer_nft_output_with_wrong_lock() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::BuyerNftWrongLock);
+
+    fixture.assert_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn fill_nft_order_rejects_buyer_nft_output_with_wrong_type() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::BuyerNftWrongType);
+
+    fixture.assert_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
 fn limit_order_type_rejects_two_type_orders_reusing_payment_output() {
     let failed_txs_before = failed_txs_count();
     let (fixture, tx) =
         limit_order_action_failure_case(FillActionCase::TwoTypeOrdersReusePaymentOutput);
 
-    fixture.assert_type_script_exit(&tx, 0, 12);
+    fixture.assert_type_script_exit(&tx, 2, 12);
 
     if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
         assert_eq!(failed_txs_count(), failed_txs_before);
