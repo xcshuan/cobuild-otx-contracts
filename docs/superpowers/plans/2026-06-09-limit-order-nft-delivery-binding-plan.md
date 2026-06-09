@@ -794,7 +794,7 @@ git commit -m "test: cover type order nft delivery"
 Red: `cargo test -p tests --test limit_order_lock --offline` -> FAIL after tests were added and stale `limit-order-lock`/`test-udt`/`test-nft` debug artifacts were rebuilt: 19 passed, 4 failed; the three new buyer NFT delivery cases failed because the transactions still passed, and the existing two-lock duplicate-payment test reported `Inputs[0].Lock` instead of its stale expected `Inputs[1].Lock`.
 Green: `cargo test -p tests --test limit_order_lock --offline` -> PASS: 23 passed, 0 failed.
 Review: `git diff --check` -> PASS; diff reviewed and limited to lock/mixed integration fixture/tests plus this Task 7 record.
-Commit: pending
+Commit: `123ddd1` test: cover lock order nft delivery
 
 - [ ] **Step 1: Write failing integration tests**
 
