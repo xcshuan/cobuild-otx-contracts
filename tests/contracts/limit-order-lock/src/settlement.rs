@@ -13,7 +13,7 @@ pub fn load_bound_payment(
     layout: OtxMessageLayout,
     payment_output_index: u32,
 ) -> Result<UdtPayment, Error> {
-    let index = crate::otx::resolve_otx_output_index(layout, payment_output_index as usize)?;
+    let index = layout.resolve_output_index(payment_output_index as usize)?;
     load_udt_payment_output(index)
 }
 
@@ -47,17 +47,11 @@ fn has_nft_delivery_output(
     buyer_lock_hash: [u8; 32],
     offered_nft_type_hash: [u8; 32],
 ) -> Result<bool, Error> {
-    for range in [layout.base_outputs, layout.append_outputs] {
-        let end = range
-            .start
-            .checked_add(range.count)
-            .ok_or(Error::InvalidCobuild)?;
-        for index in range.start..end {
-            let lock_hash = load_cell_lock_hash(index, Source::Output)?;
-            let type_hash = load_cell_type_hash(index, Source::Output)?;
-            if nft_delivery_matches(lock_hash, type_hash, buyer_lock_hash, offered_nft_type_hash) {
-                return Ok(true);
-            }
+    for index in layout.output_indexes() {
+        let lock_hash = load_cell_lock_hash(index, Source::Output)?;
+        let type_hash = load_cell_type_hash(index, Source::Output)?;
+        if nft_delivery_matches(lock_hash, type_hash, buyer_lock_hash, offered_nft_type_hash) {
+            return Ok(true);
         }
     }
     Ok(false)

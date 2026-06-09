@@ -1,6 +1,10 @@
 use alloc::vec::Vec;
 
-use crate::{layout::Range, view::ActionView};
+use crate::{
+    error::CoreError,
+    layout::{IndexRange, Range},
+    view::ActionView,
+};
 
 #[derive(Clone)]
 pub struct LockValidationPlan {
@@ -79,6 +83,110 @@ pub struct OtxMessageLayout {
     pub append_cell_deps: Range,
     pub base_header_deps: Range,
     pub append_header_deps: Range,
+}
+
+impl OtxMessageLayout {
+    pub fn inputs(&self) -> Range {
+        merge_adjacent_ranges(self.base_inputs, self.append_inputs)
+    }
+
+    pub fn input_indexes(&self) -> IndexRange {
+        self.inputs().indexes()
+    }
+
+    pub fn outputs(&self) -> Range {
+        merge_adjacent_ranges(self.base_outputs, self.append_outputs)
+    }
+
+    pub fn output_indexes(&self) -> IndexRange {
+        self.outputs().indexes()
+    }
+
+    pub fn cell_deps(&self) -> Range {
+        merge_adjacent_ranges(self.base_cell_deps, self.append_cell_deps)
+    }
+
+    pub fn cell_dep_indexes(&self) -> IndexRange {
+        self.cell_deps().indexes()
+    }
+
+    pub fn header_deps(&self) -> Range {
+        merge_adjacent_ranges(self.base_header_deps, self.append_header_deps)
+    }
+
+    pub fn header_dep_indexes(&self) -> IndexRange {
+        self.header_deps().indexes()
+    }
+
+    pub fn base_inputs(&self) -> Range {
+        self.base_inputs
+    }
+
+    pub fn append_inputs(&self) -> Range {
+        self.append_inputs
+    }
+
+    pub fn base_outputs(&self) -> Range {
+        self.base_outputs
+    }
+
+    pub fn append_outputs(&self) -> Range {
+        self.append_outputs
+    }
+
+    pub fn base_cell_deps(&self) -> Range {
+        self.base_cell_deps
+    }
+
+    pub fn append_cell_deps(&self) -> Range {
+        self.append_cell_deps
+    }
+
+    pub fn base_header_deps(&self) -> Range {
+        self.base_header_deps
+    }
+
+    pub fn append_header_deps(&self) -> Range {
+        self.append_header_deps
+    }
+
+    pub fn resolve_output_index(&self, relative_index: usize) -> Result<usize, CoreError> {
+        resolve_relative_index(self.base_outputs, self.append_outputs, relative_index)
+    }
+}
+
+fn merge_adjacent_ranges(base: Range, append: Range) -> Range {
+    debug_assert_eq!(base.start.checked_add(base.count), Some(append.start));
+    Range {
+        start: base.start,
+        count: base
+            .count
+            .checked_add(append.count)
+            .expect("valid cobuild layout range"),
+    }
+}
+
+fn resolve_relative_index(
+    base: Range,
+    append: Range,
+    relative_index: usize,
+) -> Result<usize, CoreError> {
+    if relative_index < base.count {
+        return base
+            .start
+            .checked_add(relative_index)
+            .ok_or(CoreError::InvalidOtxLayout);
+    }
+
+    let append_index = relative_index - base.count;
+    if append_index < append.count {
+        return append
+            .start
+            .checked_add(append_index)
+            .ok_or(CoreError::InvalidOtxLayout);
+    }
+
+    Err(CoreError::InvalidOtxLayout)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

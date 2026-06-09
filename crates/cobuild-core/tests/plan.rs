@@ -1,5 +1,6 @@
 use cobuild_core::{
-    layout::Range,
+    error::CoreError,
+    layout::{IndexRange, Range},
     plan::{
         ActionOrigin, LockValidationPlan, OtxMessageLayout, OtxTypeRelation, RelatedAction,
         SignatureOrigin, SigningRequirement, TypeActionOtxScope, TypeRelatedAction,
@@ -105,6 +106,90 @@ fn type_validation_plan_carries_type_specific_otx_relation() {
         }
         ActionOrigin::TxLevel { .. } => panic!("expected otx origin"),
     }
+}
+
+#[test]
+fn otx_message_layout_exposes_combined_ranges_and_relative_indexes() {
+    let layout = OtxMessageLayout {
+        base_inputs: Range { start: 2, count: 2 },
+        append_inputs: Range { start: 4, count: 1 },
+        base_outputs: Range {
+            start: 10,
+            count: 2,
+        },
+        append_outputs: Range {
+            start: 12,
+            count: 2,
+        },
+        base_cell_deps: Range {
+            start: 20,
+            count: 1,
+        },
+        append_cell_deps: Range {
+            start: 21,
+            count: 2,
+        },
+        base_header_deps: Range {
+            start: 30,
+            count: 0,
+        },
+        append_header_deps: Range {
+            start: 30,
+            count: 1,
+        },
+    };
+
+    assert_eq!(layout.inputs(), Range { start: 2, count: 3 });
+    assert_eq!(layout.input_indexes(), IndexRange { start: 2, end: 5 });
+    assert_eq!(
+        layout.outputs(),
+        Range {
+            start: 10,
+            count: 4
+        }
+    );
+    assert_eq!(layout.output_indexes(), IndexRange { start: 10, end: 14 });
+    assert_eq!(
+        layout.output_indexes().into_iter().collect::<Vec<_>>(),
+        vec![10, 11, 12, 13]
+    );
+    assert_eq!(
+        layout.cell_deps(),
+        Range {
+            start: 20,
+            count: 3
+        }
+    );
+    assert_eq!(layout.cell_dep_indexes(), IndexRange { start: 20, end: 23 });
+    assert_eq!(
+        layout.header_deps(),
+        Range {
+            start: 30,
+            count: 1
+        }
+    );
+    assert_eq!(
+        layout.header_dep_indexes(),
+        IndexRange { start: 30, end: 31 }
+    );
+
+    assert_eq!(layout.base_inputs(), Range { start: 2, count: 2 });
+    assert_eq!(
+        layout.append_outputs(),
+        Range {
+            start: 12,
+            count: 2
+        }
+    );
+
+    assert_eq!(layout.resolve_output_index(0), Ok(10));
+    assert_eq!(layout.resolve_output_index(1), Ok(11));
+    assert_eq!(layout.resolve_output_index(2), Ok(12));
+    assert_eq!(layout.resolve_output_index(3), Ok(13));
+    assert_eq!(
+        layout.resolve_output_index(4),
+        Err(CoreError::InvalidOtxLayout)
+    );
 }
 
 #[test]

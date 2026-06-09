@@ -12,6 +12,36 @@ pub struct Range {
     pub count: usize,
 }
 
+impl Range {
+    pub fn end(&self) -> usize {
+        self.start
+            .checked_add(self.count)
+            .expect("valid cobuild layout range")
+    }
+
+    pub fn indexes(&self) -> IndexRange {
+        IndexRange {
+            start: self.start,
+            end: self.end(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct IndexRange {
+    pub start: usize,
+    pub end: usize,
+}
+
+impl IntoIterator for IndexRange {
+    type Item = usize;
+    type IntoIter = core::ops::Range<usize>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.start..self.end
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OtxLayout {
     pub witness_index: usize,
