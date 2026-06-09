@@ -11,5 +11,6 @@ extern crate alloc;
 pub mod entry;
 pub mod error;
 pub mod generated_proxy_lock;
+pub mod otx;
 pub mod settlement;
 pub mod types;
