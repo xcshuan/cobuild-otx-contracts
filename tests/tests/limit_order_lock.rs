@@ -1,6 +1,6 @@
 use tests::fixtures::limit_order::{
     LimitOrderLockFillCase, failed_txs_count, limit_order_lock_nft_for_udt_case,
-    limit_order_lock_nft_for_udt_case_with,
+    limit_order_lock_nft_for_udt_case_with, mixed_limit_order_type_lock_duplicate_payment_case,
 };
 
 fn assert_no_expected_failure_dump(before: usize) {
@@ -192,4 +192,12 @@ fn limit_order_lock_accepts_two_lock_orders_with_distinct_payment_outputs() {
         LimitOrderLockFillCase::TwoLockOrdersUseDistinctPaymentOutputs,
     );
     fixture.assert_pass(&tx);
+}
+
+#[test]
+fn limit_order_mixed_type_and_lock_reject_duplicate_payment_output() {
+    let before = failed_txs_count();
+    let (fixture, tx) = mixed_limit_order_type_lock_duplicate_payment_case();
+    fixture.assert_lock_script_exit(&tx, 2, 12);
+    assert_no_expected_failure_dump(before);
 }

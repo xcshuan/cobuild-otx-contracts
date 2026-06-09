@@ -1,8 +1,8 @@
+use alloc::vec::Vec;
 #[cfg(not(feature = "type-id"))]
 use ckb_std::high_level::load_script;
 #[cfg(feature = "type-id")]
 use ckb_std::type_id::check_type_id;
-use alloc::vec::Vec;
 use ckb_std::{
     ckb_constants::Source,
     ckb_types::{bytes::Bytes, packed::Script, prelude::*},
@@ -27,6 +27,8 @@ use crate::{
         parse_order_state, parse_udt_payment, validate_create, validate_fill,
     },
 };
+
+const FILL_ORDER_DATA_LEN: usize = 45;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OrderMode {
@@ -56,10 +58,7 @@ pub fn main() -> Result<(), Error> {
     }
 }
 
-fn validate_fill_entry(
-    context: &CobuildContext,
-    plan: &TypeValidationPlan,
-) -> Result<(), Error> {
+fn validate_fill_entry(context: &CobuildContext, plan: &TypeValidationPlan) -> Result<(), Error> {
     let order = single_group_order(Source::GroupInput)?;
     if plan.related_actions.len() != 1 {
         return Err(Error::InvalidCobuild);
@@ -70,8 +69,8 @@ fn validate_fill_entry(
         related.otx_type_scope.in_otx_scope(),
     )?;
     let actions = context.otx_actions(otx_index)?;
-    let limit_order_targets = limit_order_type_targets(&actions)?;
-    ensure_unique_payment_output_indexes(&actions, &limit_order_targets)?;
+    let targets = limit_order_target_hashes(&actions, related.action.action.script_hash)?;
+    ensure_unique_payment_output_indexes(&actions, &targets)?;
     let action_data = cursor_bytes(&related.action.action.data)?;
     let LimitOrderAction::Fill(action) = parse_limit_order_action(&action_data)? else {
         return Err(Error::UnsupportedAction);
@@ -219,7 +218,7 @@ fn ensure_unique_payment_output_indexes(
 ) -> Result<(), Error> {
     let mut indexes = Vec::<u32>::new();
     for action in actions {
-        if !matches!(action.script_role, ScriptRole::InputType | ScriptRole::OutputType) {
+        if !is_limit_order_role(action.script_role) {
             continue;
         }
         if !limit_order_targets.contains(&action.script_hash) {
@@ -240,15 +239,22 @@ fn ensure_unique_payment_output_indexes(
     Ok(())
 }
 
-fn limit_order_type_targets(actions: &[ActionView]) -> Result<Vec<[u8; 32]>, Error> {
+fn limit_order_target_hashes(
+    actions: &[ActionView],
+    current_target: [u8; 32],
+) -> Result<Vec<[u8; 32]>, Error> {
     let mut targets = Vec::<[u8; 32]>::new();
+    targets.push(current_target);
     for action in actions {
-        if !matches!(action.script_role, ScriptRole::InputType | ScriptRole::OutputType) {
+        if !is_limit_order_role(action.script_role) {
             continue;
         }
         let data = cursor_bytes(&action.data)?;
         if data.first().copied() != Some(crate::types::FILL_ORDER_TAG) {
             continue;
+        }
+        if data.len() != FILL_ORDER_DATA_LEN {
+            return Err(Error::InvalidActionData);
         }
         let LimitOrderAction::Fill(_) = parse_limit_order_action(&data)? else {
             return Err(Error::InvalidCobuild);
@@ -258,6 +264,13 @@ fn limit_order_type_targets(actions: &[ActionView]) -> Result<Vec<[u8; 32]>, Err
         }
     }
     Ok(targets)
+}
+
+fn is_limit_order_role(role: ScriptRole) -> bool {
+    matches!(
+        role,
+        ScriptRole::InputType | ScriptRole::OutputType | ScriptRole::InputLock
+    )
 }
 
 #[cfg(test)]
@@ -303,8 +316,7 @@ mod tests {
         };
 
         assert_eq!(
-            otx_fill_layout(&origin, Some(relation(true)))
-                .map(|(_, layout)| layout.append_outputs),
+            otx_fill_layout(&origin, Some(relation(true))).map(|(_, layout)| layout.append_outputs),
             Ok(Range { start: 1, count: 1 })
         );
     }
@@ -435,6 +447,41 @@ mod tests {
         );
     }
 
+    #[test]
+    fn duplicate_payment_output_index_rejects_mixed_type_lock_duplicate() {
+        let actions = vec![
+            test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
+            test_action(ScriptRole::InputLock, [8; 32], fill_data(1)),
+        ];
+
+        assert_eq!(
+            ensure_unique_payment_output_indexes(&actions, &[[7; 32], [8; 32]]),
+            Err(Error::InvalidCobuild)
+        );
+    }
+
+    #[test]
+    fn limit_order_target_hashes_rejects_malformed_tag_two_in_selected_role() {
+        let mut malformed_fill = fill_data(1);
+        malformed_fill.pop();
+        let actions = vec![test_action(ScriptRole::InputLock, [8; 32], malformed_fill)];
+
+        assert_eq!(
+            limit_order_target_hashes(&actions, [7; 32]),
+            Err(Error::InvalidActionData)
+        );
+    }
+
+    #[test]
+    fn limit_order_target_hashes_ignores_unrelated_non_fill_actions() {
+        let actions = vec![test_action(ScriptRole::InputLock, [8; 32], vec![1, 2, 3])];
+
+        assert_eq!(
+            limit_order_target_hashes(&actions, [7; 32]),
+            Ok(vec![[7; 32]])
+        );
+    }
+
     fn fill_data(payment_output_index: u32) -> Vec<u8> {
         let mut data = Vec::new();
         data.push(crate::types::FILL_ORDER_TAG);
@@ -444,11 +491,7 @@ mod tests {
         data
     }
 
-    fn test_action(
-        script_role: ScriptRole,
-        script_hash: [u8; 32],
-        data: Vec<u8>,
-    ) -> ActionView {
+    fn test_action(script_role: ScriptRole, script_hash: [u8; 32], data: Vec<u8>) -> ActionView {
         ActionView {
             index: 0,
             script_info_hash: [0; 32],

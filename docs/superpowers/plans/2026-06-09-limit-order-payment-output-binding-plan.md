@@ -1282,7 +1282,15 @@ git commit -m "fix: reject duplicate limit order payments"
 - Modify: `tests/tests/limit_order_lock.rs`
 - Modify: `docs/superpowers/plans/2026-06-09-limit-order-payment-output-binding-plan.md`
 
-**Red/Green Record:** Execution agent must replace this line with exact Red, Green, Review, and Commit results.
+**Red/Green Record:**
+Red: `cargo test -p tests --test limit_order_lock --offline mixed_type_and_lock` -> FAIL as expected: `limit_order_mixed_type_and_lock_reject_duplicate_payment_output` panicked at the unimplemented mixed duplicate payment fixture stub.
+Green: rebuilt debug contracts with `make -e -C tests/contracts/limit-order-type build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug` and `make -e -C tests/contracts/limit-order-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug` -> PASS: copied current `limit-order-type` and `limit-order-lock` debug binaries into `build/debug`.
+Green: `cargo test -p limit-order-type --offline` -> PASS: 37 unit tests passed, 0 failed; main/doc tests 0 passed, 0 failed.
+Green: `cargo test -p limit-order-lock --offline` -> PASS: 24 unit tests passed, 0 failed; main/doc tests 0 passed, 0 failed.
+Green: `cargo test -p tests --test limit_order_type --offline` -> PASS: 25 integration tests passed, 0 failed.
+Green: `cargo test -p tests --test limit_order_lock --offline` -> PASS: 22 integration tests passed, 0 failed, including `limit_order_mixed_type_and_lock_reject_duplicate_payment_output`.
+Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 7 owned files, with mixed InputType/InputLock duplicate coverage, malformed tag-2 fail-closed unit coverage, and non-tag-2 ignore coverage.
+Commit: pending `test: cover mixed limit order payment reuse`.
 
 - [ ] **Step 1: Write failing mixed duplicate test**
 
