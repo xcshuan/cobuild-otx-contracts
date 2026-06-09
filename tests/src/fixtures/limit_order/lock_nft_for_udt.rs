@@ -28,6 +28,10 @@ pub enum LimitOrderLockFillCase {
     WrongOwner,
     TxLevelRemainderOnly,
     PaymentInAnotherOtx,
+    PaymentOutputOutOfRange,
+    PaymentOutputWrongUdt,
+    PaymentOutputWrongOwner,
+    PaymentOutputInsufficient,
     UnknownActionTag,
     MalformedAction,
 }
@@ -65,12 +69,18 @@ pub fn limit_order_lock_nft_for_udt_case_with(
     } else {
         nft.clone()
     };
-    let payment_udt = if case == LimitOrderLockFillCase::WrongUdt {
+    let payment_udt = if matches!(
+        case,
+        LimitOrderLockFillCase::WrongUdt | LimitOrderLockFillCase::PaymentOutputWrongUdt
+    ) {
         wrong_udt.clone()
     } else {
         udt.clone()
     };
-    let payment_lock = if case == LimitOrderLockFillCase::WrongOwner {
+    let payment_lock = if matches!(
+        case,
+        LimitOrderLockFillCase::WrongOwner | LimitOrderLockFillCase::PaymentOutputWrongOwner
+    ) {
         wrong_owner_lock
     } else {
         owner_lock.clone()
@@ -80,6 +90,7 @@ pub fn limit_order_lock_nft_for_udt_case_with(
         LimitOrderLockFillCase::InsufficientUdt
             | LimitOrderLockFillCase::TxLevelRemainderOnly
             | LimitOrderLockFillCase::PaymentInAnotherOtx
+            | LimitOrderLockFillCase::PaymentOutputInsufficient
     );
     let payment_amount = if insufficient_append_payment { 29 } else { 30 };
 
@@ -145,10 +156,17 @@ pub fn limit_order_lock_nft_for_udt_case_with(
     } else {
         None
     };
-    let remainder_payment_output = if case == LimitOrderLockFillCase::TxLevelRemainderOnly {
+    let remainder_payment_output = if matches!(
+        case,
+        LimitOrderLockFillCase::TxLevelRemainderOnly | LimitOrderLockFillCase::PaymentOutputOutOfRange
+    ) {
         Some(TestCellOutput::new(
             typed_output(owner_lock.clone(), udt.script.clone(), 90_000_000_000),
-            udt_amount_data(1),
+            udt_amount_data(if case == LimitOrderLockFillCase::PaymentOutputOutOfRange {
+                30
+            } else {
+                1
+            }),
         ))
     } else {
         None
@@ -177,10 +195,10 @@ pub fn limit_order_lock_nft_for_udt_case_with(
     } else {
         30
     };
-    let payment_output_index = if case == LimitOrderLockFillCase::PaymentInAnotherOtx {
-        2
-    } else {
-        1
+    let payment_output_index = match case {
+        LimitOrderLockFillCase::PaymentInAnotherOtx
+        | LimitOrderLockFillCase::PaymentOutputOutOfRange => 2,
+        _ => 1,
     };
     let fill_order_message = fixture
         .cobuild()

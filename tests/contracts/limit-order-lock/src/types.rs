@@ -27,31 +27,6 @@ pub struct UdtPayment {
     pub amount: u64,
 }
 
-pub trait BoundPayment {
-    fn bound_payment(self) -> Result<UdtPayment, Error>;
-}
-
-impl BoundPayment for UdtPayment {
-    fn bound_payment(self) -> Result<UdtPayment, Error> {
-        Ok(self)
-    }
-}
-
-impl BoundPayment for &[UdtPayment] {
-    fn bound_payment(self) -> Result<UdtPayment, Error> {
-        match self {
-            [payment] => Ok(*payment),
-            _ => Err(Error::InsufficientPayment),
-        }
-    }
-}
-
-impl BoundPayment for &alloc::vec::Vec<UdtPayment> {
-    fn bound_payment(self) -> Result<UdtPayment, Error> {
-        self.as_slice().bound_payment()
-    }
-}
-
 pub fn parse_order_args(data: &[u8]) -> Result<OrderArgs, Error> {
     if data.len() != ORDER_ARGS_LEN {
         return Err(Error::InvalidArgs);
@@ -96,7 +71,7 @@ pub fn parse_udt_payment(data: &[u8]) -> Result<u64, Error> {
 pub fn validate_fill(
     order: &OrderArgs,
     action: &FillOrderAction,
-    payment: impl BoundPayment,
+    payment: UdtPayment,
 ) -> Result<(), Error> {
     if action.requested_asset_id != order.requested_asset_id {
         return Err(Error::ActionMismatch);
@@ -105,7 +80,6 @@ pub fn validate_fill(
         return Err(Error::InsufficientPayment);
     }
 
-    let payment = payment.bound_payment()?;
     if payment.owner_lock_hash != order.owner_lock_hash
         || payment.asset_id != order.requested_asset_id
         || payment.amount < action.min_requested_amount

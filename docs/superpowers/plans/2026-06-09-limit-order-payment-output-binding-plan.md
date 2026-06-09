@@ -922,7 +922,14 @@ git commit -m "fix: bind type orders to payment output"
 - Modify: `tests/tests/limit_order_lock.rs`
 - Modify: `docs/superpowers/plans/2026-06-09-limit-order-payment-output-binding-plan.md`
 
-**Red/Green Record:** Execution agent must replace this line with exact Red, Green, Review, and Commit results.
+**Red/Green Record:**
+Red: `cargo test -p limit-order-lock --offline` -> FAIL as expected at compile: `output_index_in_otx_outputs` missing in `tests/contracts/limit-order-lock/src/entry.rs`.
+Red: `cargo test -p tests --test limit_order_lock --offline` -> FAIL before implementation: new/existing payment cases rejected by stale pre-rebuild lock contract as `InvalidActionData` code 6, confirming integration suite was not green before entry binding.
+Green: `cargo test -p limit-order-lock --offline` -> PASS: 19 unit tests passed, 0 failed; main/doc tests 0 passed, 0 failed.
+Green: `make -e -C tests/contracts/limit-order-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline` -> PASS: debug RISC-V `limit-order-lock` built and copied to `build/debug`.
+Green: `cargo test -p tests --test limit_order_lock --offline` -> PASS: 19 integration tests passed, 0 failed.
+Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 5 owned files. Removed lock scan/sum collection and temporary `BoundPayment` compatibility trait, retained `CobuildContext`, called `otx_actions`, and bound Fill validation to exactly the indexed base/append payment output without duplicate same-OTX checks.
+Commit: pending `fix: bind lock orders to payment output`.
 
 - [ ] **Step 1: Write failing integration and range tests**
 

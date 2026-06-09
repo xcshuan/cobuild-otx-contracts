@@ -1,5 +1,3 @@
-use alloc::vec::Vec;
-
 use ckb_std::{
     ckb_constants::Source,
     ckb_types::{bytes::Bytes, prelude::*},
@@ -19,8 +17,7 @@ use cobuild_core::{
 use crate::{
     error::Error,
     types::{
-        OrderArgs, UDT_PAYMENT_DATA_LEN, UdtPayment, parse_fill_order_action, parse_order_args,
-        parse_udt_payment, validate_fill,
+        UdtPayment, parse_fill_order_action, parse_order_args, parse_udt_payment, validate_fill,
     },
 };
 
@@ -33,19 +30,24 @@ pub fn main() -> Result<(), Error> {
     let input_index = single_group_input_index(current_lock_hash)?;
     verify_offered_nft_input(input_index, order.offered_nft_type_hash)?;
 
-    let plan = CobuildContext::build(CurrentScript::InputLock(current_lock_hash))?
-        .plan_lock_validation()?;
+    let context = CobuildContext::build(CurrentScript::InputLock(current_lock_hash))?;
+    let plan = context.plan_lock_validation()?;
     if plan.related_actions.len() != 1 {
         return Err(Error::InvalidCobuild);
     }
 
     let related = &plan.related_actions[0];
-    let layout = otx_fill_layout(&related.origin, input_index)?;
+    let (otx_index, layout) = otx_fill_layout(&related.origin, input_index)?;
+    let _actions = context.otx_actions(otx_index)?;
     let action_data = cursor_bytes(&related.action.data)?;
     let action = parse_fill_order_action(&action_data)?;
-    let payments = collect_payments(&order, layout)?;
+    let payment_output_index = action.payment_output_index as usize;
+    if !output_index_in_otx_outputs(layout, payment_output_index)? {
+        return Err(Error::InvalidCobuild);
+    }
+    let payment = load_udt_payment_output(payment_output_index)?;
 
-    validate_fill(&order, &action, &payments)
+    validate_fill(&order, &action, payment)
 }
 
 fn single_group_input_index(current_lock_hash: [u8; 32]) -> Result<usize, Error> {
@@ -84,62 +86,25 @@ fn verify_offered_nft_input(
 pub fn otx_fill_layout(
     origin: &ActionOrigin,
     input_index: usize,
-) -> Result<OtxMessageLayout, Error> {
-    let ActionOrigin::Otx { layout, .. } = origin else {
+) -> Result<(usize, OtxMessageLayout), Error> {
+    let ActionOrigin::Otx {
+        otx_index, layout, ..
+    } = origin
+    else {
         return Err(Error::InvalidCobuild);
     };
     if !range_contains(layout.base_inputs, input_index)? {
         return Err(Error::InvalidCobuild);
     }
-    Ok(*layout)
+    Ok((*otx_index, *layout))
 }
 
-fn collect_payments(order: &OrderArgs, layout: OtxMessageLayout) -> Result<Vec<UdtPayment>, Error> {
-    let mut payments = Vec::new();
-    collect_payments_from_range(order, layout.base_outputs, &mut payments)?;
-    collect_payments_from_range(order, layout.append_outputs, &mut payments)?;
-    Ok(payments)
-}
-
-fn collect_payments_from_range(
-    order: &OrderArgs,
-    range: Range,
-    payments: &mut Vec<UdtPayment>,
-) -> Result<(), Error> {
-    let end = range
-        .start
-        .checked_add(range.count)
-        .ok_or(Error::InvalidCobuild)?;
-
-    for index in range.start..end {
-        let Some(asset_id) = load_cell_type_hash(index, Source::Output)? else {
-            continue;
-        };
-        let owner_lock_hash = load_cell_lock_hash(index, Source::Output)?;
-        if !payment_output_matches_order(order, owner_lock_hash, asset_id) {
-            continue;
-        }
-
-        let data = load_cell_data(index, Source::Output)?;
-        if data.len() != UDT_PAYMENT_DATA_LEN {
-            continue;
-        }
-        payments.push(UdtPayment {
-            owner_lock_hash,
-            asset_id,
-            amount: parse_udt_payment(&data)?,
-        });
-    }
-
-    Ok(())
-}
-
-fn payment_output_matches_order(
-    order: &OrderArgs,
-    owner_lock_hash: [u8; 32],
-    asset_id: [u8; 32],
-) -> bool {
-    owner_lock_hash == order.owner_lock_hash && asset_id == order.requested_asset_id
+fn output_index_in_otx_outputs(
+    layout: OtxMessageLayout,
+    output_index: usize,
+) -> Result<bool, Error> {
+    Ok(range_contains(layout.base_outputs, output_index)?
+        || range_contains(layout.append_outputs, output_index)?)
 }
 
 fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
@@ -148,6 +113,20 @@ fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
         .checked_add(range.count)
         .ok_or(Error::InvalidCobuild)?;
     Ok(index >= range.start && index < end)
+}
+
+fn load_udt_payment_output(index: usize) -> Result<UdtPayment, Error> {
+    let Some(asset_id) = load_cell_type_hash(index, Source::Output)? else {
+        return Err(Error::InsufficientPayment);
+    };
+    let owner_lock_hash = load_cell_lock_hash(index, Source::Output)?;
+    let data = load_cell_data(index, Source::Output)?;
+
+    Ok(UdtPayment {
+        owner_lock_hash,
+        asset_id,
+        amount: parse_udt_payment(&data)?,
+    })
 }
 
 #[allow(dead_code)]
@@ -179,7 +158,7 @@ mod tests {
         };
 
         assert_eq!(
-            otx_fill_layout(&origin, 1).map(|layout| layout.append_outputs),
+            otx_fill_layout(&origin, 1).map(|(_, layout)| layout.append_outputs),
             Ok(Range { start: 1, count: 1 })
         );
     }
@@ -211,6 +190,19 @@ mod tests {
     }
 
     #[test]
+    fn output_index_in_otx_outputs_accepts_base_and_append_outputs() {
+        let layout = layout();
+
+        assert_eq!(output_index_in_otx_outputs(layout, 0), Ok(true));
+        assert_eq!(output_index_in_otx_outputs(layout, 1), Ok(true));
+    }
+
+    #[test]
+    fn output_index_in_otx_outputs_rejects_out_of_range_output() {
+        assert_eq!(output_index_in_otx_outputs(layout(), 2), Ok(false));
+    }
+
+    #[test]
     fn range_contains_rejects_overflowing_range() {
         assert_eq!(
             range_contains(
@@ -222,19 +214,5 @@ mod tests {
             ),
             Err(Error::InvalidCobuild)
         );
-    }
-
-    #[test]
-    fn payment_output_matches_order_identity_requires_owner_and_asset() {
-        let order = crate::types::OrderArgs {
-            owner_lock_hash: [2; 32],
-            offered_nft_type_hash: [3; 32],
-            requested_asset_id: [4; 32],
-            min_requested_amount: 30,
-        };
-
-        assert!(payment_output_matches_order(&order, [2; 32], [4; 32]));
-        assert!(!payment_output_matches_order(&order, [9; 32], [4; 32]));
-        assert!(!payment_output_matches_order(&order, [2; 32], [9; 32]));
     }
 }

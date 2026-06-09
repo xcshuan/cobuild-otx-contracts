@@ -118,6 +118,42 @@ fn limit_order_lock_does_not_count_payment_in_another_otx() {
     let before = failed_txs_count();
     let (fixture, tx) =
         limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::PaymentInAnotherOtx);
+    fixture.assert_lock_script_exit(&tx, 0, 12);
+    assert_no_expected_failure_dump(before);
+}
+
+#[test]
+fn limit_order_lock_rejects_payment_output_outside_current_otx() {
+    let before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::PaymentOutputOutOfRange);
+    fixture.assert_lock_script_exit(&tx, 0, 12);
+    assert_no_expected_failure_dump(before);
+}
+
+#[test]
+fn limit_order_lock_rejects_bound_payment_output_wrong_udt() {
+    let before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::PaymentOutputWrongUdt);
+    fixture.assert_lock_script_exit(&tx, 0, 10);
+    assert_no_expected_failure_dump(before);
+}
+
+#[test]
+fn limit_order_lock_rejects_bound_payment_output_wrong_owner() {
+    let before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::PaymentOutputWrongOwner);
+    fixture.assert_lock_script_exit(&tx, 0, 10);
+    assert_no_expected_failure_dump(before);
+}
+
+#[test]
+fn limit_order_lock_rejects_bound_payment_output_insufficient() {
+    let before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_lock_nft_for_udt_case_with(LimitOrderLockFillCase::PaymentOutputInsufficient);
     fixture.assert_lock_script_exit(&tx, 0, 10);
     assert_no_expected_failure_dump(before);
 }
