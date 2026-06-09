@@ -52,7 +52,11 @@ pub fn main() -> Result<(), Error> {
     }
     let payment = load_udt_payment_output(payment_output_index)?;
 
-    validate_fill(&order, payment)
+    validate_fill(&order, payment)?;
+    if !has_nft_delivery_output(layout, action.buyer_lock_hash, order.offered_nft_type_hash)? {
+        return Err(Error::InvalidCobuild);
+    }
+    Ok(())
 }
 
 fn single_group_input_index(current_lock_hash: [u8; 32]) -> Result<usize, Error> {
@@ -132,6 +136,36 @@ fn load_udt_payment_output(index: usize) -> Result<UdtPayment, Error> {
         asset_id,
         amount: parse_udt_payment(&data)?,
     })
+}
+
+fn has_nft_delivery_output(
+    layout: OtxMessageLayout,
+    buyer_lock_hash: [u8; 32],
+    offered_nft_type_hash: [u8; 32],
+) -> Result<bool, Error> {
+    for range in [layout.base_outputs, layout.append_outputs] {
+        let end = range
+            .start
+            .checked_add(range.count)
+            .ok_or(Error::InvalidCobuild)?;
+        for index in range.start..end {
+            let lock_hash = load_cell_lock_hash(index, Source::Output)?;
+            let type_hash = load_cell_type_hash(index, Source::Output)?;
+            if nft_delivery_matches(lock_hash, type_hash, buyer_lock_hash, offered_nft_type_hash) {
+                return Ok(true);
+            }
+        }
+    }
+    Ok(false)
+}
+
+fn nft_delivery_matches(
+    lock_hash: [u8; 32],
+    type_hash: Option<[u8; 32]>,
+    buyer_lock_hash: [u8; 32],
+    offered_nft_type_hash: [u8; 32],
+) -> bool {
+    lock_hash == buyer_lock_hash && type_hash == Some(offered_nft_type_hash)
 }
 
 fn ensure_unique_payment_output_indexes(
@@ -262,6 +296,37 @@ mod tests {
     #[test]
     fn output_index_in_otx_outputs_rejects_out_of_range_output() {
         assert_eq!(output_index_in_otx_outputs(layout(), 2), Ok(false));
+    }
+
+    #[test]
+    fn nft_delivery_match_accepts_buyer_lock_and_offered_nft_type() {
+        assert!(nft_delivery_matches(
+            [7; 32],
+            Some([8; 32]),
+            [7; 32],
+            [8; 32]
+        ));
+    }
+
+    #[test]
+    fn nft_delivery_match_rejects_wrong_buyer_lock() {
+        assert!(!nft_delivery_matches(
+            [6; 32],
+            Some([8; 32]),
+            [7; 32],
+            [8; 32]
+        ));
+    }
+
+    #[test]
+    fn nft_delivery_match_rejects_wrong_or_missing_nft_type() {
+        assert!(!nft_delivery_matches(
+            [7; 32],
+            Some([9; 32]),
+            [7; 32],
+            [8; 32]
+        ));
+        assert!(!nft_delivery_matches([7; 32], None, [7; 32], [8; 32]));
     }
 
     #[test]

@@ -515,9 +515,9 @@ git commit -m "feat: require type order nft delivery"
 - Modify: `docs/superpowers/plans/2026-06-09-limit-order-nft-delivery-binding-plan.md`
 
 **Red/Green Record:**
-Red: pending
-Green: pending
-Review: pending
+Red: `cargo test -p limit-order-lock --offline` failed with 4x E0425 missing `nft_delivery_matches` in `entry.rs` predicate tests.
+Green: `cargo test -p limit-order-lock --offline` passed; 25 unit tests, 0 failures; doc-tests 0 tests.
+Review: `git diff --check` passed with no output; reviewed diff for `tests/contracts/limit-order-lock/src/entry.rs` and this plan record.
 Commit: pending
 
 - [ ] **Step 1: Write failing entry unit tests**
