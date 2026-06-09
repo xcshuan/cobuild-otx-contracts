@@ -396,12 +396,7 @@ mod tests {
             [7; 32],
             [8; 32]
         ));
-        assert!(!nft_delivery_matches(
-            [7; 32],
-            None,
-            [7; 32],
-            [8; 32]
-        ));
+        assert!(!nft_delivery_matches([7; 32], None, [7; 32], [8; 32]));
     }
 
     #[test]

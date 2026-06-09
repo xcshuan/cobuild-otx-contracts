@@ -889,8 +889,8 @@ git commit -m "test: cover lock order nft delivery"
 
 **Red/Green Record:**
 Red: not applicable
-Green: pending
-Review: pending
+Green: `cargo fmt` -> PASS; four contract builds -> PASS (`limit-order-type`, `limit-order-lock`, `test-udt`, `test-nft`); focused tests -> PASS (`limit-order-type` 36, `limit-order-lock` 25, `cobuild-core --lib` 24, `limit_order_type` 26, `limit_order_lock` 23, `tests --lib` 24); `cargo test --workspace --offline` -> PASS; `cargo clippy --workspace --offline --all-targets` -> PASS; `cargo fmt --check` -> PASS after committing rustfmt-only source formatting; `git diff --check` -> PASS.
+Review: `find tests/failed_txs -maxdepth 1 -type f 2>/dev/null | wc -l` -> 23; `git status --short --ignored tests/failed_txs` -> only ignored `!! tests/failed_txs/`, no tracked failed tx files. `git status --short` showed only rustfmt source formatting and this verification record before final commit.
 Commit: pending
 
 - [ ] **Step 1: Run formatting**

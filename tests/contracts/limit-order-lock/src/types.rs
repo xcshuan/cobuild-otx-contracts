@@ -144,8 +144,8 @@ mod tests {
 
     #[test]
     fn parse_fill_action_accepts_payment_index_and_buyer_lock_hash() {
-        let action = parse_fill_order_action(&fill_action_data(0x0403_0201, [7; 32]))
-            .expect("fill action");
+        let action =
+            parse_fill_order_action(&fill_action_data(0x0403_0201, [7; 32])).expect("fill action");
 
         assert_eq!(action.payment_output_index, 0x0403_0201);
         assert_eq!(action.buyer_lock_hash, [7; 32]);
@@ -217,25 +217,16 @@ mod tests {
     #[test]
     fn validate_fill_uses_order_requested_amount() {
         assert_eq!(
-            validate_fill(
-                &order(30),
-                payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),
-            ),
+            validate_fill(&order(30), payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),),
             Ok(())
         );
 
         assert_eq!(
-            validate_fill(
-                &order(30),
-                payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 40),
-            ),
+            validate_fill(&order(30), payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 40),),
             Ok(())
         );
         assert_eq!(
-            validate_fill(
-                &order(30),
-                payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 29),
-            ),
+            validate_fill(&order(30), payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 29),),
             Err(Error::InsufficientPayment)
         );
     }
@@ -243,10 +234,7 @@ mod tests {
     #[test]
     fn validate_fill_accepts_bound_payment() {
         assert_eq!(
-            validate_fill(
-                &order(30),
-                payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),
-            ),
+            validate_fill(&order(30), payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),),
             Ok(())
         );
     }
@@ -254,17 +242,11 @@ mod tests {
     #[test]
     fn validate_fill_rejects_bound_payment_wrong_owner_or_asset() {
         assert_eq!(
-            validate_fill(
-                &order(30),
-                payment([9; 32], REQUESTED_ASSET_ID, 30),
-            ),
+            validate_fill(&order(30), payment([9; 32], REQUESTED_ASSET_ID, 30),),
             Err(Error::InsufficientPayment)
         );
         assert_eq!(
-            validate_fill(
-                &order(30),
-                payment(OWNER_LOCK_HASH, [9; 32], 30),
-            ),
+            validate_fill(&order(30), payment(OWNER_LOCK_HASH, [9; 32], 30),),
             Err(Error::InsufficientPayment)
         );
     }
