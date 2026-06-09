@@ -2,15 +2,9 @@ use ckb_std::{
     ckb_types::{bytes::Bytes, prelude::*},
     high_level::{load_script, load_script_hash},
 };
-use cobuild_core::{
-    context::CurrentScript,
-    engine::CobuildContext,
-};
+use cobuild_core::{context::CurrentScript, engine::CobuildContext};
 
-use crate::{
-    error::Error,
-    types::parse_order_args,
-};
+use crate::{error::Error, types::parse_order_args};
 
 pub fn main() -> Result<(), Error> {
     let script = load_script()?;

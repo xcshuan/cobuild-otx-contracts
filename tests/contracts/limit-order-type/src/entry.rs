@@ -7,15 +7,9 @@ use ckb_std::{
     ckb_types::{bytes::Bytes, prelude::*},
     high_level::{QueryIter, load_cell_data, load_script_hash},
 };
-use cobuild_core::{
-    context::CurrentScript,
-    engine::CobuildContext,
-};
+use cobuild_core::{context::CurrentScript, engine::CobuildContext};
 
-use crate::{
-    error::Error,
-    types::parse_order_state,
-};
+use crate::{error::Error, types::parse_order_state};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OrderMode {
