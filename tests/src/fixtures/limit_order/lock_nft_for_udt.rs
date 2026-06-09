@@ -32,6 +32,8 @@ pub enum LimitOrderLockFillCase {
     PaymentOutputWrongUdt,
     PaymentOutputWrongOwner,
     PaymentOutputInsufficient,
+    TwoLockOrdersReusePaymentOutput,
+    TwoLockOrdersUseDistinctPaymentOutputs,
     UnknownActionTag,
     MalformedAction,
 }
@@ -51,6 +53,14 @@ pub fn limit_order_lock_nft_for_udt_case() -> (CobuildTestFixture, TransactionVi
 pub fn limit_order_lock_nft_for_udt_case_with(
     case: LimitOrderLockFillCase,
 ) -> (CobuildTestFixture, TransactionView) {
+    if matches!(
+        case,
+        LimitOrderLockFillCase::TwoLockOrdersReusePaymentOutput
+            | LimitOrderLockFillCase::TwoLockOrdersUseDistinctPaymentOutputs
+    ) {
+        return limit_order_two_lock_orders_case(case);
+    }
+
     let mut fixture = CobuildTestFixture::new();
     let limit_order_lock_code =
         deploy_data2_script(fixture.context_mut(), "limit-order-lock", Vec::new());
@@ -285,6 +295,131 @@ pub fn limit_order_lock_nft_for_udt_case_with(
         tx = tx.otx(other_otx);
     }
     let tx = tx.build();
+
+    (fixture, tx)
+}
+
+fn limit_order_two_lock_orders_case(
+    case: LimitOrderLockFillCase,
+) -> (CobuildTestFixture, TransactionView) {
+    let mut fixture = CobuildTestFixture::new();
+    let limit_order_lock_code =
+        deploy_data2_script(fixture.context_mut(), "limit-order-lock", Vec::new());
+    let always_success = fixture.deploy_always_success();
+    let owner_lock = always_success.script.clone();
+    let buyer_lock = always_success.script.clone();
+    let issuer_lock_hash = script_hash(&always_success.script);
+    let nft_a = deploy_test_nft(&mut fixture, [0x71; 32]);
+    let nft_b = deploy_test_nft(&mut fixture, [0x72; 32]);
+    let udt = deploy_test_udt_with_owner(&mut fixture, issuer_lock_hash);
+
+    let order_a = LockOrder {
+        owner_lock_hash: script_hash(&owner_lock),
+        offered_nft_type_hash: nft_a.script_hash,
+        requested_asset_id: udt.script_hash,
+        min_requested_amount: 30,
+    };
+    let order_b = LockOrder {
+        offered_nft_type_hash: nft_b.script_hash,
+        ..order_a
+    };
+    let order_lock_a = fixture
+        .context_mut()
+        .build_script_with_hash_type(
+            &limit_order_lock_code.out_point,
+            ScriptHashType::Data2,
+            Bytes::copy_from_slice(&lock_args(order_a)),
+        )
+        .expect("build first limit order lock");
+    let order_lock_b = fixture
+        .context_mut()
+        .build_script_with_hash_type(
+            &limit_order_lock_code.out_point,
+            ScriptHashType::Data2,
+            Bytes::copy_from_slice(&lock_args(order_b)),
+        )
+        .expect("build second limit order lock");
+    let order_lock_hash_a = script_hash(&order_lock_a);
+    let order_lock_hash_b = script_hash(&order_lock_b);
+
+    let nft_payload_a = nft_data(b"lock-order-a", [1, 2, 3, 4], 1_717_171_717);
+    let nft_payload_b = nft_data(b"lock-order-b", [5, 6, 7, 8], 1_717_171_718);
+    let nft_input_a = live_input(
+        fixture.context_mut(),
+        typed_output(order_lock_a, nft_a.script.clone(), 100_000_000_000),
+        nft_payload_a.clone(),
+    );
+    let nft_input_b = live_input(
+        fixture.context_mut(),
+        typed_output(order_lock_b, nft_b.script.clone(), 100_000_000_000),
+        nft_payload_b.clone(),
+    );
+    let udt_input = live_input(
+        fixture.context_mut(),
+        typed_output(buyer_lock.clone(), udt.script.clone(), 100_000_000_000),
+        udt_amount_data(60),
+    );
+    let nft_output_a = TestCellOutput::new(
+        typed_output(buyer_lock.clone(), nft_a.script.clone(), 90_000_000_000),
+        nft_payload_a,
+    );
+    let nft_output_b = TestCellOutput::new(
+        typed_output(buyer_lock, nft_b.script.clone(), 90_000_000_000),
+        nft_payload_b,
+    );
+    let payment_output_a = TestCellOutput::new(
+        typed_output(owner_lock.clone(), udt.script.clone(), 90_000_000_000),
+        udt_amount_data(30),
+    );
+    let payment_output_b = TestCellOutput::new(
+        typed_output(owner_lock, udt.script.clone(), 90_000_000_000),
+        udt_amount_data(30),
+    );
+    let second_payment_index = if case == LimitOrderLockFillCase::TwoLockOrdersReusePaymentOutput {
+        2
+    } else {
+        3
+    };
+    let message = fixture
+        .cobuild()
+        .push_action(0, order_lock_hash_a, fill_action_data(udt.script_hash, 30, 2))
+        .push_action(
+            0,
+            order_lock_hash_b,
+            fill_action_data(udt.script_hash, 30, second_payment_index),
+        )
+        .build();
+    let otx = fixture
+        .otx()
+        .base_input_cells(2)
+        .base_output_cells(2)
+        .append_input_cells(1)
+        .append_output_cells(2)
+        .allow_append_inputs()
+        .allow_append_outputs()
+        .message(message)
+        .seals(vec![
+            seal_pair(order_lock_hash_a, 0, Vec::new()),
+            seal_pair(order_lock_hash_b, 0, Vec::new()),
+        ])
+        .build_with_layout();
+
+    let tx = fixture
+        .tx()
+        .cell_dep(cell_dep_for_script(&limit_order_lock_code))
+        .cell_dep(cell_dep_for_script(&always_success))
+        .cell_dep(cell_dep_for_script(&nft_a))
+        .cell_dep(cell_dep_for_script(&nft_b))
+        .cell_dep(cell_dep_for_script(&udt))
+        .base_input(nft_input_a)
+        .base_input(nft_input_b)
+        .append_input(udt_input)
+        .base_output(nft_output_a)
+        .base_output(nft_output_b)
+        .append_output(payment_output_a)
+        .append_output(payment_output_b)
+        .otx(otx)
+        .build();
 
     (fixture, tx)
 }

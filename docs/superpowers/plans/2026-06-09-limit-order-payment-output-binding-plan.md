@@ -1092,7 +1092,17 @@ git commit -m "fix: bind lock orders to payment output"
 - Modify: `tests/tests/limit_order_lock.rs`
 - Modify: `docs/superpowers/plans/2026-06-09-limit-order-payment-output-binding-plan.md`
 
-**Red/Green Record:** Execution agent must replace this line with exact Red, Green, Review, and Commit results.
+**Red/Green Record:**
+Red: `cargo test -p limit-order-type --offline` -> FAIL as expected: `ensure_unique_payment_output_indexes` missing in `tests/contracts/limit-order-type/src/entry.rs`.
+Red: `cargo test -p limit-order-lock --offline` -> FAIL as expected: `ensure_unique_payment_output_indexes` missing in `tests/contracts/limit-order-lock/src/entry.rs`.
+Red: `cargo test -p tests --test limit_order_type --offline` -> FAIL as expected: 24 passed, 1 failed; `limit_order_type_rejects_two_type_orders_reusing_payment_output` passed closed instead of failing with exit 12.
+Red: `cargo test -p tests --test limit_order_lock --offline` -> FAIL as expected: 20 passed, 1 failed; `limit_order_lock_rejects_two_lock_orders_reusing_payment_output` passed closed instead of failing with exit 12.
+Green: `cargo test -p limit-order-type --offline` -> PASS: 34 unit tests passed, 0 failed; main/doc tests 0 passed, 0 failed.
+Green: `cargo test -p limit-order-lock --offline` -> PASS: 21 unit tests passed, 0 failed; main/doc tests 0 passed, 0 failed.
+Green: `cargo test -p tests --test limit_order_type --offline` -> PASS: 25 integration tests passed, 0 failed.
+Green: `cargo test -p tests --test limit_order_lock --offline` -> PASS: 21 integration tests passed, 0 failed.
+Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 6 owned files after restoring the generated proxy-lock hash build artifact. Rebuilt `limit-order-type` and `limit-order-lock` debug contracts before integration verification so tests loaded the updated entry code.
+Commit: pending `fix: reject duplicate limit order payments`.
 
 - [ ] **Step 1: Write failing duplicate helper and integration tests**
 

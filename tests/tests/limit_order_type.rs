@@ -274,3 +274,24 @@ fn limit_order_type_rejects_bound_payment_output_insufficient() {
         assert_eq!(failed_txs_count(), failed_txs_before);
     }
 }
+
+#[test]
+fn limit_order_type_rejects_two_type_orders_reusing_payment_output() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) =
+        limit_order_action_failure_case(FillActionCase::TwoTypeOrdersReusePaymentOutput);
+
+    fixture.assert_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_accepts_two_type_orders_with_distinct_payment_outputs() {
+    let (fixture, tx) =
+        limit_order_action_failure_case(FillActionCase::TwoTypeOrdersUseDistinctPaymentOutputs);
+
+    fixture.assert_pass(&tx);
+}

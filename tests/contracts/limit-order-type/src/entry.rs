@@ -2,6 +2,7 @@
 use ckb_std::high_level::load_script;
 #[cfg(feature = "type-id")]
 use ckb_std::type_id::check_type_id;
+use alloc::vec::Vec;
 use ckb_std::{
     ckb_constants::Source,
     ckb_types::{bytes::Bytes, packed::Script, prelude::*},
@@ -14,7 +15,9 @@ use cobuild_core::{
     engine::CobuildContext,
     layout::Range,
     plan::{ActionOrigin, OtxMessageLayout, OtxTypeRelation, TypeValidationPlan},
+    protocol::ScriptRole,
     reader::cursor_bytes,
+    view::ActionView,
 };
 
 use crate::{
@@ -66,7 +69,9 @@ fn validate_fill_entry(
         &related.action.origin,
         related.otx_type_scope.in_otx_scope(),
     )?;
-    let _actions = context.otx_actions(otx_index)?;
+    let actions = context.otx_actions(otx_index)?;
+    let limit_order_targets = limit_order_type_targets(&actions)?;
+    ensure_unique_payment_output_indexes(&actions, &limit_order_targets)?;
     let action_data = cursor_bytes(&related.action.action.data)?;
     let LimitOrderAction::Fill(action) = parse_limit_order_action(&action_data)? else {
         return Err(Error::UnsupportedAction);
@@ -208,12 +213,62 @@ fn load_udt_payment_output(index: usize) -> Result<SettlementCell, Error> {
     parse_udt_payment(lock_hash, type_hash, &data)
 }
 
+fn ensure_unique_payment_output_indexes(
+    actions: &[ActionView],
+    limit_order_targets: &[[u8; 32]],
+) -> Result<(), Error> {
+    let mut indexes = Vec::<u32>::new();
+    for action in actions {
+        if !matches!(action.script_role, ScriptRole::InputType | ScriptRole::OutputType) {
+            continue;
+        }
+        if !limit_order_targets.contains(&action.script_hash) {
+            continue;
+        }
+        let data = cursor_bytes(&action.data)?;
+        if data.first().copied() != Some(crate::types::FILL_ORDER_TAG) {
+            continue;
+        }
+        let LimitOrderAction::Fill(fill) = parse_limit_order_action(&data)? else {
+            return Err(Error::InvalidCobuild);
+        };
+        if indexes.contains(&fill.payment_output_index) {
+            return Err(Error::InvalidCobuild);
+        }
+        indexes.push(fill.payment_output_index);
+    }
+    Ok(())
+}
+
+fn limit_order_type_targets(actions: &[ActionView]) -> Result<Vec<[u8; 32]>, Error> {
+    let mut targets = Vec::<[u8; 32]>::new();
+    for action in actions {
+        if !matches!(action.script_role, ScriptRole::InputType | ScriptRole::OutputType) {
+            continue;
+        }
+        let data = cursor_bytes(&action.data)?;
+        if data.first().copied() != Some(crate::types::FILL_ORDER_TAG) {
+            continue;
+        }
+        let LimitOrderAction::Fill(_) = parse_limit_order_action(&data)? else {
+            return Err(Error::InvalidCobuild);
+        };
+        if !targets.contains(&action.script_hash) {
+            targets.push(action.script_hash);
+        }
+    }
+    Ok(targets)
+}
+
 #[cfg(test)]
 mod tests {
+    use alloc::{vec, vec::Vec};
+
     use super::*;
     use cobuild_core::{
         layout::Range,
         plan::{ActionOrigin, OtxMessageLayout, OtxTypeRelation},
+        reader::cursor_from_slice,
     };
 
     fn layout() -> OtxMessageLayout {
@@ -352,5 +407,54 @@ mod tests {
         });
 
         assert!(matches!(action, crate::types::LimitOrderAction::Create(_)));
+    }
+
+    #[test]
+    fn duplicate_payment_output_index_accepts_unique_indexes() {
+        let actions = vec![
+            test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
+            test_action(ScriptRole::InputType, [7; 32], fill_data(2)),
+        ];
+
+        assert_eq!(
+            ensure_unique_payment_output_indexes(&actions, &[[7; 32]]),
+            Ok(())
+        );
+    }
+
+    #[test]
+    fn duplicate_payment_output_index_rejects_duplicate_indexes() {
+        let actions = vec![
+            test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
+            test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
+        ];
+
+        assert_eq!(
+            ensure_unique_payment_output_indexes(&actions, &[[7; 32]]),
+            Err(Error::InvalidCobuild)
+        );
+    }
+
+    fn fill_data(payment_output_index: u32) -> Vec<u8> {
+        let mut data = Vec::new();
+        data.push(crate::types::FILL_ORDER_TAG);
+        data.extend_from_slice(&[4; 32]);
+        data.extend_from_slice(&30u64.to_le_bytes());
+        data.extend_from_slice(&payment_output_index.to_le_bytes());
+        data
+    }
+
+    fn test_action(
+        script_role: ScriptRole,
+        script_hash: [u8; 32],
+        data: Vec<u8>,
+    ) -> ActionView {
+        ActionView {
+            index: 0,
+            script_info_hash: [0; 32],
+            script_role,
+            script_hash,
+            data: cursor_from_slice(&data),
+        }
     }
 }

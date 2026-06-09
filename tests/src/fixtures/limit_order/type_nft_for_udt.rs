@@ -41,6 +41,8 @@ pub enum FillActionCase {
     PaymentOutputWrongUdt,
     PaymentOutputWrongOwner,
     PaymentOutputInsufficient,
+    TwoTypeOrdersReusePaymentOutput,
+    TwoTypeOrdersUseDistinctPaymentOutputs,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -89,7 +91,151 @@ pub fn limit_order_nft_for_udt_case_with(
 pub fn limit_order_action_failure_case(
     case: FillActionCase,
 ) -> (CobuildTestFixture, TransactionView) {
+    if matches!(
+        case,
+        FillActionCase::TwoTypeOrdersReusePaymentOutput
+            | FillActionCase::TwoTypeOrdersUseDistinctPaymentOutputs
+    ) {
+        return limit_order_two_type_orders_case(case);
+    }
+
     limit_order_nft_for_udt_scenario(NftForUdtScenario::action(case))
+}
+
+fn limit_order_two_type_orders_case(case: FillActionCase) -> (CobuildTestFixture, TransactionView) {
+    let mut fixture = CobuildTestFixture::new();
+
+    let limit_order_code = fixture.deploy_limit_order();
+    let always_success = fixture.deploy_always_success();
+    let owner_lock = always_success.script.clone();
+    let buyer_lock = always_success.script.clone();
+    let issuer_lock_hash = script_hash(&always_success.script);
+    let nft_a = deploy_test_nft(&mut fixture, [0x51; 32]);
+    let nft_b = deploy_test_nft(&mut fixture, [0x52; 32]);
+    let udt = deploy_test_udt_with_owner(&mut fixture, issuer_lock_hash);
+    let order_type_a = fixture
+        .context_mut()
+        .build_script_with_hash_type(
+            &limit_order_code.out_point,
+            ScriptHashType::Data2,
+            Bytes::copy_from_slice(&[0x61; 32]),
+        )
+        .expect("build first order type");
+    let order_type_b = fixture
+        .context_mut()
+        .build_script_with_hash_type(
+            &limit_order_code.out_point,
+            ScriptHashType::Data2,
+            Bytes::copy_from_slice(&[0x62; 32]),
+        )
+        .expect("build second order type");
+    let order_type_hash_a = script_hash(&order_type_a);
+    let order_type_hash_b = script_hash(&order_type_b);
+    let proxy_lock_a = deploy_input_type_proxy_lock(&mut fixture, order_type_hash_a);
+    let proxy_lock_b = deploy_input_type_proxy_lock(&mut fixture, order_type_hash_b);
+
+    let order_input_a = fixture
+        .limit_order()
+        .owner(owner_lock.clone())
+        .offered_nft_type_hash(nft_a.script_hash)
+        .requested_asset_id(udt.script_hash)
+        .min_requested_amount(30)
+        .build_input(&order_type_a);
+    let order_input_b = fixture
+        .limit_order()
+        .owner(owner_lock.clone())
+        .offered_nft_type_hash(nft_b.script_hash)
+        .requested_asset_id(udt.script_hash)
+        .min_requested_amount(30)
+        .build_input(&order_type_b);
+    let nft_payload_a = nft_data(b"type-order-a", [1, 2, 3, 4], 1_717_171_717);
+    let nft_payload_b = nft_data(b"type-order-b", [5, 6, 7, 8], 1_717_171_718);
+    let nft_input_a = live_input(
+        fixture.context_mut(),
+        typed_output(
+            proxy_lock_a.script.clone(),
+            nft_a.script.clone(),
+            100_000_000_000,
+        ),
+        nft_payload_a.clone(),
+    );
+    let nft_input_b = live_input(
+        fixture.context_mut(),
+        typed_output(
+            proxy_lock_b.script.clone(),
+            nft_b.script.clone(),
+            100_000_000_000,
+        ),
+        nft_payload_b.clone(),
+    );
+    let udt_input = live_input(
+        fixture.context_mut(),
+        typed_output(buyer_lock.clone(), udt.script.clone(), 100_000_000_000),
+        udt_amount_data(60),
+    );
+    let nft_output_a = TestCellOutput::new(
+        typed_output(buyer_lock.clone(), nft_a.script.clone(), 90_000_000_000),
+        nft_payload_a,
+    );
+    let nft_output_b = TestCellOutput::new(
+        typed_output(buyer_lock, nft_b.script.clone(), 90_000_000_000),
+        nft_payload_b,
+    );
+    let payment_output_a = TestCellOutput::new(
+        typed_output(owner_lock.clone(), udt.script.clone(), 90_000_000_000),
+        udt_amount_data(30),
+    );
+    let payment_output_b = TestCellOutput::new(
+        typed_output(owner_lock, udt.script.clone(), 90_000_000_000),
+        udt_amount_data(30),
+    );
+    let second_payment_index = if case == FillActionCase::TwoTypeOrdersReusePaymentOutput {
+        2
+    } else {
+        3
+    };
+    let message = fixture
+        .cobuild()
+        .push_action(1, order_type_hash_a, fill_action_data(udt.script_hash, 30, 2))
+        .push_action(
+            1,
+            order_type_hash_b,
+            fill_action_data(udt.script_hash, 30, second_payment_index),
+        )
+        .build();
+    let otx = fixture
+        .otx()
+        .base_input_cells(4)
+        .base_output_cells(2)
+        .append_input_cells(1)
+        .append_output_cells(2)
+        .allow_append_inputs()
+        .allow_append_outputs()
+        .message(message)
+        .build_with_layout();
+
+    let tx = fixture
+        .tx()
+        .cell_dep(cell_dep_for_script(&limit_order_code))
+        .cell_dep(cell_dep_for_script(&always_success))
+        .cell_dep(cell_dep_for_script(&proxy_lock_a))
+        .cell_dep(cell_dep_for_script(&proxy_lock_b))
+        .cell_dep(cell_dep_for_script(&nft_a))
+        .cell_dep(cell_dep_for_script(&nft_b))
+        .cell_dep(cell_dep_for_script(&udt))
+        .base_input(order_input_a)
+        .base_input(nft_input_a)
+        .base_input(order_input_b)
+        .base_input(nft_input_b)
+        .append_input(udt_input)
+        .base_output(nft_output_a)
+        .base_output(nft_output_b)
+        .append_output(payment_output_a)
+        .append_output(payment_output_b)
+        .otx(otx)
+        .build();
+
+    (fixture, tx)
 }
 
 fn limit_order_nft_for_udt_scenario(
@@ -452,4 +598,17 @@ fn nft_data(name: &[u8], attributes: [u8; 4], created_at: u64) -> Vec<u8> {
 
 fn udt_amount_data(amount: u128) -> Vec<u8> {
     amount.to_le_bytes().to_vec()
+}
+
+fn fill_action_data(
+    requested_asset_id: [u8; 32],
+    amount: u64,
+    payment_output_index: u32,
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity(45);
+    data.push(super::FILL_ORDER_TAG);
+    data.extend_from_slice(&requested_asset_id);
+    data.extend_from_slice(&amount.to_le_bytes());
+    data.extend_from_slice(&payment_output_index.to_le_bytes());
+    data
 }

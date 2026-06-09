@@ -175,3 +175,21 @@ fn limit_order_lock_rejects_malformed_action_payload() {
     fixture.assert_lock_script_exit(&tx, 0, 6);
     assert_no_expected_failure_dump(before);
 }
+
+#[test]
+fn limit_order_lock_rejects_two_lock_orders_reusing_payment_output() {
+    let before = failed_txs_count();
+    let (fixture, tx) = limit_order_lock_nft_for_udt_case_with(
+        LimitOrderLockFillCase::TwoLockOrdersReusePaymentOutput,
+    );
+    fixture.assert_lock_script_exit(&tx, 1, 12);
+    assert_no_expected_failure_dump(before);
+}
+
+#[test]
+fn limit_order_lock_accepts_two_lock_orders_with_distinct_payment_outputs() {
+    let (fixture, tx) = limit_order_lock_nft_for_udt_case_with(
+        LimitOrderLockFillCase::TwoLockOrdersUseDistinctPaymentOutputs,
+    );
+    fixture.assert_pass(&tx);
+}
