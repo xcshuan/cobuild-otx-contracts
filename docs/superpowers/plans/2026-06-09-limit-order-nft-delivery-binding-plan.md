@@ -375,9 +375,9 @@ git commit -m "test: shrink lock fill action abi"
 - Modify: `docs/superpowers/plans/2026-06-09-limit-order-nft-delivery-binding-plan.md`
 
 **Red/Green Record:**
-Red: pending
-Green: pending
-Review: pending
+Red: `cargo test -p limit-order-type --offline` -> FAIL as expected: `error[E0425]: cannot find function nft_delivery_matches in this scope` for the three new entry predicate tests.
+Green: `cargo test -p limit-order-type --offline` -> PASS: 36 passed, 0 failed; includes NFT delivery predicate tests and existing payment/output-index entry coverage.
+Review: `git diff --check` -> PASS; diff reviewed and limited to `limit-order-type` entry NFT delivery scan plus this Task 3 record.
 Commit: pending
 
 - [ ] **Step 1: Write failing entry unit tests**
