@@ -1466,23 +1466,23 @@ Record the exact results here before final response:
 
 ```text
 Final Verification:
-cargo fmt -> not run yet
-limit-order-type contract build -> not run yet
-limit-order-lock contract build -> not run yet
-test-udt contract build -> not run yet
-test-nft contract build -> not run yet
-cargo test -p limit-order-type --offline -> not run yet
-cargo test -p limit-order-lock --offline -> not run yet
-cargo test -p cobuild-core --lib --offline -> not run yet
-cargo test -p tests --test limit_order_type --offline -> not run yet
-cargo test -p tests --test limit_order_lock --offline -> not run yet
-cargo test -p tests --lib --offline -> not run yet
-cargo test --workspace --offline -> not run yet
-cargo fmt --check -> not run yet
-git diff --check -> not run yet
-git status --short -> not run yet
-failed_txs tracked-file count -> not run yet
-git status --short --ignored tests/failed_txs -> not run yet
+cargo fmt -> PASS
+limit-order-type contract build -> PASS
+limit-order-lock contract build -> PASS
+test-udt contract build -> PASS
+test-nft contract build -> PASS
+cargo test -p limit-order-type --offline -> PASS: 37 unit tests passed
+cargo test -p limit-order-lock --offline -> PASS: 24 unit tests passed
+cargo test -p cobuild-core --lib --offline -> PASS: 24 unit tests passed
+cargo test -p tests --test limit_order_type --offline -> PASS: 25 integration tests passed
+cargo test -p tests --test limit_order_lock --offline -> PASS: 22 integration tests passed
+cargo test -p tests --lib --offline -> PASS: 24 unit tests passed
+cargo test --workspace --offline -> PASS
+cargo fmt --check -> PASS
+git diff --check -> PASS
+git status --short -> PASS: no output
+failed_txs tracked-file count -> 19 ignored files present under `tests/failed_txs`
+git status --short --ignored tests/failed_txs -> `!! tests/failed_txs/`; no tracked files
 ```
 
 ## Plan Self-Review
