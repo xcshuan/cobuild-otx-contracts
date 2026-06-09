@@ -76,6 +76,15 @@ struct ScriptHashes {
 }
 
 impl CurrentScriptContext {
+    #[cfg(test)]
+    pub(crate) fn from_script_for_tests(current_script: CurrentScript) -> Self {
+        Self {
+            current_script,
+            indices: CurrentScriptIndices::from_script(current_script),
+            script_hashes: ScriptHashes::default(),
+        }
+    }
+
     pub(crate) fn from_reader(
         reader: &SyscallTxReader,
         current_script: CurrentScript,

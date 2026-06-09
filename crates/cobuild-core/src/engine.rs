@@ -57,6 +57,18 @@ impl CobuildContext {
     pub fn plan_type_validation(&self) -> Result<TypeValidationPlan, CoreError> {
         TypePlanBuilder::new(self)?.build()
     }
+
+    pub fn otx_actions(&self, otx_index: usize) -> Result<Vec<ActionView>, CoreError> {
+        let OtxLayouts::Complete(layout) = &self.otx_layouts else {
+            return Err(CoreError::InvalidOtxLayout);
+        };
+        let otx = layout
+            .otx_entries
+            .get(otx_index)
+            .ok_or(CoreError::InvalidOtxLayout)?;
+
+        MessageView::new(otx.witness.message.clone()).actions()
+    }
 }
 
 struct LockPlanBuilder<'a> {
@@ -566,6 +578,60 @@ mod tests {
         }
     }
 
+    fn test_context_with_otx_entries(
+        otx_entries: Vec<crate::layout::OtxLayoutEntry>,
+    ) -> CobuildContext {
+        CobuildContext {
+            tx: crate::syscalls::SyscallTxReader::from_cached_parts_for_tests(
+                crate::syscalls::TxCounts::default(),
+                crate::reader::cursor_from_slice(&empty_transaction()),
+                [0u8; 32],
+            ),
+            script_context: crate::context::CurrentScriptContext::from_script_for_tests(
+                CurrentScript::InputLock([0u8; 32]),
+            ),
+            witnesses: crate::witness::WitnessScan::with_capacity(0),
+            otx_layouts: crate::layout::OtxLayouts::Complete(crate::layout::BuiltLayout {
+                input_range: crate::layout::Range { start: 0, count: 0 },
+                output_range: crate::layout::Range { start: 0, count: 0 },
+                otx_entries,
+            }),
+        }
+    }
+
+    fn test_context_without_otx_layouts() -> CobuildContext {
+        CobuildContext {
+            tx: crate::syscalls::SyscallTxReader::from_cached_parts_for_tests(
+                crate::syscalls::TxCounts::default(),
+                crate::reader::cursor_from_slice(&empty_transaction()),
+                [0u8; 32],
+            ),
+            script_context: crate::context::CurrentScriptContext::from_script_for_tests(
+                CurrentScript::InputLock([0u8; 32]),
+            ),
+            witnesses: crate::witness::WitnessScan::with_capacity(0),
+            otx_layouts: crate::layout::OtxLayouts::None,
+        }
+    }
+
+    fn empty_transaction() -> Vec<u8> {
+        table_bytes(&[
+            raw_transaction_bytes(),
+            molecule_bytes(&[0u8; 32]),
+            dynvec_bytes(&[]),
+        ])
+    }
+
+    fn raw_transaction_bytes() -> Vec<u8> {
+        table_bytes(&[
+            0u32.to_le_bytes().to_vec(),
+            dynvec_bytes(&[]),
+            dynvec_bytes(&[]),
+            dynvec_bytes(&[]),
+            dynvec_bytes(&[]),
+        ])
+    }
+
     fn message_with_actions(actions: &[Vec<u8>]) -> Vec<u8> {
         table_bytes(&[dynvec_bytes(actions)])
     }
@@ -700,6 +766,49 @@ mod tests {
         assert_eq!(actions[0].script_role, ScriptRole::InputType);
         assert_eq!(actions[1].script_role, ScriptRole::InputType);
         assert_eq!(actions[2].script_role, ScriptRole::OutputType);
+    }
+
+    #[test]
+    fn otx_actions_returns_all_actions_from_requested_otx() {
+        let first_message = message_with_actions(&[action_bytes(0, [0x44; 32], &[0x10])]);
+        let second_message = message_with_actions(&[
+            action_bytes(1, [0x55; 32], &[0x20]),
+            action_bytes(2, [0x66; 32], &[0x30]),
+        ]);
+        let context = test_context_with_otx_entries(vec![
+            test_otx(&first_message, 0, 1),
+            test_otx(&second_message, 1, 2),
+        ]);
+
+        let actions = context.otx_actions(1).unwrap();
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0].index, 0);
+        assert_eq!(actions[0].script_role, ScriptRole::InputType);
+        assert_eq!(
+            crate::reader::cursor_bytes(&actions[0].data).unwrap(),
+            vec![0x20]
+        );
+        assert_eq!(actions[1].index, 1);
+        assert_eq!(actions[1].script_role, ScriptRole::OutputType);
+        assert_eq!(
+            crate::reader::cursor_bytes(&actions[1].data).unwrap(),
+            vec![0x30]
+        );
+    }
+
+    #[test]
+    fn otx_actions_rejects_missing_or_out_of_range_otx() {
+        assert_eq!(
+            test_context_without_otx_layouts().otx_actions(0).err(),
+            Some(CoreError::InvalidOtxLayout)
+        );
+        assert_eq!(
+            test_context_with_otx_entries(Vec::new())
+                .otx_actions(0)
+                .err(),
+            Some(CoreError::InvalidOtxLayout)
+        );
     }
 
     #[test]
