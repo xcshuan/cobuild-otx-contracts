@@ -14,3 +14,4 @@ pub mod generated_proxy_lock;
 pub mod otx;
 pub mod settlement;
 pub mod types;
+pub mod validation;
