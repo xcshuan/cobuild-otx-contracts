@@ -60,10 +60,13 @@ mod tests {
 
     #[test]
     fn limit_order_fixture_encodes_fill_action_and_default_otx_layout() {
-        let message = CobuildMessageBuilder::new()
-            .input_type_action([9; 32])
-            .limit_order_fill([4; 32], 30)
-            .build();
+        let message = LimitOrderCobuildMessageExt::limit_order_fill(
+            CobuildMessageBuilder::new().input_type_action([9; 32]),
+            [4; 32],
+            30,
+            0,
+        )
+        .build();
 
         let fixture = CobuildTestFixture::new();
         let otx = fixture

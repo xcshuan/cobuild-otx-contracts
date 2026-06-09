@@ -139,21 +139,6 @@ pub trait LimitOrderCobuildMessageExt {
     ) -> Self;
 }
 
-impl CobuildMessageBuilder {
-    pub fn limit_order_fill(
-        self,
-        requested_asset_id: [u8; 32],
-        min_requested_amount: u64,
-    ) -> Self {
-        LimitOrderCobuildMessageExt::limit_order_fill(
-            self,
-            requested_asset_id,
-            min_requested_amount,
-            0,
-        )
-    }
-}
-
 impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
     fn limit_order_create(self, order: LimitOrderState) -> Self {
         self.action_data(create_order_action_data(order))

@@ -511,7 +511,7 @@ Red: `cargo test -p tests --test limit_order_type --offline` -> FAIL as expected
 Green: `cargo test -p tests --test limit_order_type --offline` -> COMPILED, then runtime FAIL expected for later entry-binding tasks: 1 passed, 18 failed; failures include type script validation error 7 and expected-exit mismatches after fixtures emit 45-byte fill actions.
 Green: `cargo test -p tests --test limit_order_lock --offline` -> COMPILED, then runtime FAIL expected for later entry-binding tasks: 7 passed, 8 failed; failures include lock script validation error 6 after fixtures emit 45-byte fill actions.
 Green: `cargo test -p tests --lib --offline` -> PASS: 24 passed, 0 failed; warning only for unused `LimitOrderCobuildMessageExt` import in `tests/src/framework/mod.rs`.
-Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 3 owned files, preserving single-action message builder behavior while adding `push_action`.
+Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 3 owned files, preserving single-action message builder behavior while adding `push_action`. Follow-up review removed the two-argument compatibility `CobuildMessageBuilder::limit_order_fill` method so fixture fill calls require an explicit `payment_output_index`.
 Commit: pending `test: update limit order fill fixtures`.
 
 - [ ] **Step 1: Write failing fixture compile change**
