@@ -2,7 +2,6 @@ use alloc::vec::Vec;
 
 use cobuild_core::{
     engine::CobuildContext,
-    layout::Range,
     plan::{ActionOrigin, OtxMessageLayout, OtxTypeRelation, TypeValidationPlan},
     protocol::ScriptRole,
     reader::cursor_bytes,
@@ -66,12 +65,30 @@ pub fn otx_fill_layout(
     Ok((*otx_index, *layout))
 }
 
-pub fn output_index_in_otx_outputs(
+pub fn resolve_otx_output_index(
     layout: OtxMessageLayout,
-    output_index: usize,
-) -> Result<bool, Error> {
-    Ok(range_contains(layout.base_outputs, output_index)?
-        || range_contains(layout.append_outputs, output_index)?)
+    relative_output_index: usize,
+) -> Result<usize, Error> {
+    // Fill actions name this field payment_output_index, but it is OTX-relative:
+    // base outputs first, then append outputs.
+    if relative_output_index < layout.base_outputs.count {
+        return layout
+            .base_outputs
+            .start
+            .checked_add(relative_output_index)
+            .ok_or(Error::InvalidCobuild);
+    }
+
+    let append_index = relative_output_index - layout.base_outputs.count;
+    if append_index < layout.append_outputs.count {
+        return layout
+            .append_outputs
+            .start
+            .checked_add(append_index)
+            .ok_or(Error::InvalidCobuild);
+    }
+
+    Err(Error::InvalidCobuild)
 }
 
 pub fn ensure_unique_payment_output_indexes(
@@ -128,14 +145,6 @@ fn limit_order_target_hashes(
     Ok(targets)
 }
 
-fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
-    let end = range
-        .start
-        .checked_add(range.count)
-        .ok_or(Error::InvalidCobuild)?;
-    Ok(index >= range.start && index < end)
-}
-
 fn is_limit_order_role(role: ScriptRole) -> bool {
     matches!(
         role,
@@ -149,6 +158,7 @@ mod tests {
 
     use super::*;
     use cobuild_core::{
+        layout::Range,
         plan::{ActionOrigin, OtxTypeRelation},
         reader::cursor_from_slice,
     };
@@ -191,16 +201,25 @@ mod tests {
     }
 
     #[test]
-    fn output_index_in_otx_outputs_accepts_base_and_append_outputs() {
-        let layout = layout();
+    fn resolve_otx_output_index_maps_relative_base_and_append_outputs() {
+        let layout = OtxMessageLayout {
+            base_outputs: Range { start: 4, count: 2 },
+            append_outputs: Range { start: 9, count: 2 },
+            ..layout()
+        };
 
-        assert_eq!(output_index_in_otx_outputs(layout, 0), Ok(true));
-        assert_eq!(output_index_in_otx_outputs(layout, 1), Ok(true));
+        assert_eq!(resolve_otx_output_index(layout, 0), Ok(4));
+        assert_eq!(resolve_otx_output_index(layout, 1), Ok(5));
+        assert_eq!(resolve_otx_output_index(layout, 2), Ok(9));
+        assert_eq!(resolve_otx_output_index(layout, 3), Ok(10));
     }
 
     #[test]
-    fn output_index_in_otx_outputs_rejects_out_of_range_output() {
-        assert_eq!(output_index_in_otx_outputs(layout(), 2), Ok(false));
+    fn resolve_otx_output_index_rejects_out_of_range_relative_output() {
+        assert_eq!(
+            resolve_otx_output_index(layout(), 2),
+            Err(Error::InvalidCobuild)
+        );
     }
 
     #[test]
@@ -241,13 +260,6 @@ mod tests {
             otx_fill_layout(&origin, Some(relation)),
             Err(crate::error::Error::InvalidCobuild)
         );
-    }
-
-    #[test]
-    fn range_contains_accepts_start_and_last_index() {
-        assert_eq!(range_contains(Range { start: 3, count: 2 }, 3), Ok(true));
-        assert_eq!(range_contains(Range { start: 3, count: 2 }, 4), Ok(true));
-        assert_eq!(range_contains(Range { start: 3, count: 2 }, 5), Ok(false));
     }
 
     #[test]

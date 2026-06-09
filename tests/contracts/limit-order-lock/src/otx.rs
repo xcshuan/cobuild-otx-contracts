@@ -59,12 +59,30 @@ pub fn otx_fill_layout(
     Ok((*otx_index, *layout))
 }
 
-pub fn output_index_in_otx_outputs(
+pub fn resolve_otx_output_index(
     layout: OtxMessageLayout,
-    output_index: usize,
-) -> Result<bool, Error> {
-    Ok(range_contains(layout.base_outputs, output_index)?
-        || range_contains(layout.append_outputs, output_index)?)
+    relative_output_index: usize,
+) -> Result<usize, Error> {
+    // Fill actions name this field payment_output_index, but it is OTX-relative:
+    // base outputs first, then append outputs.
+    if relative_output_index < layout.base_outputs.count {
+        return layout
+            .base_outputs
+            .start
+            .checked_add(relative_output_index)
+            .ok_or(Error::InvalidCobuild);
+    }
+
+    let append_index = relative_output_index - layout.base_outputs.count;
+    if append_index < layout.append_outputs.count {
+        return layout
+            .append_outputs
+            .start
+            .checked_add(append_index)
+            .ok_or(Error::InvalidCobuild);
+    }
+
+    Err(Error::InvalidCobuild)
 }
 
 fn ensure_no_reused_payment_outputs_in_otx(actions: &[ActionView]) -> Result<(), Error> {
@@ -182,16 +200,25 @@ mod tests {
     }
 
     #[test]
-    fn output_index_in_otx_outputs_accepts_base_and_append_outputs() {
-        let layout = layout();
+    fn resolve_otx_output_index_maps_relative_base_and_append_outputs() {
+        let layout = OtxMessageLayout {
+            base_outputs: Range { start: 4, count: 2 },
+            append_outputs: Range { start: 9, count: 2 },
+            ..layout()
+        };
 
-        assert_eq!(output_index_in_otx_outputs(layout, 0), Ok(true));
-        assert_eq!(output_index_in_otx_outputs(layout, 1), Ok(true));
+        assert_eq!(resolve_otx_output_index(layout, 0), Ok(4));
+        assert_eq!(resolve_otx_output_index(layout, 1), Ok(5));
+        assert_eq!(resolve_otx_output_index(layout, 2), Ok(9));
+        assert_eq!(resolve_otx_output_index(layout, 3), Ok(10));
     }
 
     #[test]
-    fn output_index_in_otx_outputs_rejects_out_of_range_output() {
-        assert_eq!(output_index_in_otx_outputs(layout(), 2), Ok(false));
+    fn resolve_otx_output_index_rejects_out_of_range_relative_output() {
+        assert_eq!(
+            resolve_otx_output_index(layout(), 2),
+            Err(Error::InvalidCobuild)
+        );
     }
 
     #[test]
