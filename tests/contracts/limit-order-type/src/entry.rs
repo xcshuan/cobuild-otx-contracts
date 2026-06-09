@@ -5,9 +5,9 @@ use ckb_std::high_level::load_script;
 use ckb_std::type_id::check_type_id;
 use ckb_std::{
     ckb_constants::Source,
-    ckb_types::{bytes::Bytes, packed::Script, prelude::*},
+    ckb_types::{bytes::Bytes, prelude::*},
     high_level::{
-        QueryIter, load_cell_data, load_cell_lock_hash, load_cell_type_hash, load_script_hash,
+        QueryIter, load_cell_data, load_script_hash,
     },
 };
 use cobuild_core::{
@@ -23,8 +23,8 @@ use cobuild_core::{
 use crate::{
     error::Error,
     types::{
-        CreateOrderAction, LimitOrderAction, SettlementCell, parse_limit_order_action,
-        parse_order_state, parse_udt_payment, validate_create, validate_fill,
+        CreateOrderAction, LimitOrderAction, parse_limit_order_action, parse_order_state,
+        validate_create, validate_fill,
     },
 };
 
@@ -75,17 +75,14 @@ fn validate_fill_entry(context: &CobuildContext, plan: &TypeValidationPlan) -> R
     let LimitOrderAction::Fill(action) = parse_limit_order_action(&action_data)? else {
         return Err(Error::UnsupportedAction);
     };
-    let payment_output_index = action.payment_output_index as usize;
-    if !output_index_in_otx_outputs(layout, payment_output_index)? {
-        return Err(Error::InvalidCobuild);
-    }
-    let payment = load_udt_payment_output(payment_output_index)?;
+    let payment = crate::settlement::load_bound_payment(layout, action.payment_output_index)?;
 
     validate_fill(&order, payment)?;
-    if !has_nft_delivery_output(layout, action.buyer_lock_hash, order.offered_nft_type_hash)? {
-        return Err(Error::InvalidCobuild);
-    }
-    Ok(())
+    crate::settlement::ensure_nft_delivered_to_buyer(
+        layout,
+        action.buyer_lock_hash,
+        order.offered_nft_type_hash,
+    )
 }
 
 fn validate_create_entry(
@@ -97,11 +94,10 @@ fn validate_create_entry(
     let action = single_create_action(plan)?;
     validate_create(&order, &action)?;
 
-    let proxy_lock_hash = expected_proxy_lock_hash(current_type_hash);
-    if !has_nft_proxy_output(order.offered_nft_type_hash, proxy_lock_hash)? {
-        return Err(Error::InvalidCobuild);
-    }
-    Ok(())
+    crate::settlement::ensure_create_nft_proxy_output(
+        current_type_hash,
+        order.offered_nft_type_hash,
+    )
 }
 
 fn single_group_order(source: Source) -> Result<crate::types::OrderState, Error> {
@@ -131,15 +127,6 @@ fn validate_order_type_id() -> Result<(), Error> {
     Ok(())
 }
 
-fn expected_proxy_lock_hash(order_type_hash: [u8; 32]) -> [u8; 32] {
-    let script = Script::new_builder()
-        .code_hash(crate::generated_proxy_lock::INPUT_TYPE_PROXY_LOCK_CODE_HASH.pack())
-        .hash_type(ckb_std::ckb_types::packed::Byte::new(4))
-        .args(Bytes::copy_from_slice(&order_type_hash).pack())
-        .build();
-    script.calc_script_hash().unpack()
-}
-
 fn single_create_action(plan: &TypeValidationPlan) -> Result<CreateOrderAction, Error> {
     if plan.related_actions.len() != 1 {
         return Err(Error::InvalidCobuild);
@@ -149,26 +136,6 @@ fn single_create_action(plan: &TypeValidationPlan) -> Result<CreateOrderAction, 
         return Err(Error::UnsupportedAction);
     };
     Ok(action)
-}
-
-fn has_nft_proxy_output(
-    offered_nft_type_hash: [u8; 32],
-    proxy_lock_hash: [u8; 32],
-) -> Result<bool, Error> {
-    let output_count = QueryIter::new(load_cell_data, Source::Output).count();
-    for index in 0..output_count {
-        let lock_hash = load_cell_lock_hash(index, Source::Output)?;
-        if lock_hash != proxy_lock_hash {
-            continue;
-        }
-        let Some(type_hash) = load_cell_type_hash(index, Source::Output)? else {
-            continue;
-        };
-        if type_hash == offered_nft_type_hash {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 pub fn otx_fill_layout(
@@ -191,42 +158,12 @@ pub fn otx_fill_layout(
     Ok((*otx_index, *layout))
 }
 
-fn output_index_in_otx_outputs(
+pub(crate) fn output_index_in_otx_outputs(
     layout: OtxMessageLayout,
     output_index: usize,
 ) -> Result<bool, Error> {
     Ok(range_contains(layout.base_outputs, output_index)?
         || range_contains(layout.append_outputs, output_index)?)
-}
-
-fn has_nft_delivery_output(
-    layout: OtxMessageLayout,
-    buyer_lock_hash: [u8; 32],
-    offered_nft_type_hash: [u8; 32],
-) -> Result<bool, Error> {
-    for range in [layout.base_outputs, layout.append_outputs] {
-        let end = range
-            .start
-            .checked_add(range.count)
-            .ok_or(Error::InvalidCobuild)?;
-        for index in range.start..end {
-            let lock_hash = load_cell_lock_hash(index, Source::Output)?;
-            let type_hash = load_cell_type_hash(index, Source::Output)?;
-            if nft_delivery_matches(lock_hash, type_hash, buyer_lock_hash, offered_nft_type_hash) {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
-}
-
-fn nft_delivery_matches(
-    lock_hash: [u8; 32],
-    type_hash: Option<[u8; 32]>,
-    buyer_lock_hash: [u8; 32],
-    offered_nft_type_hash: [u8; 32],
-) -> bool {
-    lock_hash == buyer_lock_hash && type_hash == Some(offered_nft_type_hash)
 }
 
 fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
@@ -235,15 +172,6 @@ fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
         .checked_add(range.count)
         .ok_or(Error::InvalidCobuild)?;
     Ok(index >= range.start && index < end)
-}
-
-fn load_udt_payment_output(index: usize) -> Result<SettlementCell, Error> {
-    let data = load_cell_data(index, Source::Output)?;
-    let lock_hash = load_cell_lock_hash(index, Source::Output)?;
-    let Some(type_hash) = load_cell_type_hash(index, Source::Output)? else {
-        return Err(Error::InsufficientPayment);
-    };
-    parse_udt_payment(lock_hash, type_hash, &data)
 }
 
 fn ensure_unique_payment_output_indexes(
@@ -369,37 +297,6 @@ mod tests {
     }
 
     #[test]
-    fn nft_delivery_match_accepts_buyer_lock_and_offered_nft_type() {
-        assert!(nft_delivery_matches(
-            [7; 32],
-            Some([8; 32]),
-            [7; 32],
-            [8; 32]
-        ));
-    }
-
-    #[test]
-    fn nft_delivery_match_rejects_wrong_buyer_lock() {
-        assert!(!nft_delivery_matches(
-            [6; 32],
-            Some([8; 32]),
-            [7; 32],
-            [8; 32]
-        ));
-    }
-
-    #[test]
-    fn nft_delivery_match_rejects_wrong_or_missing_nft_type() {
-        assert!(!nft_delivery_matches(
-            [7; 32],
-            Some([9; 32]),
-            [7; 32],
-            [8; 32]
-        ));
-        assert!(!nft_delivery_matches([7; 32], None, [7; 32], [8; 32]));
-    }
-
-    #[test]
     fn otx_fill_context_rejects_tx_level_action() {
         let origin = ActionOrigin::TxLevel { witness_index: 0 };
 
@@ -464,14 +361,6 @@ mod tests {
             Error::TypeId
         );
         assert_eq!(i8::from(Error::TypeId), 14);
-    }
-
-    #[test]
-    fn expected_proxy_lock_hash_changes_with_order_type_hash() {
-        let first = expected_proxy_lock_hash([1; 32]);
-        let second = expected_proxy_lock_hash([2; 32]);
-
-        assert_ne!(first, second);
     }
 
     #[test]
