@@ -929,7 +929,7 @@ Green: `cargo test -p limit-order-lock --offline` -> PASS: 19 unit tests passed,
 Green: `make -e -C tests/contracts/limit-order-lock build MODE=debug TOP=/home/xcshuan/contracts/ckb/cobuild-otx-contracts BUILD_DIR=build/debug CARGO_ARGS=--offline` -> PASS: debug RISC-V `limit-order-lock` built and copied to `build/debug`.
 Green: `cargo test -p tests --test limit_order_lock --offline` -> PASS: 19 integration tests passed, 0 failed.
 Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 5 owned files. Removed lock scan/sum collection and temporary `BoundPayment` compatibility trait, retained `CobuildContext`, called `otx_actions`, and bound Fill validation to exactly the indexed base/append payment output without duplicate same-OTX checks.
-Commit: pending `fix: bind lock orders to payment output`.
+Commit: `d78d8ac` `fix: bind lock orders to payment output`.
 
 - [ ] **Step 1: Write failing integration and range tests**
 
