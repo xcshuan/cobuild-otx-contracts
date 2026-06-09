@@ -42,7 +42,7 @@ mod tests {
             owner_lock_hash: [2; 32],
             offered_nft_type_hash: [3; 32],
             requested_asset_id: [4; 32],
-            min_requested_amount: 30,
+            requested_amount: 30,
         };
 
         let data = order_data(order);
@@ -62,9 +62,8 @@ mod tests {
     fn limit_order_fixture_encodes_fill_action_and_default_otx_layout() {
         let message = LimitOrderCobuildMessageExt::limit_order_fill(
             CobuildMessageBuilder::new().input_type_action([9; 32]),
-            [4; 32],
-            30,
             0,
+            [4; 32],
         )
         .build();
 

@@ -68,6 +68,8 @@ Modify:
   - Add missing/wrong NFT delivery fixture cases.
 - `tests/src/fixtures/limit_order/lock_nft_for_udt.rs`
   - Same fixture updates for lock and mixed cases.
+- `tests/src/framework/mod.rs`
+  - Minimal unit-test sync for the renamed order field and new Fill action helper signature.
 - `tests/tests/limit_order_type.rs`
   - Add assertions for missing/wrong NFT delivery and keep payment binding coverage.
 - `tests/tests/limit_order_lock.rs`
@@ -595,9 +597,9 @@ git commit -m "feat: require lock order nft delivery"
 - Modify: `docs/superpowers/plans/2026-06-09-limit-order-nft-delivery-binding-plan.md`
 
 **Red/Green Record:**
-Red: pending
-Green: pending
-Review: pending
+Red: `git status --short` -> clean; `cargo test -p tests --lib --offline` -> PASS unexpectedly: 24 library tests passed because stale scenario modules are gated behind `#[cfg(not(test))]`.
+Green: `cargo test -p tests --lib --offline` -> PASS after fixture migration and minimal `tests/src/framework/mod.rs` unit-test sync: 24 passed, 0 failed.
+Review: `git diff --check` -> PASS; diff reviewed and limited to fixture ABI/name migration plus framework unit-test sync.
 Commit: pending
 
 - [ ] **Step 1: Write failing fixture compilation target**

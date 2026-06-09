@@ -31,8 +31,6 @@ pub enum NftForUdtPaymentCase {
 pub enum FillActionCase {
     TxLevelFillOrder,
     OutputTypeTarget,
-    RequestedAssetMismatch,
-    MinRequestedBelowRequired,
     NoRelatedAction,
     MultipleRelatedActions,
     OrderTypeOnlyInAppendInputRelation,
@@ -139,14 +137,14 @@ fn limit_order_two_type_orders_case(case: FillActionCase) -> (CobuildTestFixture
         .owner(owner_lock.clone())
         .offered_nft_type_hash(nft_a.script_hash)
         .requested_asset_id(udt.script_hash)
-        .min_requested_amount(30)
+        .requested_amount(30)
         .build_input(&order_type_a);
     let order_input_b = fixture
         .limit_order()
         .owner(owner_lock.clone())
         .offered_nft_type_hash(nft_b.script_hash)
         .requested_asset_id(udt.script_hash)
-        .min_requested_amount(30)
+        .requested_amount(30)
         .build_input(&order_type_b);
     let nft_payload_a = nft_data(b"type-order-a", [1, 2, 3, 4], 1_717_171_717);
     let nft_payload_b = nft_data(b"type-order-b", [5, 6, 7, 8], 1_717_171_718);
@@ -178,7 +176,7 @@ fn limit_order_two_type_orders_case(case: FillActionCase) -> (CobuildTestFixture
         nft_payload_a,
     );
     let nft_output_b = TestCellOutput::new(
-        typed_output(buyer_lock, nft_b.script.clone(), 90_000_000_000),
+        typed_output(buyer_lock.clone(), nft_b.script.clone(), 90_000_000_000),
         nft_payload_b,
     );
     let payment_output_a = TestCellOutput::new(
@@ -199,12 +197,12 @@ fn limit_order_two_type_orders_case(case: FillActionCase) -> (CobuildTestFixture
         .push_action(
             1,
             order_type_hash_a,
-            fill_action_data(udt.script_hash, 30, 2),
+            fill_action_data(2, script_hash(&buyer_lock)),
         )
         .push_action(
             1,
             order_type_hash_b,
-            fill_action_data(udt.script_hash, 30, second_payment_index),
+            fill_action_data(second_payment_index, script_hash(&buyer_lock)),
         )
         .build();
     let otx = fixture
@@ -306,7 +304,7 @@ fn limit_order_nft_for_udt_scenario(
         .owner(owner_lock.clone())
         .offered_nft_type_hash(nft.script_hash)
         .requested_asset_id(udt.script_hash)
-        .min_requested_amount(30)
+        .requested_amount(30)
         .build_input(&limit_order.script);
     let nft_input = live_input(
         fixture.context_mut(),
@@ -327,7 +325,7 @@ fn limit_order_nft_for_udt_scenario(
         udt_amount_data(30),
     );
     let nft_output = TestCellOutput::new(
-        typed_output(buyer_lock, nft.script.clone(), 90_000_000_000),
+        typed_output(buyer_lock.clone(), nft.script.clone(), 90_000_000_000),
         nft_payload,
     );
     let udt_payment_output = TestCellOutput::new(
@@ -350,23 +348,14 @@ fn limit_order_nft_for_udt_scenario(
         }
         _ => fixture.cobuild().input_type_action(limit_order.script_hash),
     };
-    let action_requested_asset = match scenario.action_case {
-        Some(FillActionCase::RequestedAssetMismatch) => wrong_udt.script_hash,
-        _ => udt.script_hash,
-    };
-    let action_requested_amount = match scenario.action_case {
-        Some(FillActionCase::MinRequestedBelowRequired) => 29,
-        _ => 30,
-    };
     let payment_output_index = match scenario.action_case {
         Some(FillActionCase::PaymentInAnotherOtx | FillActionCase::PaymentOutputOutOfRange) => 2,
         _ => 1,
     };
     let fill_order_message = LimitOrderCobuildMessageExt::limit_order_fill(
         action_target,
-        action_requested_asset,
-        action_requested_amount,
         payment_output_index,
+        script_hash(&buyer_lock),
     )
     .build();
     let otx_message = if scenario.action_case == Some(FillActionCase::TxLevelFillOrder) {
@@ -483,13 +472,13 @@ pub fn limit_order_create_nft_order_case_with(
         owner_lock_hash: script_hash(&owner_lock),
         offered_nft_type_hash: nft.script_hash,
         requested_asset_id: udt.script_hash,
-        min_requested_amount: 30,
+        requested_amount: 30,
     };
     let action_state = LimitOrderState {
-        min_requested_amount: if case == CreateOrderCase::StateActionMismatch {
+        requested_amount: if case == CreateOrderCase::StateActionMismatch {
             31
         } else {
-            order_state.min_requested_amount
+            order_state.requested_amount
         },
         ..order_state
     };
@@ -604,15 +593,10 @@ fn udt_amount_data(amount: u128) -> Vec<u8> {
     amount.to_le_bytes().to_vec()
 }
 
-fn fill_action_data(
-    requested_asset_id: [u8; 32],
-    amount: u64,
-    payment_output_index: u32,
-) -> Vec<u8> {
-    let mut data = Vec::with_capacity(45);
+fn fill_action_data(payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Vec<u8> {
+    let mut data = Vec::with_capacity(37);
     data.push(super::FILL_ORDER_TAG);
-    data.extend_from_slice(&requested_asset_id);
-    data.extend_from_slice(&amount.to_le_bytes());
     data.extend_from_slice(&payment_output_index.to_le_bytes());
+    data.extend_from_slice(&buyer_lock_hash);
     data
 }

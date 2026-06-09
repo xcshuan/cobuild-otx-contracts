@@ -21,8 +21,6 @@ pub enum LimitOrderLockFillCase {
     TxLevelFillOrder,
     WrongActionTarget,
     OrderInputInAppendScope,
-    RequestedAssetMismatch,
-    MinRequestedBelowRequired,
     InsufficientUdt,
     WrongUdt,
     WrongOwner,
@@ -43,7 +41,7 @@ struct LockOrder {
     owner_lock_hash: [u8; 32],
     offered_nft_type_hash: [u8; 32],
     requested_asset_id: [u8; 32],
-    min_requested_amount: u64,
+    requested_amount: u64,
 }
 
 pub fn limit_order_lock_nft_for_udt_case() -> (CobuildTestFixture, TransactionView) {
@@ -70,14 +68,14 @@ pub fn mixed_limit_order_type_lock_duplicate_payment_case() -> (CobuildTestFixtu
         .owner(owner_lock.clone())
         .offered_nft_type_hash(nft.script_hash)
         .requested_asset_id(udt.script_hash)
-        .min_requested_amount(30)
+        .requested_amount(30)
         .build_input(&limit_order_type.script);
 
     let lock_order = LockOrder {
         owner_lock_hash: script_hash(&owner_lock),
         offered_nft_type_hash: lock_nft.script_hash,
         requested_asset_id: udt.script_hash,
-        min_requested_amount: 30,
+        requested_amount: 30,
     };
     let order_lock = fixture
         .context_mut()
@@ -115,7 +113,7 @@ pub fn mixed_limit_order_type_lock_duplicate_payment_case() -> (CobuildTestFixtu
         type_nft_payload,
     );
     let lock_nft_output = TestCellOutput::new(
-        typed_output(buyer_lock, lock_nft.script.clone(), 90_000_000_000),
+        typed_output(buyer_lock.clone(), lock_nft.script.clone(), 90_000_000_000),
         lock_nft_payload,
     );
     let payment_output = TestCellOutput::new(
@@ -128,12 +126,12 @@ pub fn mixed_limit_order_type_lock_duplicate_payment_case() -> (CobuildTestFixtu
         .push_action(
             1,
             limit_order_type.script_hash,
-            fill_action_data(udt.script_hash, 30, shared_payment_output_index),
+            fill_action_data(shared_payment_output_index, script_hash(&buyer_lock)),
         )
         .push_action(
             0,
             order_lock_hash,
-            fill_action_data(udt.script_hash, 30, shared_payment_output_index),
+            fill_action_data(shared_payment_output_index, script_hash(&buyer_lock)),
         )
         .build();
     let otx = fixture
@@ -228,7 +226,7 @@ pub fn limit_order_lock_nft_for_udt_case_with(
         owner_lock_hash: script_hash(&owner_lock),
         offered_nft_type_hash: nft.script_hash,
         requested_asset_id: udt.script_hash,
-        min_requested_amount: 30,
+        requested_amount: 30,
     };
     let mut order_lock_args = lock_args(order);
     if case == LimitOrderLockFillCase::MalformedArgs {
@@ -264,7 +262,7 @@ pub fn limit_order_lock_nft_for_udt_case_with(
         udt_amount_data(30),
     );
     let nft_output = TestCellOutput::new(
-        typed_output(buyer_lock, input_nft.script.clone(), 90_000_000_000),
+        typed_output(buyer_lock.clone(), input_nft.script.clone(), 90_000_000_000),
         nft_payload.clone(),
     );
     let udt_payment_output = TestCellOutput::new(
@@ -314,16 +312,6 @@ pub fn limit_order_lock_nft_for_udt_case_with(
     } else {
         order_lock_hash
     };
-    let action_requested_asset = if case == LimitOrderLockFillCase::RequestedAssetMismatch {
-        wrong_udt.script_hash
-    } else {
-        udt.script_hash
-    };
-    let action_requested_amount = if case == LimitOrderLockFillCase::MinRequestedBelowRequired {
-        29
-    } else {
-        30
-    };
     let payment_output_index = match case {
         LimitOrderLockFillCase::PaymentInAnotherOtx
         | LimitOrderLockFillCase::PaymentOutputOutOfRange => 2,
@@ -334,9 +322,8 @@ pub fn limit_order_lock_nft_for_udt_case_with(
         .input_lock_action(action_target)
         .action_data(action_data(
             case,
-            action_requested_asset,
-            action_requested_amount,
             payment_output_index,
+            script_hash(&buyer_lock),
         ))
         .build();
     let otx_message = if case == LimitOrderLockFillCase::TxLevelFillOrder {
@@ -436,7 +423,7 @@ fn limit_order_two_lock_orders_case(
         owner_lock_hash: script_hash(&owner_lock),
         offered_nft_type_hash: nft_a.script_hash,
         requested_asset_id: udt.script_hash,
-        min_requested_amount: 30,
+        requested_amount: 30,
     };
     let order_b = LockOrder {
         offered_nft_type_hash: nft_b.script_hash,
@@ -483,7 +470,7 @@ fn limit_order_two_lock_orders_case(
         nft_payload_a,
     );
     let nft_output_b = TestCellOutput::new(
-        typed_output(buyer_lock, nft_b.script.clone(), 90_000_000_000),
+        typed_output(buyer_lock.clone(), nft_b.script.clone(), 90_000_000_000),
         nft_payload_b,
     );
     let payment_output_a = TestCellOutput::new(
@@ -504,12 +491,12 @@ fn limit_order_two_lock_orders_case(
         .push_action(
             0,
             order_lock_hash_a,
-            fill_action_data(udt.script_hash, 30, 2),
+            fill_action_data(2, script_hash(&buyer_lock)),
         )
         .push_action(
             0,
             order_lock_hash_b,
-            fill_action_data(udt.script_hash, 30, second_payment_index),
+            fill_action_data(second_payment_index, script_hash(&buyer_lock)),
         )
         .build();
     let otx = fixture
@@ -549,36 +536,30 @@ fn limit_order_two_lock_orders_case(
 
 fn action_data(
     case: LimitOrderLockFillCase,
-    requested_asset_id: [u8; 32],
-    amount: u64,
     payment_output_index: u32,
+    buyer_lock_hash: [u8; 32],
 ) -> Vec<u8> {
     match case {
         LimitOrderLockFillCase::UnknownActionTag => {
-            let mut data = Vec::with_capacity(45);
+            let mut data = Vec::with_capacity(37);
             data.push(1);
-            data.extend_from_slice(&[0u8; 44]);
+            data.extend_from_slice(&[0u8; 36]);
             data
         }
         LimitOrderLockFillCase::MalformedAction => {
-            let mut data = fill_action_data(requested_asset_id, amount, payment_output_index);
+            let mut data = fill_action_data(payment_output_index, buyer_lock_hash);
             data.pop();
             data
         }
-        _ => fill_action_data(requested_asset_id, amount, payment_output_index),
+        _ => fill_action_data(payment_output_index, buyer_lock_hash),
     }
 }
 
-fn fill_action_data(
-    requested_asset_id: [u8; 32],
-    amount: u64,
-    payment_output_index: u32,
-) -> Vec<u8> {
-    let mut data = Vec::with_capacity(45);
+fn fill_action_data(payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Vec<u8> {
+    let mut data = Vec::with_capacity(37);
     data.push(FILL_ORDER_TAG);
-    data.extend_from_slice(&requested_asset_id);
-    data.extend_from_slice(&amount.to_le_bytes());
     data.extend_from_slice(&payment_output_index.to_le_bytes());
+    data.extend_from_slice(&buyer_lock_hash);
     data
 }
 
@@ -587,7 +568,7 @@ fn lock_args(order: LockOrder) -> Vec<u8> {
     data.extend_from_slice(&order.owner_lock_hash);
     data.extend_from_slice(&order.offered_nft_type_hash);
     data.extend_from_slice(&order.requested_asset_id);
-    data.extend_from_slice(&order.min_requested_amount.to_le_bytes());
+    data.extend_from_slice(&order.requested_amount.to_le_bytes());
     data
 }
 

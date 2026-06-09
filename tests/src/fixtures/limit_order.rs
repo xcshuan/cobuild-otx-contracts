@@ -43,7 +43,7 @@ pub struct LimitOrderState {
     pub owner_lock_hash: [u8; 32],
     pub offered_nft_type_hash: [u8; 32],
     pub requested_asset_id: [u8; 32],
-    pub min_requested_amount: u64,
+    pub requested_amount: u64,
 }
 
 pub fn order_data(order: LimitOrderState) -> Vec<u8> {
@@ -51,7 +51,7 @@ pub fn order_data(order: LimitOrderState) -> Vec<u8> {
     data.extend_from_slice(&order.owner_lock_hash);
     data.extend_from_slice(&order.offered_nft_type_hash);
     data.extend_from_slice(&order.requested_asset_id);
-    data.extend_from_slice(&order.min_requested_amount.to_le_bytes());
+    data.extend_from_slice(&order.requested_amount.to_le_bytes());
     data
 }
 
@@ -61,7 +61,7 @@ pub fn create_order_action_data(order: LimitOrderState) -> Vec<u8> {
     data.extend_from_slice(&order.owner_lock_hash);
     data.extend_from_slice(&order.offered_nft_type_hash);
     data.extend_from_slice(&order.requested_asset_id);
-    data.extend_from_slice(&order.min_requested_amount.to_le_bytes());
+    data.extend_from_slice(&order.requested_amount.to_le_bytes());
     data
 }
 
@@ -84,11 +84,11 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
         .owner(owner_lock.clone())
         .offered_nft_type_hash(OFFERED_ASSET_ID)
         .requested_asset_id(REQUESTED_ASSET_ID)
-        .min_requested_amount(30)
+        .requested_amount(30)
         .build_input(&limit_order.script);
 
     let settlement_output = LimitOrderBuilder::settlement_output(
-        owner_lock,
+        owner_lock.clone(),
         REQUESTED_ASSET_ID,
         settlement_amount,
         90_000_000_000,
@@ -96,9 +96,8 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
 
     let message = LimitOrderCobuildMessageExt::limit_order_fill(
         fixture.cobuild().input_type_action(limit_order.script_hash),
-        REQUESTED_ASSET_ID,
-        30,
         0,
+        script_hash(&owner_lock),
     )
     .build();
     let otx = fixture
@@ -131,12 +130,7 @@ pub fn failed_txs_count() -> usize {
 
 pub trait LimitOrderCobuildMessageExt {
     fn limit_order_create(self, order: LimitOrderState) -> Self;
-    fn limit_order_fill(
-        self,
-        requested_asset_id: [u8; 32],
-        min_requested_amount: u64,
-        payment_output_index: u32,
-    ) -> Self;
+    fn limit_order_fill(self, payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Self;
 }
 
 impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
@@ -144,17 +138,11 @@ impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
         self.action_data(create_order_action_data(order))
     }
 
-    fn limit_order_fill(
-        self,
-        requested_asset_id: [u8; 32],
-        min_requested_amount: u64,
-        payment_output_index: u32,
-    ) -> Self {
-        let mut data = Vec::with_capacity(45);
+    fn limit_order_fill(self, payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Self {
+        let mut data = Vec::with_capacity(37);
         data.push(FILL_ORDER_TAG);
-        data.extend_from_slice(&requested_asset_id);
-        data.extend_from_slice(&min_requested_amount.to_le_bytes());
         data.extend_from_slice(&payment_output_index.to_le_bytes());
+        data.extend_from_slice(&buyer_lock_hash);
         self.action_data(data)
     }
 }
@@ -187,7 +175,7 @@ pub struct LimitOrderBuilder<'a> {
     owner: Option<Script>,
     offered_nft_type_hash: [u8; 32],
     requested_asset_id: [u8; 32],
-    min_requested_amount: u64,
+    requested_amount: u64,
     capacity: u64,
 }
 
@@ -198,7 +186,7 @@ impl<'a> LimitOrderBuilder<'a> {
             owner: None,
             offered_nft_type_hash: [3; 32],
             requested_asset_id: [4; 32],
-            min_requested_amount: 30,
+            requested_amount: 30,
             capacity: 100_000_000_000,
         }
     }
@@ -218,8 +206,8 @@ impl<'a> LimitOrderBuilder<'a> {
         self
     }
 
-    pub fn min_requested_amount(mut self, amount: u64) -> Self {
-        self.min_requested_amount = amount;
+    pub fn requested_amount(mut self, amount: u64) -> Self {
+        self.requested_amount = amount;
         self
     }
 
@@ -231,7 +219,7 @@ impl<'a> LimitOrderBuilder<'a> {
             owner_lock_hash,
             offered_nft_type_hash: self.offered_nft_type_hash,
             requested_asset_id: self.requested_asset_id,
-            min_requested_amount: self.min_requested_amount,
+            requested_amount: self.requested_amount,
         });
         live_input(self.context, output, data)
     }
