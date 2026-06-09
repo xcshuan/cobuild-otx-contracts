@@ -693,7 +693,7 @@ git commit -m "test: migrate limit order fixtures to buyer delivery action"
 Red: `cargo test -p tests --test limit_order_type --offline` -> FAIL as expected after rebuilding current debug contract artifacts: 22 passed, 4 failed; the three new buyer NFT delivery tests passed unexpectedly because fixture variants still emitted the valid buyer NFT output.
 Green: `cargo test -p tests --test limit_order_type --offline` -> PASS: 26 passed, 0 failed.
 Review: `git diff --check` -> PASS; diff reviewed and limited to type NFT delivery fixture cases/tests plus this Task 6 record.
-Commit: pending
+Commit: `99bbcb7` test: cover type order nft delivery
 
 - [ ] **Step 1: Write failing integration tests**
 
