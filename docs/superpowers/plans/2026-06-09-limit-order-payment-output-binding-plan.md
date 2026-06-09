@@ -1102,7 +1102,7 @@ Green: `cargo test -p limit-order-lock --offline` -> PASS: 21 unit tests passed,
 Green: `cargo test -p tests --test limit_order_type --offline` -> PASS: 25 integration tests passed, 0 failed.
 Green: `cargo test -p tests --test limit_order_lock --offline` -> PASS: 21 integration tests passed, 0 failed.
 Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 6 owned files after restoring the generated proxy-lock hash build artifact. Rebuilt `limit-order-type` and `limit-order-lock` debug contracts before integration verification so tests loaded the updated entry code.
-Commit: pending `fix: reject duplicate limit order payments`.
+Commit: `287428e` `fix: reject duplicate limit order payments`.
 
 - [ ] **Step 1: Write failing duplicate helper and integration tests**
 
