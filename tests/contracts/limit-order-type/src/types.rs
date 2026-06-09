@@ -1,4 +1,5 @@
 use crate::error::Error;
+use alloc::vec::Vec;
 
 pub const ORDER_DATA_LEN: usize = 104;
 pub const SETTLEMENT_DATA_LEN: usize = 40;
@@ -6,7 +7,7 @@ pub const UDT_PAYMENT_DATA_LEN: usize = 16;
 pub const CREATE_ORDER_TAG: u8 = 1;
 pub const FILL_ORDER_TAG: u8 = 2;
 const CREATE_ORDER_DATA_LEN: usize = 105;
-const FILL_ORDER_DATA_LEN: usize = 41;
+const FILL_ORDER_DATA_LEN: usize = 45;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OrderState {
@@ -35,12 +36,38 @@ pub struct CreateOrderAction {
 pub struct FillOrderAction {
     pub requested_asset_id: [u8; 32],
     pub min_requested_amount: u64,
+    pub payment_output_index: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LimitOrderAction {
     Create(CreateOrderAction),
     Fill(FillOrderAction),
+}
+
+pub trait BoundPayment {
+    fn bound_payment(self) -> Result<SettlementCell, Error>;
+}
+
+impl BoundPayment for SettlementCell {
+    fn bound_payment(self) -> Result<SettlementCell, Error> {
+        Ok(self)
+    }
+}
+
+impl BoundPayment for &[SettlementCell] {
+    fn bound_payment(self) -> Result<SettlementCell, Error> {
+        match self {
+            [payment] => Ok(*payment),
+            _ => Err(Error::InsufficientPayment),
+        }
+    }
+}
+
+impl BoundPayment for &Vec<SettlementCell> {
+    fn bound_payment(self) -> Result<SettlementCell, Error> {
+        self.as_slice().bound_payment()
+    }
 }
 
 pub fn parse_order_state(data: &[u8]) -> Result<OrderState, Error> {
@@ -120,6 +147,7 @@ pub fn parse_fill_order_action(data: &[u8]) -> Result<FillOrderAction, Error> {
     Ok(FillOrderAction {
         requested_asset_id: read_bytes32(data, 1),
         min_requested_amount: read_u64(data, 33),
+        payment_output_index: read_u32(data, 41),
     })
 }
 
@@ -137,7 +165,7 @@ pub fn validate_create(order: &OrderState, action: &CreateOrderAction) -> Result
 pub fn validate_fill(
     order: &OrderState,
     action: &FillOrderAction,
-    settlements: &[SettlementCell],
+    payment: impl BoundPayment,
 ) -> Result<(), Error> {
     if action.requested_asset_id != order.requested_asset_id {
         return Err(Error::ActionMismatch);
@@ -147,18 +175,11 @@ pub fn validate_fill(
         return Err(Error::InsufficientPayment);
     }
 
-    let paid = settlements.iter().try_fold(0u64, |paid, settlement| {
-        if settlement.owner_lock_hash == order.owner_lock_hash
-            && settlement.asset_id == order.requested_asset_id
-        {
-            paid.checked_add(settlement.amount)
-                .ok_or(Error::AmountOverflow)
-        } else {
-            Ok(paid)
-        }
-    })?;
-
-    if paid < action.min_requested_amount {
+    let payment = payment.bound_payment()?;
+    if payment.owner_lock_hash != order.owner_lock_hash
+        || payment.asset_id != order.requested_asset_id
+        || payment.amount < action.min_requested_amount
+    {
         return Err(Error::InsufficientPayment);
     }
 
@@ -175,6 +196,12 @@ fn read_u64(data: &[u8], offset: usize) -> u64 {
     let mut out = [0u8; 8];
     out.copy_from_slice(&data[offset..offset + 8]);
     u64::from_le_bytes(out)
+}
+
+fn read_u32(data: &[u8], offset: usize) -> u32 {
+    let mut out = [0u8; 4];
+    out.copy_from_slice(&data[offset..offset + 4]);
+    u32::from_le_bytes(out)
 }
 
 fn read_u128_as_u64(data: &[u8], offset: usize) -> Result<u64, Error> {
@@ -211,11 +238,12 @@ mod tests {
         data
     }
 
-    fn fill_action_data(min_requested_amount: u64) -> Vec<u8> {
+    fn fill_action_data(min_requested_amount: u64, payment_output_index: u32) -> Vec<u8> {
         let mut data = Vec::new();
         data.push(FILL_ORDER_TAG);
         data.extend_from_slice(&REQUESTED_ASSET_ID);
         data.extend_from_slice(&min_requested_amount.to_le_bytes());
+        data.extend_from_slice(&payment_output_index.to_le_bytes());
         data
     }
 
@@ -227,8 +255,12 @@ mod tests {
         parse_create_order_action(&create_action_data(min_requested_amount)).expect("create action")
     }
 
-    fn fill_action(min_requested_amount: u64) -> FillOrderAction {
-        parse_fill_order_action(&fill_action_data(min_requested_amount)).expect("fill action")
+    fn fill_action(min_requested_amount: u64, payment_output_index: u32) -> FillOrderAction {
+        parse_fill_order_action(&fill_action_data(
+            min_requested_amount,
+            payment_output_index,
+        ))
+        .expect("fill action")
     }
 
     fn settlement(owner_lock_hash: [u8; 32], asset_id: [u8; 32], amount: u64) -> SettlementCell {
@@ -288,20 +320,49 @@ mod tests {
 
     #[test]
     fn parse_fill_order_action_reads_requested_asset_and_amount() {
-        let action = parse_limit_order_action(&fill_action_data(30)).expect("fill action");
+        let action = parse_limit_order_action(&fill_action_data(30, 1)).expect("fill action");
 
         assert_eq!(
             action,
             LimitOrderAction::Fill(FillOrderAction {
                 requested_asset_id: REQUESTED_ASSET_ID,
                 min_requested_amount: 30,
+                payment_output_index: 1,
             })
         );
     }
 
     #[test]
+    fn parse_fill_order_action_reads_payment_output_index_little_endian() {
+        let action = parse_limit_order_action(&fill_action_data(30, 0x0403_0201))
+            .expect("fill action");
+
+        assert_eq!(
+            action,
+            LimitOrderAction::Fill(FillOrderAction {
+                requested_asset_id: REQUESTED_ASSET_ID,
+                min_requested_amount: 30,
+                payment_output_index: 0x0403_0201,
+            })
+        );
+    }
+
+    #[test]
+    fn parse_fill_order_action_rejects_legacy_41_byte_payload() {
+        let mut data = Vec::new();
+        data.push(FILL_ORDER_TAG);
+        data.extend_from_slice(&REQUESTED_ASSET_ID);
+        data.extend_from_slice(&30u64.to_le_bytes());
+
+        assert_eq!(
+            parse_limit_order_action(&data).unwrap_err(),
+            Error::InvalidActionData
+        );
+    }
+
+    #[test]
     fn parse_fill_order_action_rejects_unknown_variant() {
-        let mut data = fill_action_data(30);
+        let mut data = fill_action_data(30, 1);
         data[0] = 99;
 
         assert_eq!(
@@ -346,97 +407,92 @@ mod tests {
     }
 
     #[test]
-    fn validate_fill_accepts_exact_owner_payment() {
-        let settlements = [settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30)];
+    fn validate_fill_accepts_bound_payment() {
+        let payment = settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30);
 
         assert_eq!(
-            validate_fill(&order_state(30), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30, 1), payment),
             Ok(())
         );
     }
 
     #[test]
     fn validate_fill_accepts_owner_overpayment() {
-        let settlements = [settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 31)];
+        let payment = settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 31);
 
         assert_eq!(
-            validate_fill(&order_state(30), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30, 1), payment),
             Ok(())
         );
     }
 
     #[test]
     fn validate_fill_rejects_insufficient_owner_payment() {
-        let settlements = [settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 29)];
+        let payment = settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 29);
 
         assert_eq!(
-            validate_fill(&order_state(30), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30, 1), payment),
             Err(Error::InsufficientPayment)
         );
     }
 
     #[test]
-    fn validate_fill_rejects_payment_to_wrong_owner() {
-        let settlements = [settlement([9; 32], REQUESTED_ASSET_ID, 30)];
+    fn validate_fill_rejects_bound_payment_to_wrong_owner() {
+        let payment = settlement([9; 32], REQUESTED_ASSET_ID, 30);
 
         assert_eq!(
-            validate_fill(&order_state(30), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30, 1), payment),
             Err(Error::InsufficientPayment)
         );
     }
 
     #[test]
-    fn validate_fill_rejects_payment_with_wrong_asset_id() {
-        let settlements = [settlement(OWNER_LOCK_HASH, [9; 32], 30)];
+    fn validate_fill_rejects_bound_payment_with_wrong_asset_id() {
+        let payment = settlement(OWNER_LOCK_HASH, [9; 32], 30);
 
         assert_eq!(
-            validate_fill(&order_state(30), &fill_action(30), &settlements),
+            validate_fill(&order_state(30), &fill_action(30, 1), payment),
             Err(Error::InsufficientPayment)
         );
     }
 
     #[test]
     fn validate_fill_rejects_action_min_below_order_minimum() {
-        let mut action = fill_action(30);
+        let mut action = fill_action(30, 1);
         action.min_requested_amount = 29;
 
         assert_eq!(
-            validate_fill(&order_state(30), &action, &[]),
+            validate_fill(
+                &order_state(30),
+                &action,
+                settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),
+            ),
             Err(Error::InsufficientPayment)
         );
     }
 
     #[test]
     fn validate_fill_rejects_requested_asset_mismatch() {
-        let mut action = fill_action(30);
+        let mut action = fill_action(30, 1);
         action.requested_asset_id = [9; 32];
 
         assert_eq!(
-            validate_fill(&order_state(30), &action, &[]),
+            validate_fill(
+                &order_state(30),
+                &action,
+                settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),
+            ),
             Err(Error::ActionMismatch)
         );
     }
 
     #[test]
     fn validate_fill_rejects_action_min_below_required_even_if_paid() {
-        let settlements = [settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30)];
+        let payment = settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30);
 
         assert_eq!(
-            validate_fill(&order_state(30), &fill_action(29), &settlements),
+            validate_fill(&order_state(30), &fill_action(29, 1), payment),
             Err(Error::InsufficientPayment)
-        );
-    }
-
-    #[test]
-    fn validate_fill_rejects_payment_sum_overflow() {
-        let settlements = [
-            settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, u64::MAX),
-            settlement(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 1),
-        ];
-
-        assert_eq!(
-            validate_fill(&order_state(30), &fill_action(30), &settlements),
-            Err(Error::AmountOverflow)
         );
     }
 }
