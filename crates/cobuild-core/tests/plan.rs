@@ -1,5 +1,4 @@
 use cobuild_core::{
-    error::CoreError,
     layout::{IndexRange, Range},
     plan::{
         ActionOrigin, LockValidationPlan, OtxMessageLayout, OtxTypeRelation, RelatedAction,
@@ -180,15 +179,6 @@ fn otx_message_layout_exposes_combined_ranges_and_relative_indexes() {
             start: 12,
             count: 2
         }
-    );
-
-    assert_eq!(layout.resolve_output_index(0), Ok(10));
-    assert_eq!(layout.resolve_output_index(1), Ok(11));
-    assert_eq!(layout.resolve_output_index(2), Ok(12));
-    assert_eq!(layout.resolve_output_index(3), Ok(13));
-    assert_eq!(
-        layout.resolve_output_index(4),
-        Err(CoreError::InvalidOtxLayout)
     );
 }
 

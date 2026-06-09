@@ -13,7 +13,7 @@ pub fn load_bound_payment(
     layout: OtxMessageLayout,
     payment_output_index: u32,
 ) -> Result<UdtPayment, Error> {
-    let index = layout.resolve_output_index(payment_output_index as usize)?;
+    let index = resolve_output_index(layout, payment_output_index as usize)?;
     load_udt_payment_output(index)
 }
 
@@ -40,6 +40,18 @@ fn load_udt_payment_output(index: usize) -> Result<UdtPayment, Error> {
         asset_id,
         amount: parse_udt_payment(&data)?,
     })
+}
+
+fn resolve_output_index(
+    layout: OtxMessageLayout,
+    relative_output_index: usize,
+) -> Result<usize, Error> {
+    let output_indexes = layout.output_indexes();
+    output_indexes
+        .start
+        .checked_add(relative_output_index)
+        .filter(|index| *index < output_indexes.end)
+        .ok_or(Error::InvalidCobuild)
 }
 
 fn has_nft_delivery_output(
@@ -99,5 +111,25 @@ mod tests {
             [8; 32]
         ));
         assert!(!nft_delivery_matches([7; 32], None, [7; 32], [8; 32]));
+    }
+
+    #[test]
+    fn resolve_output_index_maps_otx_relative_output_index() {
+        let layout = OtxMessageLayout {
+            base_inputs: cobuild_core::layout::Range { start: 0, count: 1 },
+            append_inputs: cobuild_core::layout::Range { start: 1, count: 0 },
+            base_outputs: cobuild_core::layout::Range { start: 4, count: 2 },
+            append_outputs: cobuild_core::layout::Range { start: 6, count: 2 },
+            base_cell_deps: cobuild_core::layout::Range { start: 0, count: 0 },
+            append_cell_deps: cobuild_core::layout::Range { start: 0, count: 0 },
+            base_header_deps: cobuild_core::layout::Range { start: 0, count: 0 },
+            append_header_deps: cobuild_core::layout::Range { start: 0, count: 0 },
+        };
+
+        assert_eq!(resolve_output_index(layout, 0), Ok(4));
+        assert_eq!(resolve_output_index(layout, 1), Ok(5));
+        assert_eq!(resolve_output_index(layout, 2), Ok(6));
+        assert_eq!(resolve_output_index(layout, 3), Ok(7));
+        assert_eq!(resolve_output_index(layout, 4), Err(Error::InvalidCobuild));
     }
 }

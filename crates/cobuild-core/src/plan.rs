@@ -1,7 +1,6 @@
 use alloc::vec::Vec;
 
 use crate::{
-    error::CoreError,
     layout::{IndexRange, Range},
     view::ActionView,
 };
@@ -149,10 +148,6 @@ impl OtxMessageLayout {
     pub fn append_header_deps(&self) -> Range {
         self.append_header_deps
     }
-
-    pub fn resolve_output_index(&self, relative_index: usize) -> Result<usize, CoreError> {
-        resolve_relative_index(self.base_outputs, self.append_outputs, relative_index)
-    }
 }
 
 fn merge_adjacent_ranges(base: Range, append: Range) -> Range {
@@ -164,29 +159,6 @@ fn merge_adjacent_ranges(base: Range, append: Range) -> Range {
             .checked_add(append.count)
             .expect("valid cobuild layout range"),
     }
-}
-
-fn resolve_relative_index(
-    base: Range,
-    append: Range,
-    relative_index: usize,
-) -> Result<usize, CoreError> {
-    if relative_index < base.count {
-        return base
-            .start
-            .checked_add(relative_index)
-            .ok_or(CoreError::InvalidOtxLayout);
-    }
-
-    let append_index = relative_index - base.count;
-    if append_index < append.count {
-        return append
-            .start
-            .checked_add(append_index)
-            .ok_or(CoreError::InvalidOtxLayout);
-    }
-
-    Err(CoreError::InvalidOtxLayout)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
