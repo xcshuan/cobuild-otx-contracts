@@ -28,7 +28,7 @@ use crate::{
     },
 };
 
-const FILL_ORDER_DATA_LEN: usize = 45;
+const FILL_ORDER_DATA_LEN: usize = 37;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OrderMode {
@@ -81,7 +81,7 @@ fn validate_fill_entry(context: &CobuildContext, plan: &TypeValidationPlan) -> R
     }
     let payment = load_udt_payment_output(payment_output_index)?;
 
-    validate_fill(&order, &action, payment)
+    validate_fill(&order, payment)
 }
 
 fn validate_create_entry(
@@ -415,7 +415,7 @@ mod tests {
             owner_lock_hash: [2; 32],
             offered_nft_type_hash: [3; 32],
             requested_asset_id: [4; 32],
-            min_requested_amount: 30,
+            requested_amount: 30,
         });
 
         assert!(matches!(action, crate::types::LimitOrderAction::Create(_)));
@@ -485,9 +485,8 @@ mod tests {
     fn fill_data(payment_output_index: u32) -> Vec<u8> {
         let mut data = Vec::new();
         data.push(crate::types::FILL_ORDER_TAG);
-        data.extend_from_slice(&[4; 32]);
-        data.extend_from_slice(&30u64.to_le_bytes());
         data.extend_from_slice(&payment_output_index.to_le_bytes());
+        data.extend_from_slice(&[9; 32]);
         data
     }
 
