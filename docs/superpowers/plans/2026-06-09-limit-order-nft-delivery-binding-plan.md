@@ -600,7 +600,7 @@ git commit -m "feat: require lock order nft delivery"
 Red: `git status --short` -> clean; `cargo test -p tests --lib --offline` -> PASS unexpectedly: 24 library tests passed because stale scenario modules are gated behind `#[cfg(not(test))]`.
 Green: `cargo test -p tests --lib --offline` -> PASS after fixture migration and minimal `tests/src/framework/mod.rs` unit-test sync: 24 passed, 0 failed.
 Review: `git diff --check` -> PASS; diff reviewed and limited to fixture ABI/name migration plus framework unit-test sync.
-Commit: pending
+Commit: `589751d` test: migrate limit order fixtures to buyer delivery action
 
 - [ ] **Step 1: Write failing fixture compilation target**
 
