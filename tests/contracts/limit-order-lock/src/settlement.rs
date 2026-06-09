@@ -14,7 +14,7 @@ pub fn load_bound_payment(
     payment_output_index: u32,
 ) -> Result<UdtPayment, Error> {
     let index = payment_output_index as usize;
-    if !crate::entry::output_index_in_otx_outputs(layout, index)? {
+    if !crate::otx::output_index_in_otx_outputs(layout, index)? {
         return Err(Error::InvalidCobuild);
     }
     load_udt_payment_output(index)

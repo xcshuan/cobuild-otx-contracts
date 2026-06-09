@@ -11,5 +11,6 @@ extern crate alloc;
 pub mod entry;
 pub mod error;
 pub mod input;
+pub mod otx;
 pub mod settlement;
 pub mod types;
