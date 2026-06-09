@@ -177,6 +177,11 @@ pub fn limit_order_lock_nft_for_udt_case_with(
     } else {
         30
     };
+    let payment_output_index = if case == LimitOrderLockFillCase::PaymentInAnotherOtx {
+        2
+    } else {
+        1
+    };
     let fill_order_message = fixture
         .cobuild()
         .input_lock_action(action_target)
@@ -184,6 +189,7 @@ pub fn limit_order_lock_nft_for_udt_case_with(
             case,
             action_requested_asset,
             action_requested_amount,
+            payment_output_index,
         ))
         .build();
     let otx_message = if case == LimitOrderLockFillCase::TxLevelFillOrder {
@@ -265,28 +271,38 @@ pub fn limit_order_lock_nft_for_udt_case_with(
     (fixture, tx)
 }
 
-fn action_data(case: LimitOrderLockFillCase, requested_asset_id: [u8; 32], amount: u64) -> Vec<u8> {
+fn action_data(
+    case: LimitOrderLockFillCase,
+    requested_asset_id: [u8; 32],
+    amount: u64,
+    payment_output_index: u32,
+) -> Vec<u8> {
     match case {
         LimitOrderLockFillCase::UnknownActionTag => {
-            let mut data = Vec::with_capacity(41);
+            let mut data = Vec::with_capacity(45);
             data.push(1);
-            data.extend_from_slice(&[0u8; 40]);
+            data.extend_from_slice(&[0u8; 44]);
             data
         }
         LimitOrderLockFillCase::MalformedAction => {
-            let mut data = fill_action_data(requested_asset_id, amount);
+            let mut data = fill_action_data(requested_asset_id, amount, payment_output_index);
             data.pop();
             data
         }
-        _ => fill_action_data(requested_asset_id, amount),
+        _ => fill_action_data(requested_asset_id, amount, payment_output_index),
     }
 }
 
-fn fill_action_data(requested_asset_id: [u8; 32], amount: u64) -> Vec<u8> {
-    let mut data = Vec::with_capacity(41);
+fn fill_action_data(
+    requested_asset_id: [u8; 32],
+    amount: u64,
+    payment_output_index: u32,
+) -> Vec<u8> {
+    let mut data = Vec::with_capacity(45);
     data.push(FILL_ORDER_TAG);
     data.extend_from_slice(&requested_asset_id);
     data.extend_from_slice(&amount.to_le_bytes());
+    data.extend_from_slice(&payment_output_index.to_le_bytes());
     data
 }
 

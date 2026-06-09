@@ -94,11 +94,13 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
         90_000_000_000,
     );
 
-    let message = fixture
-        .cobuild()
-        .input_type_action(limit_order.script_hash)
-        .limit_order_fill(REQUESTED_ASSET_ID, 30)
-        .build();
+    let message = LimitOrderCobuildMessageExt::limit_order_fill(
+        fixture.cobuild().input_type_action(limit_order.script_hash),
+        REQUESTED_ASSET_ID,
+        30,
+        0,
+    )
+    .build();
     let otx = fixture
         .limit_order_append_settlement_otx()
         .message(message)
@@ -129,7 +131,27 @@ pub fn failed_txs_count() -> usize {
 
 pub trait LimitOrderCobuildMessageExt {
     fn limit_order_create(self, order: LimitOrderState) -> Self;
-    fn limit_order_fill(self, requested_asset_id: [u8; 32], min_requested_amount: u64) -> Self;
+    fn limit_order_fill(
+        self,
+        requested_asset_id: [u8; 32],
+        min_requested_amount: u64,
+        payment_output_index: u32,
+    ) -> Self;
+}
+
+impl CobuildMessageBuilder {
+    pub fn limit_order_fill(
+        self,
+        requested_asset_id: [u8; 32],
+        min_requested_amount: u64,
+    ) -> Self {
+        LimitOrderCobuildMessageExt::limit_order_fill(
+            self,
+            requested_asset_id,
+            min_requested_amount,
+            0,
+        )
+    }
 }
 
 impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
@@ -137,11 +159,17 @@ impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
         self.action_data(create_order_action_data(order))
     }
 
-    fn limit_order_fill(self, requested_asset_id: [u8; 32], min_requested_amount: u64) -> Self {
-        let mut data = Vec::with_capacity(41);
+    fn limit_order_fill(
+        self,
+        requested_asset_id: [u8; 32],
+        min_requested_amount: u64,
+        payment_output_index: u32,
+    ) -> Self {
+        let mut data = Vec::with_capacity(45);
         data.push(FILL_ORDER_TAG);
         data.extend_from_slice(&requested_asset_id);
         data.extend_from_slice(&min_requested_amount.to_le_bytes());
+        data.extend_from_slice(&payment_output_index.to_le_bytes());
         self.action_data(data)
     }
 }

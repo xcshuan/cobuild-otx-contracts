@@ -506,7 +506,13 @@ git commit -m "test: bind lock fill action to payment index"
 - Modify: `tests/src/framework/cobuild.rs`
 - Modify: `docs/superpowers/plans/2026-06-09-limit-order-payment-output-binding-plan.md`
 
-**Red/Green Record:** Execution agent must replace this line with exact Red, Green, Review, and Commit results.
+**Red/Green Record:**
+Red: `cargo test -p tests --test limit_order_type --offline` -> FAIL as expected at compile: `tests/src/fixtures/limit_order/type_nft_for_udt.rs:200:10` and `tests/src/fixtures/limit_order.rs:100:10` called `.limit_order_fill(asset, amount)` but the trait now requires `payment_output_index: u32`.
+Green: `cargo test -p tests --test limit_order_type --offline` -> COMPILED, then runtime FAIL expected for later entry-binding tasks: 1 passed, 18 failed; failures include type script validation error 7 and expected-exit mismatches after fixtures emit 45-byte fill actions.
+Green: `cargo test -p tests --test limit_order_lock --offline` -> COMPILED, then runtime FAIL expected for later entry-binding tasks: 7 passed, 8 failed; failures include lock script validation error 6 after fixtures emit 45-byte fill actions.
+Green: `cargo test -p tests --lib --offline` -> PASS: 24 passed, 0 failed; warning only for unused `LimitOrderCobuildMessageExt` import in `tests/src/framework/mod.rs`.
+Review: `git diff --check` -> PASS with no output; diff reviewed and limited to Task 3 owned files, preserving single-action message builder behavior while adding `push_action`.
+Commit: pending `test: update limit order fill fixtures`.
 
 - [ ] **Step 1: Write failing fixture compile change**
 

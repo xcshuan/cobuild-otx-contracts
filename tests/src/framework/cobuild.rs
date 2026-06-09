@@ -22,10 +22,18 @@ pub fn seal_pair(
 }
 
 #[derive(Clone, Debug)]
+pub struct CobuildActionSpec {
+    pub script_hash: [u8; 32],
+    pub script_role: u8,
+    pub action_data: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
 pub struct CobuildMessageBuilder {
     script_hash: [u8; 32],
     script_role: u8,
     action_data: Vec<u8>,
+    actions: Vec<CobuildActionSpec>,
 }
 
 impl CobuildMessageBuilder {
@@ -34,6 +42,7 @@ impl CobuildMessageBuilder {
             script_hash: [0; 32],
             script_role: 1,
             action_data: Vec::new(),
+            actions: Vec::new(),
         }
     }
 
@@ -60,16 +69,41 @@ impl CobuildMessageBuilder {
         self
     }
 
-    pub fn build(self) -> CobuildMessage {
-        let action = Action::new_builder()
-            .script_info_hash([0u8; 32])
-            .script_role(self.script_role)
-            .script_hash(self.script_hash)
-            .data(self.action_data)
-            .build();
+    pub fn push_action(
+        mut self,
+        script_role: u8,
+        script_hash: [u8; 32],
+        action_data: Vec<u8>,
+    ) -> Self {
+        self.actions.push(CobuildActionSpec {
+            script_hash,
+            script_role,
+            action_data,
+        });
+        self
+    }
 
+    pub fn build(self) -> CobuildMessage {
+        let actions = if self.actions.is_empty() {
+            vec![CobuildActionSpec {
+                script_hash: self.script_hash,
+                script_role: self.script_role,
+                action_data: self.action_data,
+            }]
+        } else {
+            self.actions
+        }
+        .into_iter()
+        .map(|spec| {
+            Action::new_builder()
+                .script_info_hash([0u8; 32])
+                .script_role(spec.script_role)
+                .script_hash(spec.script_hash)
+                .data(spec.action_data)
+                .build()
+        });
         CobuildMessage::new_builder()
-            .actions(ActionVec::new_builder().push(action).build())
+            .actions(ActionVec::new_builder().extend(actions).build())
             .build()
     }
 }

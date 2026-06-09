@@ -196,9 +196,17 @@ fn limit_order_nft_for_udt_scenario(
         Some(FillActionCase::MinRequestedBelowRequired) => 29,
         _ => 30,
     };
-    let fill_order_message = action_target
-        .limit_order_fill(action_requested_asset, action_requested_amount)
-        .build();
+    let payment_output_index = match scenario.action_case {
+        Some(FillActionCase::PaymentInAnotherOtx) => 2,
+        _ => 1,
+    };
+    let fill_order_message = LimitOrderCobuildMessageExt::limit_order_fill(
+        action_target,
+        action_requested_asset,
+        action_requested_amount,
+        payment_output_index,
+    )
+    .build();
     let otx_message = if scenario.action_case == Some(FillActionCase::TxLevelFillOrder) {
         empty_message()
     } else {
