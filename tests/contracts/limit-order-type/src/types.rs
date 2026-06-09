@@ -1,6 +1,4 @@
 use crate::error::Error;
-use alloc::vec::Vec;
-
 pub const ORDER_DATA_LEN: usize = 104;
 pub const SETTLEMENT_DATA_LEN: usize = 40;
 pub const UDT_PAYMENT_DATA_LEN: usize = 16;
@@ -43,31 +41,6 @@ pub struct FillOrderAction {
 pub enum LimitOrderAction {
     Create(CreateOrderAction),
     Fill(FillOrderAction),
-}
-
-pub trait BoundPayment {
-    fn bound_payment(self) -> Result<SettlementCell, Error>;
-}
-
-impl BoundPayment for SettlementCell {
-    fn bound_payment(self) -> Result<SettlementCell, Error> {
-        Ok(self)
-    }
-}
-
-impl BoundPayment for &[SettlementCell] {
-    fn bound_payment(self) -> Result<SettlementCell, Error> {
-        match self {
-            [payment] => Ok(*payment),
-            _ => Err(Error::InsufficientPayment),
-        }
-    }
-}
-
-impl BoundPayment for &Vec<SettlementCell> {
-    fn bound_payment(self) -> Result<SettlementCell, Error> {
-        self.as_slice().bound_payment()
-    }
 }
 
 pub fn parse_order_state(data: &[u8]) -> Result<OrderState, Error> {
@@ -165,7 +138,7 @@ pub fn validate_create(order: &OrderState, action: &CreateOrderAction) -> Result
 pub fn validate_fill(
     order: &OrderState,
     action: &FillOrderAction,
-    payment: impl BoundPayment,
+    payment: SettlementCell,
 ) -> Result<(), Error> {
     if action.requested_asset_id != order.requested_asset_id {
         return Err(Error::ActionMismatch);
@@ -175,7 +148,6 @@ pub fn validate_fill(
         return Err(Error::InsufficientPayment);
     }
 
-    let payment = payment.bound_payment()?;
     if payment.owner_lock_hash != order.owner_lock_hash
         || payment.asset_id != order.requested_asset_id
         || payment.amount < action.min_requested_amount

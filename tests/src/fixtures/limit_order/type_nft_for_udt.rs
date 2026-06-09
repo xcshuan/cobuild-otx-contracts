@@ -37,6 +37,10 @@ pub enum FillActionCase {
     MultipleRelatedActions,
     OrderTypeOnlyInAppendInputRelation,
     PaymentInAnotherOtx,
+    PaymentOutputOutOfRange,
+    PaymentOutputWrongUdt,
+    PaymentOutputWrongOwner,
+    PaymentOutputInsufficient,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -103,12 +107,16 @@ fn limit_order_nft_for_udt_scenario(
     let nft = deploy_test_nft(&mut fixture, NFT_TYPE_ARGS);
     let udt = deploy_test_udt_with_owner(&mut fixture, issuer_lock_hash);
     let wrong_udt = deploy_test_udt_with_owner(&mut fixture, [9; 32]);
-    let payment_udt = if scenario.payment_case == NftForUdtPaymentCase::WrongUdt {
+    let payment_udt = if scenario.payment_case == NftForUdtPaymentCase::WrongUdt
+        || scenario.action_case == Some(FillActionCase::PaymentOutputWrongUdt)
+    {
         wrong_udt.clone()
     } else {
         udt.clone()
     };
-    let payment_lock = if scenario.payment_case == NftForUdtPaymentCase::WrongOwner {
+    let payment_lock = if scenario.payment_case == NftForUdtPaymentCase::WrongOwner
+        || scenario.action_case == Some(FillActionCase::PaymentOutputWrongOwner)
+    {
         wrong_owner_lock
     } else {
         owner_lock.clone()
@@ -116,14 +124,18 @@ fn limit_order_nft_for_udt_scenario(
     let insufficient_append_payment = matches!(
         scenario.payment_case,
         NftForUdtPaymentCase::InsufficientUdt | NftForUdtPaymentCase::TxLevelRemainderOnly
-    ) || scenario.action_case
-        == Some(FillActionCase::PaymentInAnotherOtx);
+    ) || matches!(
+        scenario.action_case,
+        Some(FillActionCase::PaymentInAnotherOtx | FillActionCase::PaymentOutputInsufficient)
+    );
     let payment_amount = if insufficient_append_payment { 29 } else { 30 };
     let remainder_payment_output =
-        if scenario.payment_case == NftForUdtPaymentCase::TxLevelRemainderOnly {
+        if scenario.payment_case == NftForUdtPaymentCase::TxLevelRemainderOnly
+            || scenario.action_case == Some(FillActionCase::PaymentOutputOutOfRange)
+        {
             Some(TestCellOutput::new(
                 typed_output(owner_lock.clone(), udt.script.clone(), 90_000_000_000),
-                udt_amount_data(1),
+                udt_amount_data(30),
             ))
         } else {
             None
@@ -197,7 +209,7 @@ fn limit_order_nft_for_udt_scenario(
         _ => 30,
     };
     let payment_output_index = match scenario.action_case {
-        Some(FillActionCase::PaymentInAnotherOtx) => 2,
+        Some(FillActionCase::PaymentInAnotherOtx | FillActionCase::PaymentOutputOutOfRange) => 2,
         _ => 1,
     };
     let fill_order_message = LimitOrderCobuildMessageExt::limit_order_fill(

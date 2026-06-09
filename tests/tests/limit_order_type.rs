@@ -215,6 +215,54 @@ fn limit_order_type_rejects_payment_in_another_otx() {
     let failed_txs_before = failed_txs_count();
     let (fixture, tx) = limit_order_action_failure_case(FillActionCase::PaymentInAnotherOtx);
 
+    fixture.assert_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_payment_output_outside_current_otx() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::PaymentOutputOutOfRange);
+
+    fixture.assert_type_script_exit(&tx, 0, 12);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_bound_payment_output_wrong_udt() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::PaymentOutputWrongUdt);
+
+    fixture.assert_type_script_exit(&tx, 0, 11);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_bound_payment_output_wrong_owner() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::PaymentOutputWrongOwner);
+
+    fixture.assert_type_script_exit(&tx, 0, 11);
+
+    if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
+        assert_eq!(failed_txs_count(), failed_txs_before);
+    }
+}
+
+#[test]
+fn limit_order_type_rejects_bound_payment_output_insufficient() {
+    let failed_txs_before = failed_txs_count();
+    let (fixture, tx) = limit_order_action_failure_case(FillActionCase::PaymentOutputInsufficient);
+
     fixture.assert_type_script_exit(&tx, 0, 11);
 
     if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {

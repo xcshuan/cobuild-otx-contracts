@@ -1,5 +1,3 @@
-use alloc::vec::Vec;
-
 #[cfg(not(feature = "type-id"))]
 use ckb_std::high_level::load_script;
 #[cfg(feature = "type-id")]
@@ -23,8 +21,8 @@ use crate::{
     error::Error,
     types::{
         CreateOrderAction, LimitOrderAction, SETTLEMENT_DATA_LEN, SettlementCell,
-        UDT_PAYMENT_DATA_LEN, parse_limit_order_action, parse_order_state, parse_settlement_cell,
-        parse_udt_payment, validate_create, validate_fill,
+        parse_limit_order_action, parse_order_state, parse_settlement_cell, parse_udt_payment,
+        validate_create, validate_fill,
     },
 };
 
@@ -44,35 +42,43 @@ pub fn order_mode(input_count: usize, output_count: usize) -> Result<OrderMode, 
 
 pub fn main() -> Result<(), Error> {
     let current_type_hash = load_script_hash()?;
-    let plan =
-        CobuildContext::build(CurrentScript::Type(current_type_hash))?.plan_type_validation()?;
+    let context = CobuildContext::build(CurrentScript::Type(current_type_hash))?;
+    let plan = context.plan_type_validation()?;
 
     let input_count = QueryIter::new(load_cell_data, Source::GroupInput).count();
     let output_count = QueryIter::new(load_cell_data, Source::GroupOutput).count();
 
     match order_mode(input_count, output_count)? {
         OrderMode::Create => validate_create_entry(current_type_hash, &plan),
-        OrderMode::Fill => validate_fill_entry(&plan),
+        OrderMode::Fill => validate_fill_entry(&context, &plan),
     }
 }
 
-fn validate_fill_entry(plan: &TypeValidationPlan) -> Result<(), Error> {
+fn validate_fill_entry(
+    context: &CobuildContext,
+    plan: &TypeValidationPlan,
+) -> Result<(), Error> {
     let order = single_group_order(Source::GroupInput)?;
     if plan.related_actions.len() != 1 {
         return Err(Error::InvalidCobuild);
     }
     let related = &plan.related_actions[0];
-    let layout = otx_fill_layout(
+    let (otx_index, layout) = otx_fill_layout(
         &related.action.origin,
         related.otx_type_scope.in_otx_scope(),
     )?;
+    let _actions = context.otx_actions(otx_index)?;
     let action_data = cursor_bytes(&related.action.action.data)?;
     let LimitOrderAction::Fill(action) = parse_limit_order_action(&action_data)? else {
         return Err(Error::UnsupportedAction);
     };
-    let settlements = collect_settlements(layout)?;
+    let payment_output_index = action.payment_output_index as usize;
+    if !output_index_in_otx_outputs(layout, payment_output_index)? {
+        return Err(Error::InvalidCobuild);
+    }
+    let payment = load_udt_payment_output(payment_output_index)?;
 
-    validate_fill(&order, &action, &settlements)
+    validate_fill(&order, &action, payment)
 }
 
 fn validate_create_entry(
@@ -161,8 +167,11 @@ fn has_nft_proxy_output(
 pub fn otx_fill_layout(
     origin: &ActionOrigin,
     relation: Option<OtxTypeRelation>,
-) -> Result<OtxMessageLayout, Error> {
-    let ActionOrigin::Otx { layout, .. } = origin else {
+) -> Result<(usize, OtxMessageLayout), Error> {
+    let ActionOrigin::Otx {
+        otx_index, layout, ..
+    } = origin
+    else {
         return Err(Error::InvalidCobuild);
     };
     let Some(relation) = relation else {
@@ -172,43 +181,35 @@ pub fn otx_fill_layout(
         return Err(Error::InvalidCobuild);
     }
 
-    Ok(*layout)
+    Ok((*otx_index, *layout))
 }
 
-fn collect_settlements(layout: OtxMessageLayout) -> Result<Vec<SettlementCell>, Error> {
-    let mut settlements = Vec::new();
-    collect_settlements_from_range(layout.base_outputs, &mut settlements)?;
-    collect_settlements_from_range(layout.append_outputs, &mut settlements)?;
-    Ok(settlements)
+fn output_index_in_otx_outputs(
+    layout: OtxMessageLayout,
+    output_index: usize,
+) -> Result<bool, Error> {
+    Ok(range_contains(layout.base_outputs, output_index)?
+        || range_contains(layout.append_outputs, output_index)?)
 }
 
-fn collect_settlements_from_range(
-    range: Range,
-    settlements: &mut Vec<SettlementCell>,
-) -> Result<(), Error> {
+fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
     let end = range
         .start
         .checked_add(range.count)
         .ok_or(Error::InvalidCobuild)?;
+    Ok(index >= range.start && index < end)
+}
 
-    for index in range.start..end {
-        let data = load_cell_data(index, Source::Output)?;
-        let lock_hash = load_cell_lock_hash(index, Source::Output)?;
-
-        if data.len() == SETTLEMENT_DATA_LEN {
-            settlements.push(parse_settlement_cell(lock_hash, &data)?);
-            continue;
-        }
-
-        let Some(type_hash) = load_cell_type_hash(index, Source::Output)? else {
-            continue;
-        };
-        if data.len() == UDT_PAYMENT_DATA_LEN {
-            settlements.push(parse_udt_payment(lock_hash, type_hash, &data)?);
-        }
+fn load_udt_payment_output(index: usize) -> Result<SettlementCell, Error> {
+    let data = load_cell_data(index, Source::Output)?;
+    let lock_hash = load_cell_lock_hash(index, Source::Output)?;
+    if data.len() == SETTLEMENT_DATA_LEN {
+        return parse_settlement_cell(lock_hash, &data);
     }
-
-    Ok(())
+    let Some(type_hash) = load_cell_type_hash(index, Source::Output)? else {
+        return Err(Error::InsufficientPayment);
+    };
+    parse_udt_payment(lock_hash, type_hash, &data)
 }
 
 #[cfg(test)]
@@ -223,8 +224,8 @@ mod tests {
         OtxMessageLayout {
             base_inputs: Range { start: 0, count: 1 },
             append_inputs: Range { start: 1, count: 0 },
-            base_outputs: Range { start: 0, count: 0 },
-            append_outputs: Range { start: 0, count: 1 },
+            base_outputs: Range { start: 0, count: 1 },
+            append_outputs: Range { start: 1, count: 1 },
             base_cell_deps: Range { start: 0, count: 0 },
             append_cell_deps: Range { start: 0, count: 0 },
             base_header_deps: Range { start: 0, count: 0 },
@@ -251,9 +252,23 @@ mod tests {
         };
 
         assert_eq!(
-            otx_fill_layout(&origin, Some(relation(true))).map(|layout| layout.append_outputs),
-            Ok(Range { start: 0, count: 1 })
+            otx_fill_layout(&origin, Some(relation(true)))
+                .map(|(_, layout)| layout.append_outputs),
+            Ok(Range { start: 1, count: 1 })
         );
+    }
+
+    #[test]
+    fn output_index_in_otx_outputs_accepts_base_and_append_outputs() {
+        let layout = layout();
+
+        assert_eq!(output_index_in_otx_outputs(layout, 0), Ok(true));
+        assert_eq!(output_index_in_otx_outputs(layout, 1), Ok(true));
+    }
+
+    #[test]
+    fn output_index_in_otx_outputs_rejects_out_of_range_output() {
+        assert_eq!(output_index_in_otx_outputs(layout(), 2), Ok(false));
     }
 
     #[test]
