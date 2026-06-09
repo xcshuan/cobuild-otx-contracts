@@ -3,21 +3,20 @@ use crate::error::Error;
 pub const ORDER_ARGS_LEN: usize = 104;
 pub const UDT_PAYMENT_DATA_LEN: usize = 16;
 pub const FILL_ORDER_TAG: u8 = 2;
-pub const FILL_ORDER_DATA_LEN: usize = 45;
+pub const FILL_ORDER_DATA_LEN: usize = 37;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct OrderArgs {
     pub owner_lock_hash: [u8; 32],
     pub offered_nft_type_hash: [u8; 32],
     pub requested_asset_id: [u8; 32],
-    pub min_requested_amount: u64,
+    pub requested_amount: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct FillOrderAction {
-    pub requested_asset_id: [u8; 32],
-    pub min_requested_amount: u64,
     pub payment_output_index: u32,
+    pub buyer_lock_hash: [u8; 32],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -36,7 +35,7 @@ pub fn parse_order_args(data: &[u8]) -> Result<OrderArgs, Error> {
         owner_lock_hash: read_bytes32(data, 0),
         offered_nft_type_hash: read_bytes32(data, 32),
         requested_asset_id: read_bytes32(data, 64),
-        min_requested_amount: read_u64(data, 96),
+        requested_amount: read_u64(data, 96),
     })
 }
 
@@ -52,9 +51,8 @@ pub fn parse_fill_order_action(data: &[u8]) -> Result<FillOrderAction, Error> {
     }
 
     Ok(FillOrderAction {
-        requested_asset_id: read_bytes32(data, 1),
-        min_requested_amount: read_u64(data, 33),
-        payment_output_index: read_u32(data, 41),
+        payment_output_index: read_u32(data, 1),
+        buyer_lock_hash: read_bytes32(data, 5),
     })
 }
 
@@ -68,21 +66,10 @@ pub fn parse_udt_payment(data: &[u8]) -> Result<u64, Error> {
     u64::try_from(u128::from_le_bytes(bytes)).map_err(|_| Error::AmountOverflow)
 }
 
-pub fn validate_fill(
-    order: &OrderArgs,
-    action: &FillOrderAction,
-    payment: UdtPayment,
-) -> Result<(), Error> {
-    if action.requested_asset_id != order.requested_asset_id {
-        return Err(Error::ActionMismatch);
-    }
-    if action.min_requested_amount < order.min_requested_amount {
-        return Err(Error::InsufficientPayment);
-    }
-
+pub fn validate_fill(order: &OrderArgs, payment: UdtPayment) -> Result<(), Error> {
     if payment.owner_lock_hash != order.owner_lock_hash
         || payment.asset_id != order.requested_asset_id
-        || payment.amount < action.min_requested_amount
+        || payment.amount < order.requested_amount
     {
         return Err(Error::InsufficientPayment);
     }
@@ -117,36 +104,31 @@ mod tests {
     const NFT_TYPE_HASH: [u8; 32] = [3; 32];
     const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
 
-    fn order_args(min_requested_amount: u64) -> Vec<u8> {
+    fn order_args(requested_amount: u64) -> Vec<u8> {
         let mut data = Vec::new();
         data.extend_from_slice(&OWNER_LOCK_HASH);
         data.extend_from_slice(&NFT_TYPE_HASH);
         data.extend_from_slice(&REQUESTED_ASSET_ID);
-        data.extend_from_slice(&min_requested_amount.to_le_bytes());
+        data.extend_from_slice(&requested_amount.to_le_bytes());
         data
     }
 
-    fn fill_action_data(
-        asset_id: [u8; 32],
-        min_requested_amount: u64,
-        payment_output_index: u32,
-    ) -> Vec<u8> {
+    fn fill_action_data(payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Vec<u8> {
         let mut data = Vec::new();
         data.push(FILL_ORDER_TAG);
-        data.extend_from_slice(&asset_id);
-        data.extend_from_slice(&min_requested_amount.to_le_bytes());
         data.extend_from_slice(&payment_output_index.to_le_bytes());
+        data.extend_from_slice(&buyer_lock_hash);
         data
     }
 
     #[test]
-    fn parse_order_args_reads_fixed_width_fields() {
+    fn parse_order_args_reads_requested_amount() {
         let args = parse_order_args(&order_args(30)).expect("order args");
 
         assert_eq!(args.owner_lock_hash, OWNER_LOCK_HASH);
         assert_eq!(args.offered_nft_type_hash, NFT_TYPE_HASH);
         assert_eq!(args.requested_asset_id, REQUESTED_ASSET_ID);
-        assert_eq!(args.min_requested_amount, 30);
+        assert_eq!(args.requested_amount, 30);
     }
 
     #[test]
@@ -161,34 +143,22 @@ mod tests {
     }
 
     #[test]
-    fn parse_fill_action_accepts_tag_two() {
-        let action = parse_fill_order_action(&fill_action_data(REQUESTED_ASSET_ID, 30, 1))
+    fn parse_fill_action_accepts_payment_index_and_buyer_lock_hash() {
+        let action = parse_fill_order_action(&fill_action_data(0x0403_0201, [7; 32]))
             .expect("fill action");
 
-        assert_eq!(action.requested_asset_id, REQUESTED_ASSET_ID);
-        assert_eq!(action.min_requested_amount, 30);
-    }
-
-    #[test]
-    fn parse_fill_action_reads_payment_output_index_little_endian() {
-        let action =
-            parse_fill_order_action(&fill_action_data(REQUESTED_ASSET_ID, 30, 0x0403_0201))
-                .expect("fill action");
-
-        assert_eq!(action.requested_asset_id, REQUESTED_ASSET_ID);
-        assert_eq!(action.min_requested_amount, 30);
         assert_eq!(action.payment_output_index, 0x0403_0201);
+        assert_eq!(action.buyer_lock_hash, [7; 32]);
     }
 
     #[test]
-    fn parse_fill_action_rejects_legacy_41_byte_payload() {
-        let mut data = Vec::new();
-        data.push(FILL_ORDER_TAG);
-        data.extend_from_slice(&REQUESTED_ASSET_ID);
-        data.extend_from_slice(&30u64.to_le_bytes());
-
+    fn parse_fill_action_rejects_old_41_and_45_byte_payloads() {
         assert_eq!(
-            parse_fill_order_action(&data),
+            parse_fill_order_action(&legacy_41_byte_fill_action_data()),
+            Err(Error::InvalidActionData)
+        );
+        assert_eq!(
+            parse_fill_order_action(&legacy_45_byte_fill_action_data()),
             Err(Error::InvalidActionData)
         );
     }
@@ -197,16 +167,16 @@ mod tests {
     fn parse_fill_action_rejects_unknown_tag_and_bad_lengths() {
         assert_eq!(parse_fill_order_action(&[]), Err(Error::InvalidActionData));
 
-        let mut unknown = fill_action_data(REQUESTED_ASSET_ID, 30, 1);
+        let mut unknown = fill_action_data(1, [7; 32]);
         unknown[0] = 1;
         assert_eq!(
             parse_fill_order_action(&unknown),
             Err(Error::UnsupportedAction)
         );
 
-        let mut short = fill_action_data(REQUESTED_ASSET_ID, 30, 1);
+        let mut short = fill_action_data(1, [7; 32]);
         short.pop();
-        let mut long = fill_action_data(REQUESTED_ASSET_ID, 30, 1);
+        let mut long = fill_action_data(1, [7; 32]);
         long.push(0);
         assert_eq!(
             parse_fill_order_action(&short),
@@ -232,21 +202,8 @@ mod tests {
         );
     }
 
-    fn order(min_requested_amount: u64) -> OrderArgs {
-        parse_order_args(&order_args(min_requested_amount)).expect("order args")
-    }
-
-    fn action(
-        asset_id: [u8; 32],
-        min_requested_amount: u64,
-        payment_output_index: u32,
-    ) -> FillOrderAction {
-        parse_fill_order_action(&fill_action_data(
-            asset_id,
-            min_requested_amount,
-            payment_output_index,
-        ))
-        .expect("fill action")
+    fn order(requested_amount: u64) -> OrderArgs {
+        parse_order_args(&order_args(requested_amount)).expect("order args")
     }
 
     fn payment(owner_lock_hash: [u8; 32], asset_id: [u8; 32], amount: u64) -> UdtPayment {
@@ -258,11 +215,10 @@ mod tests {
     }
 
     #[test]
-    fn validate_fill_accepts_exact_and_over_payment() {
+    fn validate_fill_uses_order_requested_amount() {
         assert_eq!(
             validate_fill(
                 &order(30),
-                &action(REQUESTED_ASSET_ID, 30, 1),
                 payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),
             ),
             Ok(())
@@ -271,28 +227,14 @@ mod tests {
         assert_eq!(
             validate_fill(
                 &order(30),
-                &action(REQUESTED_ASSET_ID, 31, 1),
                 payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 40),
             ),
             Ok(())
         );
-    }
-
-    #[test]
-    fn validate_fill_rejects_action_mismatch_and_amount_below_order_minimum() {
         assert_eq!(
             validate_fill(
                 &order(30),
-                &action([9; 32], 30, 1),
-                payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),
-            ),
-            Err(Error::ActionMismatch)
-        );
-        assert_eq!(
-            validate_fill(
-                &order(30),
-                &action(REQUESTED_ASSET_ID, 29, 1),
-                payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),
+                payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 29),
             ),
             Err(Error::InsufficientPayment)
         );
@@ -303,7 +245,6 @@ mod tests {
         assert_eq!(
             validate_fill(
                 &order(30),
-                &action(REQUESTED_ASSET_ID, 30, 1),
                 payment(OWNER_LOCK_HASH, REQUESTED_ASSET_ID, 30),
             ),
             Ok(())
@@ -315,7 +256,6 @@ mod tests {
         assert_eq!(
             validate_fill(
                 &order(30),
-                &action(REQUESTED_ASSET_ID, 30, 1),
                 payment([9; 32], REQUESTED_ASSET_ID, 30),
             ),
             Err(Error::InsufficientPayment)
@@ -323,10 +263,23 @@ mod tests {
         assert_eq!(
             validate_fill(
                 &order(30),
-                &action(REQUESTED_ASSET_ID, 30, 1),
                 payment(OWNER_LOCK_HASH, [9; 32], 30),
             ),
             Err(Error::InsufficientPayment)
         );
+    }
+
+    fn legacy_41_byte_fill_action_data() -> Vec<u8> {
+        let mut data = Vec::new();
+        data.push(FILL_ORDER_TAG);
+        data.extend_from_slice(&REQUESTED_ASSET_ID);
+        data.extend_from_slice(&30u64.to_le_bytes());
+        data
+    }
+
+    fn legacy_45_byte_fill_action_data() -> Vec<u8> {
+        let mut data = legacy_41_byte_fill_action_data();
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data
     }
 }

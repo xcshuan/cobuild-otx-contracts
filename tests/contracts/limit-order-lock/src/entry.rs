@@ -52,7 +52,7 @@ pub fn main() -> Result<(), Error> {
     }
     let payment = load_udt_payment_output(payment_output_index)?;
 
-    validate_fill(&order, &action, payment)
+    validate_fill(&order, payment)
 }
 
 fn single_group_input_index(current_lock_hash: [u8; 32]) -> Result<usize, Error> {
@@ -342,9 +342,8 @@ mod tests {
     fn fill_data(payment_output_index: u32) -> Vec<u8> {
         let mut data = Vec::new();
         data.push(crate::types::FILL_ORDER_TAG);
-        data.extend_from_slice(&[4; 32]);
-        data.extend_from_slice(&30u64.to_le_bytes());
         data.extend_from_slice(&payment_output_index.to_le_bytes());
+        data.extend_from_slice(&[9; 32]);
         data
     }
 
