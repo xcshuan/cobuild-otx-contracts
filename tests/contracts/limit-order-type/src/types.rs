@@ -306,8 +306,8 @@ mod tests {
 
     #[test]
     fn parse_fill_order_action_reads_payment_output_index_little_endian() {
-        let action = parse_limit_order_action(&fill_action_data(30, 0x0403_0201))
-            .expect("fill action");
+        let action =
+            parse_limit_order_action(&fill_action_data(30, 0x0403_0201)).expect("fill action");
 
         assert_eq!(
             action,

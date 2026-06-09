@@ -196,7 +196,11 @@ fn limit_order_two_type_orders_case(case: FillActionCase) -> (CobuildTestFixture
     };
     let message = fixture
         .cobuild()
-        .push_action(1, order_type_hash_a, fill_action_data(udt.script_hash, 30, 2))
+        .push_action(
+            1,
+            order_type_hash_a,
+            fill_action_data(udt.script_hash, 30, 2),
+        )
         .push_action(
             1,
             order_type_hash_b,
@@ -275,17 +279,17 @@ fn limit_order_nft_for_udt_scenario(
         Some(FillActionCase::PaymentInAnotherOtx | FillActionCase::PaymentOutputInsufficient)
     );
     let payment_amount = if insufficient_append_payment { 29 } else { 30 };
-    let remainder_payment_output =
-        if scenario.payment_case == NftForUdtPaymentCase::TxLevelRemainderOnly
-            || scenario.action_case == Some(FillActionCase::PaymentOutputOutOfRange)
-        {
-            Some(TestCellOutput::new(
-                typed_output(owner_lock.clone(), udt.script.clone(), 90_000_000_000),
-                udt_amount_data(30),
-            ))
-        } else {
-            None
-        };
+    let remainder_payment_output = if scenario.payment_case
+        == NftForUdtPaymentCase::TxLevelRemainderOnly
+        || scenario.action_case == Some(FillActionCase::PaymentOutputOutOfRange)
+    {
+        Some(TestCellOutput::new(
+            typed_output(owner_lock.clone(), udt.script.clone(), 90_000_000_000),
+            udt_amount_data(30),
+        ))
+    } else {
+        None
+    };
     let other_otx_payment_output =
         if scenario.action_case == Some(FillActionCase::PaymentInAnotherOtx) {
             Some(TestCellOutput::new(

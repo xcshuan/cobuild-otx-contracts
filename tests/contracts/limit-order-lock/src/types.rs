@@ -171,12 +171,9 @@ mod tests {
 
     #[test]
     fn parse_fill_action_reads_payment_output_index_little_endian() {
-        let action = parse_fill_order_action(&fill_action_data(
-            REQUESTED_ASSET_ID,
-            30,
-            0x0403_0201,
-        ))
-        .expect("fill action");
+        let action =
+            parse_fill_order_action(&fill_action_data(REQUESTED_ASSET_ID, 30, 0x0403_0201))
+                .expect("fill action");
 
         assert_eq!(action.requested_asset_id, REQUESTED_ASSET_ID);
         assert_eq!(action.min_requested_amount, 30);
@@ -249,7 +246,7 @@ mod tests {
             min_requested_amount,
             payment_output_index,
         ))
-            .expect("fill action")
+        .expect("fill action")
     }
 
     fn payment(owner_lock_hash: [u8; 32], asset_id: [u8; 32], amount: u64) -> UdtPayment {
