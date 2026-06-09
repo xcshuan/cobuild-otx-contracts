@@ -20,9 +20,8 @@ use cobuild_core::{
 use crate::{
     error::Error,
     types::{
-        CreateOrderAction, LimitOrderAction, SETTLEMENT_DATA_LEN, SettlementCell,
-        parse_limit_order_action, parse_order_state, parse_settlement_cell, parse_udt_payment,
-        validate_create, validate_fill,
+        CreateOrderAction, LimitOrderAction, SettlementCell, parse_limit_order_action,
+        parse_order_state, parse_udt_payment, validate_create, validate_fill,
     },
 };
 
@@ -203,9 +202,6 @@ fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
 fn load_udt_payment_output(index: usize) -> Result<SettlementCell, Error> {
     let data = load_cell_data(index, Source::Output)?;
     let lock_hash = load_cell_lock_hash(index, Source::Output)?;
-    if data.len() == SETTLEMENT_DATA_LEN {
-        return parse_settlement_cell(lock_hash, &data);
-    }
     let Some(type_hash) = load_cell_type_hash(index, Source::Output)? else {
         return Err(Error::InsufficientPayment);
     };
