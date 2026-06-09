@@ -105,7 +105,7 @@ If any command fails unexpectedly, use `superpowers:systematic-debugging` before
 Red: `cargo test -p limit-order-type --offline` -> FAIL as expected: missing `requested_amount` fields, stale `FillOrderAction` fields, and stale 3-argument `validate_fill` signature in `tests/contracts/limit-order-type/src/types.rs`.
 Green: `cargo test -p limit-order-type --offline` -> PASS: 33 passed, 0 failed; included minimal `tests/contracts/limit-order-type/src/entry.rs` compile sync because the crate compiles entry tests.
 Review: `git diff --check` -> PASS; diff reviewed and limited to type Fill ABI/validation changes plus approved entry compile sync.
-Commit: `013c019` test: shrink lock fill action abi
+Commit: `5fe870e` test: shrink type fill action abi
 
 - [ ] **Step 1: Write failing type-contract unit tests**
 
@@ -261,7 +261,7 @@ git commit -m "test: shrink type fill action abi"
 Red: `cargo test -p limit-order-lock --offline` -> FAIL as expected: missing `OrderArgs::requested_amount`, missing `FillOrderAction::buyer_lock_hash`, and stale 3-argument `validate_fill` signature in `tests/contracts/limit-order-lock/src/types.rs`.
 Green: `cargo test -p limit-order-lock --offline` -> PASS: 22 passed, 0 failed; included minimal `tests/contracts/limit-order-lock/src/entry.rs` compile sync because the crate compiles entry tests.
 Review: `git diff --check` -> PASS; diff reviewed and limited to lock Fill ABI/validation changes plus requested entry compile sync.
-Commit: pending
+Commit: `10c49d4` test: shrink lock fill action abi
 
 - [ ] **Step 1: Write failing lock-contract unit tests**
 
