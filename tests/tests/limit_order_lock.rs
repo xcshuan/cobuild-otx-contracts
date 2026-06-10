@@ -1,6 +1,7 @@
 use tests::fixtures::limit_order::{
     LimitOrderLockFillCase, failed_txs_count, limit_order_lock_nft_for_udt_case,
-    limit_order_lock_nft_for_udt_case_with, mixed_limit_order_type_lock_duplicate_payment_case,
+    limit_order_lock_nft_for_udt_case_with, limit_order_lock_otx_with_sighash_all_fill_case,
+    mixed_limit_order_type_lock_duplicate_payment_case,
 };
 
 fn assert_no_expected_failure_dump(before: usize) {
@@ -10,8 +11,15 @@ fn assert_no_expected_failure_dump(before: usize) {
 }
 
 #[test]
-fn limit_order_lock_accepts_nft_for_udt_otx_fill() {
+fn limit_order_lock_accepts_nft_for_udt_single_otx_append_fill() {
     let (fixture, tx) = limit_order_lock_nft_for_udt_case();
+
+    fixture.assert_pass(&tx);
+}
+
+#[test]
+fn limit_order_lock_accepts_nft_for_udt_otx_with_sighash_all_fill() {
+    let (fixture, tx) = limit_order_lock_otx_with_sighash_all_fill_case();
 
     fixture.assert_pass(&tx);
 }

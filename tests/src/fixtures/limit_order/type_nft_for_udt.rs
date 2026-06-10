@@ -89,6 +89,81 @@ pub fn limit_order_nft_for_udt_case_with(
     limit_order_nft_for_udt_scenario(NftForUdtScenario::payment(case))
 }
 
+pub fn limit_order_type_otx_with_sighash_all_fill_case() -> (CobuildTestFixture, TransactionView) {
+    let mut fixture = CobuildTestFixture::new();
+
+    let limit_order = fixture.deploy_limit_order();
+    let always_success = fixture.deploy_always_success();
+    let owner_lock = always_success.script.clone();
+    let buyer_lock = always_success.script.clone();
+    let issuer_lock_hash = script_hash(&always_success.script);
+    let proxy_lock = deploy_input_type_proxy_lock(&mut fixture, limit_order.script_hash);
+    let nft = deploy_test_nft(&mut fixture, NFT_TYPE_ARGS);
+    let udt = deploy_test_udt_with_owner(&mut fixture, issuer_lock_hash);
+
+    let nft_payload = nft_data(b"type-sighash-fill", [1, 2, 3, 4], 1_717_171_719);
+    let order_input = fixture
+        .limit_order()
+        .owner(owner_lock.clone())
+        .offered_nft_type_hash(nft.script_hash)
+        .requested_asset_id(udt.script_hash)
+        .requested_amount(30)
+        .build_input(&limit_order.script);
+    let nft_input = live_input(
+        fixture.context_mut(),
+        typed_output(
+            proxy_lock.script.clone(),
+            nft.script.clone(),
+            100_000_000_000,
+        ),
+        nft_payload.clone(),
+    );
+    let buyer_udt_input = live_input(
+        fixture.context_mut(),
+        typed_output(buyer_lock.clone(), udt.script.clone(), 100_000_000_000),
+        udt_amount_data(30),
+    );
+    let nft_output = TestCellOutput::new(
+        typed_output(buyer_lock.clone(), nft.script.clone(), 90_000_000_000),
+        nft_payload,
+    );
+    let payment_output = TestCellOutput::new(
+        typed_output(owner_lock, udt.script.clone(), 90_000_000_000),
+        udt_amount_data(30),
+    );
+    let fill_order_message = LimitOrderCobuildMessageExt::limit_order_fill(
+        fixture.cobuild().input_type_action(limit_order.script_hash),
+        1,
+        script_hash(&buyer_lock),
+    )
+    .build();
+    let otx = fixture
+        .otx()
+        .base_input_cells(2)
+        .base_output_cells(1)
+        .append_output_cells(1)
+        .allow_append_outputs()
+        .message(fill_order_message)
+        .build_with_layout();
+    let tx = fixture
+        .tx()
+        .cell_dep(cell_dep_for_script(&limit_order))
+        .cell_dep(cell_dep_for_script(&always_success))
+        .cell_dep(cell_dep_for_script(&proxy_lock))
+        .cell_dep(cell_dep_for_script(&nft))
+        .cell_dep(cell_dep_for_script(&udt))
+        .base_input(order_input)
+        .base_input(nft_input)
+        .append_input(buyer_udt_input)
+        .base_output(nft_output)
+        .append_output(payment_output)
+        .tx_level_message(empty_message())
+        .otx(otx)
+        .build();
+
+    (fixture, tx)
+}
+
 pub fn limit_order_action_failure_case(
     case: FillActionCase,
 ) -> (CobuildTestFixture, TransactionView) {

@@ -14,13 +14,15 @@ mod type_nft_for_udt;
 #[cfg(not(test))]
 pub use lock_nft_for_udt::{
     LimitOrderLockFillCase, limit_order_lock_nft_for_udt_case,
-    limit_order_lock_nft_for_udt_case_with, mixed_limit_order_type_lock_duplicate_payment_case,
+    limit_order_lock_nft_for_udt_case_with, limit_order_lock_otx_with_sighash_all_fill_case,
+    mixed_limit_order_type_lock_duplicate_payment_case,
 };
 #[cfg(not(test))]
 pub use type_nft_for_udt::{
     CreateOrderCase, FillActionCase, NftForUdtPaymentCase, limit_order_action_failure_case,
     limit_order_create_nft_order_case, limit_order_create_nft_order_case_with,
     limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with,
+    limit_order_type_otx_with_sighash_all_fill_case,
 };
 
 use crate::framework::{
