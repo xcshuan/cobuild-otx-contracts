@@ -3,7 +3,6 @@ use ckb_testtool::{ckb_types::core::TransactionView, context::Context};
 use super::{
     assertions,
     cobuild::{CobuildMessageBuilder, OtxBuilder},
-    tx::OtxTransactionBuilder,
 };
 
 pub struct CobuildTestFixture {
@@ -31,10 +30,6 @@ impl CobuildTestFixture {
 
     pub fn otx(&self) -> OtxBuilder {
         OtxBuilder::new()
-    }
-
-    pub fn tx(&self) -> OtxTransactionBuilder {
-        OtxTransactionBuilder::new()
     }
 
     pub fn assert_pass(&self, tx: &TransactionView) {

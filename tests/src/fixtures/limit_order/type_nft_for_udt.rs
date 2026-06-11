@@ -18,7 +18,7 @@ use crate::framework::{
     contracts::cell_dep_for_script,
     fixture::CobuildTestFixture,
     scripts::script_hash,
-    tx::{BuiltTxShape, InputHandle, OtxHandle, OtxSegment, OutputHandle, TxShape},
+    tx::{BuiltTxShape, InputHandle, OtxHandle, OtxSegment, OutputHandle, TxShape, WitnessHandle},
 };
 
 use super::{
@@ -812,20 +812,26 @@ fn replace_otx_message(built: &mut BuiltTxShape, otx: OtxHandle, message: Cobuil
         other => panic!("expected OTX witness, got {}", other.item_name()),
     };
     let updated = otx.as_builder().message(message).build();
-    replace_witness_bytes(built, tx_index, otx_witness_bytes(updated));
+    replace_witness_bytes(built, witness, otx_witness_bytes(updated));
 }
 
 fn replace_tx_level_message(built: &mut BuiltTxShape, message: CobuildMessage) {
+    let tx_level_witness = built.tx_level_witness();
     let witness = WitnessLayout::from(
         SighashAll::new_builder()
             .seal(Vec::<u8>::new())
             .message(message)
             .build(),
     );
-    replace_witness_bytes(built, 0, Bytes::copy_from_slice(witness.as_slice()));
+    replace_witness_bytes(
+        built,
+        tx_level_witness,
+        Bytes::copy_from_slice(witness.as_slice()),
+    );
 }
 
-fn replace_witness_bytes(built: &mut BuiltTxShape, tx_index: usize, replacement: Bytes) {
+fn replace_witness_bytes(built: &mut BuiltTxShape, witness: WitnessHandle, replacement: Bytes) {
+    let tx_index = built.witnesses.tx_index(witness);
     let mut witnesses: Vec<_> = built.tx.witnesses().into_iter().collect();
     witnesses[tx_index] = replacement.pack();
     built.tx = built

@@ -13,8 +13,8 @@ mod tests {
     use super::{
         assertions::{assert_lock_script_exit_result, assert_type_script_exit_result},
         cells::{
-            TestCellOutput, TestResolvedInput, live_input, live_resolved_facts,
-            live_resolved_typed_input, normal_output, typed_output,
+            TestCellOutput, TestResolvedInput, live_resolved_facts, live_resolved_typed_input,
+            normal_output, typed_output,
         },
         cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, seal_pair},
         contracts::{DeployedScript, deploy_loader_binary, deploy_script_bytes},
@@ -23,16 +23,11 @@ mod tests {
         signing::{
             fixed_secret_key, public_key_hash20, sighash_all_only_witness, sign_recoverable,
         },
-        tx::{OtxTransactionBuilder, otx_start_witness},
+        tx::{OtxSegment, TxShape, otx_start_witness},
     };
     use ckb_testtool::{
         ckb_script::ScriptError,
-        ckb_types::{
-            bytes::Bytes,
-            core::ScriptHashType,
-            packed::{CellInput, OutPoint},
-            prelude::{Builder, Entity, Pack, Unpack},
-        },
+        ckb_types::{bytes::Bytes, core::ScriptHashType, prelude::Unpack},
         context::Context,
     };
 
@@ -72,86 +67,6 @@ mod tests {
         assert_eq!(otx.append_input_cells, 1);
         assert_eq!(otx.append_output_cells, 2);
         assert_eq!(otx.otx.append_permissions().as_slice(), &[0b0011]);
-    }
-
-    #[test]
-    fn otx_transaction_builder_supports_base_append_and_remainder_outputs() {
-        let mut fixture = CobuildTestFixture::new();
-        let lock = deploy_protocol_dummy_script(fixture.context_mut(), 1, Vec::new());
-
-        let base_input_a = live_input(
-            fixture.context_mut(),
-            normal_output(lock.script.clone(), 1_000),
-            Vec::new(),
-        );
-        let base_input_b = live_input(
-            fixture.context_mut(),
-            normal_output(lock.script.clone(), 1_000),
-            Vec::new(),
-        );
-        let append_input = live_input(
-            fixture.context_mut(),
-            normal_output(lock.script.clone(), 1_000),
-            Vec::new(),
-        );
-        let base_output =
-            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
-        let append_output_a =
-            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
-        let append_output_b =
-            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
-        let remainder_output =
-            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
-        let otx = OtxBuilder::new()
-            .base_input_cells(2)
-            .base_output_cells(1)
-            .append_input_cells(1)
-            .append_output_cells(2)
-            .allow_append_inputs()
-            .allow_append_outputs()
-            .build_with_layout();
-
-        let tx = OtxTransactionBuilder::new()
-            .base_input(base_input_a)
-            .base_input(base_input_b)
-            .append_input(append_input)
-            .base_output(base_output)
-            .append_output(append_output_a)
-            .append_output(append_output_b)
-            .remainder_output(remainder_output)
-            .otx(otx)
-            .build();
-
-        assert_eq!(tx.inputs().len(), 3);
-        assert_eq!(tx.outputs().len(), 4);
-        assert_eq!(tx.witnesses().len(), 2);
-    }
-
-    #[test]
-    fn tx_builder_supports_sighash_all_message_without_otx() {
-        let mut fixture = CobuildTestFixture::new();
-        let lock = deploy_protocol_dummy_script(fixture.context_mut(), 2, Vec::new());
-        let input = live_input(
-            fixture.context_mut(),
-            normal_output(lock.script.clone(), 1_000),
-            Vec::new(),
-        );
-        let output = TestCellOutput::new(normal_output(lock.script, 900), Vec::new());
-        let message = CobuildMessageBuilder::new()
-            .output_type_action([9; 32])
-            .action_data(vec![1])
-            .build();
-
-        let tx = OtxTransactionBuilder::new()
-            .allow_no_otx()
-            .base_input(input)
-            .base_output(output)
-            .tx_level_message(message)
-            .build();
-
-        assert_eq!(tx.inputs().len(), 1);
-        assert_eq!(tx.outputs().len(), 1);
-        assert_eq!(tx.witnesses().len(), 1);
     }
 
     #[test]
@@ -281,37 +196,74 @@ mod tests {
             .cobuild()
             .input_lock_action(script_hash(&script.script));
         let _otx = fixture.otx();
-        let _tx = fixture.tx();
     }
 
     #[test]
-    #[should_panic(expected = "each OTX requires non-zero base inputs")]
-    fn tx_builder_rejects_zero_base_inputs_in_any_otx() {
-        let otx = OtxBuilder::new().base_input_cells(0).build_with_layout();
-        let input = CellInput::new_builder()
-            .previous_output(OutPoint::new([1u8; 32].pack(), 0))
-            .build();
-
-        CobuildTestFixture::new()
-            .tx()
-            .base_input(input)
-            .otx(otx)
-            .build();
+    #[should_panic(expected = "OTX segment requires non-zero base inputs")]
+    fn tx_shape_rejects_zero_base_inputs_in_any_otx() {
+        let mut shape = TxShape::new();
+        shape.push_otx(OtxSegment::default());
     }
 
     #[test]
-    #[should_panic(expected = "each OTX requires non-zero base inputs")]
-    fn tx_builder_still_rejects_zero_base_inputs_when_no_otx_is_allowed() {
-        let otx = OtxBuilder::new().base_input_cells(0).build_with_layout();
-        let input = CellInput::new_builder()
-            .previous_output(OutPoint::new([1u8; 32].pack(), 0))
+    fn tx_shape_supports_sighash_all_message_without_otx() {
+        let mut fixture = CobuildTestFixture::new();
+        let lock = deploy_protocol_dummy_script(fixture.context_mut(), 7, Vec::new());
+        let input = live_resolved_facts(
+            fixture.context_mut(),
+            normal_output(lock.script.clone(), 1_000),
+            Vec::new(),
+        );
+        let output = TestCellOutput::new(normal_output(lock.script, 900), Vec::new());
+        let message = CobuildMessageBuilder::new()
+            .output_type_action([9; 32])
+            .action_data(vec![1])
             .build();
 
-        CobuildTestFixture::new()
-            .tx()
-            .allow_no_otx()
-            .base_input(input)
-            .otx(otx)
-            .build();
+        let mut shape = TxShape::new();
+        shape.push_prefix_input(input);
+        shape.push_remainder_output(output);
+        shape.tx_level_message(message);
+        let built = shape.build();
+
+        assert_eq!(built.tx.inputs().len(), 1);
+        assert_eq!(built.tx.outputs().len(), 1);
+        assert_eq!(built.tx.witnesses().len(), 1);
+    }
+
+    #[test]
+    fn tx_shape_supports_base_append_and_remainder_outputs() {
+        let mut fixture = CobuildTestFixture::new();
+        let lock = deploy_protocol_dummy_script(fixture.context_mut(), 8, Vec::new());
+        let base_input = live_resolved_facts(
+            fixture.context_mut(),
+            normal_output(lock.script.clone(), 1_000),
+            Vec::new(),
+        );
+        let append_input = live_resolved_facts(
+            fixture.context_mut(),
+            normal_output(lock.script.clone(), 1_000),
+            Vec::new(),
+        );
+        let base_output =
+            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
+        let append_output =
+            TestCellOutput::new(normal_output(lock.script.clone(), 1_000), Vec::new());
+        let remainder_output = TestCellOutput::new(normal_output(lock.script, 1_000), Vec::new());
+
+        let mut shape = TxShape::new();
+        shape.push_otx(OtxSegment {
+            base_inputs: vec![base_input],
+            append_inputs: vec![append_input],
+            base_outputs: vec![base_output],
+            append_outputs: vec![append_output],
+            ..Default::default()
+        });
+        shape.push_remainder_output(remainder_output);
+        let built = shape.build();
+
+        assert_eq!(built.tx.inputs().len(), 2);
+        assert_eq!(built.tx.outputs().len(), 3);
+        assert_eq!(built.tx.witnesses().len(), 2);
     }
 }
