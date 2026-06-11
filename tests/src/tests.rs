@@ -1,4 +1,21 @@
-use crate::{TestEnv, default_test_env};
+use crate::{
+    TestEnv, default_test_env,
+    framework::{
+        cells::{ResolvedInputFacts, TestCellOutput, normal_output},
+        cobuild::CobuildMessageBuilder,
+        scripts::packed_hash_to_array,
+        signing::{
+            SignatureScope, SignerId, SigningHashOracle, TestSigningHashOracle,
+            assert_hash_changed, fixed_secret_key, sign_scope, tx_without_message_hash_for_inputs,
+        },
+        tx::{OtxSegment, TxShape, WitnessHandle},
+    },
+};
+use ckb_testtool::ckb_types::{
+    bytes::Bytes,
+    packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
+    prelude::{Builder, Entity, Pack},
+};
 
 fn rust_files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
@@ -345,7 +362,160 @@ fn signing_hash_oracle_is_framework_owned() {
         "signing hash oracle trait should be owned by tests/src/framework/signing/oracle.rs"
     );
     assert!(
-        !std::path::Path::new("src/fixtures/otx_hash.rs").exists(),
-        "signing hash oracle implementation should not live in tests/src/fixtures/otx_hash.rs"
+        oracle_source.contains("pub struct TestSigningHashOracle"),
+        "framework should expose a concrete test signing hash oracle"
     );
+}
+
+fn signing_test_script(tag: u8) -> Script {
+    Script::new_builder()
+        .args(Bytes::from(vec![tag]).pack())
+        .build()
+}
+
+fn signing_resolved_input(tag: u8, data: impl Into<Bytes>) -> ResolvedInputFacts {
+    let lock = signing_test_script(tag);
+    let output = normal_output(lock.clone(), 1_000 + u64::from(tag));
+    let input = CellInput::new_builder()
+        .previous_output(OutPoint::new([tag; 32].pack(), 0))
+        .build();
+
+    ResolvedInputFacts {
+        input,
+        output,
+        data: data.into(),
+        lock_hash: [tag; 32],
+        type_hash: None,
+    }
+}
+
+fn signing_output(tag: u8, data: impl Into<Bytes>) -> TestCellOutput {
+    TestCellOutput::new(
+        CellOutput::new_builder()
+            .capacity(2_000 + u64::from(tag))
+            .lock(signing_test_script(tag))
+            .build(),
+        data,
+    )
+}
+
+fn signing_cell_dep(tag: u8) -> CellDep {
+    CellDep::new_builder()
+        .out_point(OutPoint::new([tag; 32].pack(), 0))
+        .build()
+}
+
+#[test]
+fn signing_hash_oracle_tx_without_message_uses_resolved_facts() {
+    let mut shape = TxShape::new();
+    shape.push_prefix_input(signing_resolved_input(1, vec![0xaa, 0xbb]));
+    let built = shape.build();
+    let oracle = TestSigningHashOracle;
+
+    let inputs: Vec<_> = built
+        .resolved_inputs
+        .iter()
+        .map(|input| (input.output.as_slice(), input.data.as_ref()))
+        .collect();
+    let witnesses: Vec<_> = built
+        .tx
+        .witnesses()
+        .into_iter()
+        .map(|witness| witness.raw_data().to_vec())
+        .collect();
+    let expected = tx_without_message_hash_for_inputs(
+        packed_hash_to_array(built.tx.hash()),
+        &inputs,
+        &witnesses,
+    );
+
+    assert_eq!(oracle.tx_without_message(&built), expected);
+}
+
+#[test]
+fn signing_hash_oracle_tx_with_message_changes_when_message_changes() {
+    let mut shape = TxShape::new();
+    shape.push_prefix_input(signing_resolved_input(1, vec![0xaa]));
+    let built = shape.build();
+    let oracle = TestSigningHashOracle;
+    let first = CobuildMessageBuilder::new()
+        .input_lock_action([1; 32])
+        .action_data(vec![1])
+        .build();
+    let second = CobuildMessageBuilder::new()
+        .input_lock_action([1; 32])
+        .action_data(vec![2])
+        .build();
+
+    assert_hash_changed(
+        oracle.tx_with_message(&built, &first),
+        oracle.tx_with_message(&built, &second),
+    );
+}
+
+#[test]
+fn signing_hash_oracle_otx_base_changes_when_resolved_input_data_changes() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_outputs: vec![signing_output(2, vec![0xbb])],
+        base_cell_deps: vec![signing_cell_dep(3)],
+        base_header_deps: vec![[4; 32]],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let mut changed = built.clone();
+    changed.resolved_inputs[0].data = Bytes::from(vec![0xcc]);
+    let oracle = TestSigningHashOracle;
+
+    assert_hash_changed(oracle.otx_base(&built, otx), oracle.otx_base(&changed, otx));
+}
+
+#[test]
+fn signing_hash_oracle_otx_append_binds_base_hash() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_inputs: vec![signing_resolved_input(2, vec![0xbb])],
+        base_outputs: vec![signing_output(3, vec![0xcc])],
+        append_outputs: vec![signing_output(4, vec![0xdd])],
+        append_cell_deps: vec![signing_cell_dep(5)],
+        append_header_deps: vec![[6; 32]],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let oracle = TestSigningHashOracle;
+
+    assert_hash_changed(
+        oracle.otx_append(&built, otx, [1; 32]),
+        oracle.otx_append(&built, otx, [2; 32]),
+    );
+}
+
+#[test]
+fn signing_hash_oracle_sign_scope_records_facts() {
+    let mut shape = TxShape::new();
+    shape.push_prefix_input(signing_resolved_input(1, vec![0xaa]));
+    let built = shape.build();
+    let oracle = TestSigningHashOracle;
+    let secret_key = fixed_secret_key(7);
+    let script_hash = [8; 32];
+    let scope = SignatureScope::TxWithoutMessage;
+
+    let facts = sign_scope(
+        &built,
+        &oracle,
+        SignerId("alice"),
+        &secret_key,
+        script_hash,
+        WitnessHandle::from_raw(0),
+        scope,
+    );
+
+    assert_eq!(facts.signer, SignerId("alice"));
+    assert_eq!(facts.scope, scope);
+    assert_eq!(facts.carrier, WitnessHandle::from_raw(0));
+    assert_eq!(facts.script_hash, script_hash);
+    assert_eq!(facts.signing_hash, oracle.tx_without_message(&built));
+    assert_eq!(facts.seal.len(), 65);
 }
