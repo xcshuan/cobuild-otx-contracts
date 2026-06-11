@@ -199,7 +199,8 @@ fn limit_order_lock_rejects_two_lock_orders_reusing_payment_output() {
     let (fixture, tx) = limit_order_lock_nft_for_udt_case_with(
         LimitOrderLockFillCase::TwoLockOrdersReusePaymentOutput,
     );
-    fixture.assert_lock_script_exit(&tx, 0, 12);
+    // The second order is the one that reuses the first order's payment output.
+    fixture.assert_lock_script_exit(&tx, 1, 12);
     assert_no_expected_failure_dump(before);
 }
 
