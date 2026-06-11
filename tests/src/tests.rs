@@ -462,6 +462,13 @@ fn signing_otx_witness_with_append_output_count(append_output_cells: u32) -> Byt
 }
 
 fn signing_otx_witness_with_message_and_seal() -> (Bytes, Otx) {
+    signing_otx_witness_with_message_seal_and_outputs(2, 2)
+}
+
+fn signing_otx_witness_with_message_seal_and_outputs(
+    base_output_cells: u32,
+    append_output_cells: u32,
+) -> (Bytes, Otx) {
     let message = CobuildMessageBuilder::new()
         .input_lock_action([9; 32])
         .action_data(vec![1, 2, 3])
@@ -469,18 +476,85 @@ fn signing_otx_witness_with_message_and_seal() -> (Bytes, Otx) {
     let seal = seal_pair([7; 32], 0x42, vec![0xaa, 0xbb, 0xcc]);
     let otx = OtxBuilder::new()
         .message(message)
-        .append_permissions_raw(0x03)
+        .append_permissions_raw(0x0b)
         .base_input_cells(1)
-        .base_input_masks_raw(vec![0x00])
-        .base_output_cells(1)
-        .base_output_masks_raw(vec![0x0f])
-        .append_output_cells(1)
-        .allow_append_outputs()
+        .base_input_masks_raw(vec![0x03])
+        .base_output_cells(base_output_cells)
+        .base_output_masks_raw(vec![0xa5])
+        .append_input_cells(1)
+        .append_output_cells(append_output_cells)
         .seals(vec![seal])
         .build();
     let witness = WitnessLayout::from(otx.clone());
 
     (Bytes::copy_from_slice(witness.as_slice()), otx)
+}
+
+fn assert_same_message_seals_and_permissions(mutated: &Otx, original: &Otx) {
+    assert_eq!(
+        mutated.message().as_slice(),
+        original.message().as_slice(),
+        "message"
+    );
+    assert_eq!(
+        mutated.seals().as_slice(),
+        original.seals().as_slice(),
+        "seals"
+    );
+    assert_eq!(
+        mutated.append_permissions().as_slice(),
+        original.append_permissions().as_slice(),
+        "append permissions"
+    );
+}
+
+fn assert_same_base_inputs(mutated: &Otx, original: &Otx) {
+    assert_eq!(
+        molecule_u32(mutated.base_input_cells()),
+        molecule_u32(original.base_input_cells()),
+        "base input cells"
+    );
+    assert_eq!(
+        mutated.base_input_masks().raw_data().as_ref(),
+        original.base_input_masks().raw_data().as_ref(),
+        "base input masks"
+    );
+}
+
+fn assert_same_base_outputs(mutated: &Otx, original: &Otx) {
+    assert_eq!(
+        molecule_u32(mutated.base_output_cells()),
+        molecule_u32(original.base_output_cells()),
+        "base output cells"
+    );
+    assert_eq!(
+        mutated.base_output_masks().raw_data().as_ref(),
+        original.base_output_masks().raw_data().as_ref(),
+        "base output masks"
+    );
+}
+
+fn assert_same_append_counts(mutated: &Otx, original: &Otx) {
+    assert_eq!(
+        molecule_u32(mutated.append_input_cells()),
+        molecule_u32(original.append_input_cells()),
+        "append input cells"
+    );
+    assert_eq!(
+        molecule_u32(mutated.append_output_cells()),
+        molecule_u32(original.append_output_cells()),
+        "append output cells"
+    );
+    assert_eq!(
+        molecule_u32(mutated.append_cell_deps()),
+        molecule_u32(original.append_cell_deps()),
+        "append cell deps"
+    );
+    assert_eq!(
+        molecule_u32(mutated.append_header_deps()),
+        molecule_u32(original.append_header_deps()),
+        "append header deps"
+    );
 }
 
 #[test]
@@ -561,6 +635,72 @@ fn mutation_move_base_output_to_remainder_updates_otx_witness_count_and_mask() {
     assert_eq!(molecule_u32(mutated.base_output_cells()), 1);
     assert_eq!(mutated.base_output_masks().raw_data().as_ref(), &[0x0f]);
     TestSigningHashOracle.otx_base(&built, otx);
+}
+
+#[test]
+fn mutation_move_append_output_to_remainder_preserves_non_target_otx_witness_fields() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_inputs: vec![signing_resolved_input(5, vec![0xee])],
+        base_outputs: vec![signing_output(2, vec![0xbb]), signing_output(3, vec![0xcc])],
+        append_outputs: vec![signing_output(4, vec![0xdd]), signing_output(6, vec![0xff])],
+        ..Default::default()
+    });
+    let moved_output = shape.otx_append_output(otx, 0);
+    let (witness, original_otx) = signing_otx_witness_with_message_seal_and_outputs(2, 2);
+    let mut built = signing_replace_otx_witness(shape.build(), witness);
+
+    built.apply_shape_mutation(TxShapeMutation::MoveOutputToRemainder {
+        output: moved_output,
+    });
+
+    let mutated = otx_witness(&built, otx);
+    assert_eq!(molecule_u32(mutated.append_output_cells()), 1);
+    assert_same_message_seals_and_permissions(&mutated, &original_otx);
+    assert_same_base_inputs(&mutated, &original_otx);
+    assert_same_base_outputs(&mutated, &original_otx);
+    assert_eq!(
+        molecule_u32(mutated.append_input_cells()),
+        molecule_u32(original_otx.append_input_cells()),
+        "append input cells"
+    );
+    assert_eq!(
+        molecule_u32(mutated.append_cell_deps()),
+        molecule_u32(original_otx.append_cell_deps()),
+        "append cell deps"
+    );
+    assert_eq!(
+        molecule_u32(mutated.append_header_deps()),
+        molecule_u32(original_otx.append_header_deps()),
+        "append header deps"
+    );
+}
+
+#[test]
+fn mutation_move_base_output_to_remainder_preserves_non_target_otx_witness_fields() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_inputs: vec![signing_resolved_input(5, vec![0xee])],
+        base_outputs: vec![signing_output(2, vec![0xbb]), signing_output(3, vec![0xcc])],
+        append_outputs: vec![signing_output(4, vec![0xdd]), signing_output(6, vec![0xff])],
+        ..Default::default()
+    });
+    let moved_output = shape.otx_base_output(otx, 0);
+    let (witness, original_otx) = signing_otx_witness_with_message_seal_and_outputs(2, 2);
+    let mut built = signing_replace_otx_witness(shape.build(), witness);
+
+    built.apply_shape_mutation(TxShapeMutation::MoveOutputToRemainder {
+        output: moved_output,
+    });
+
+    let mutated = otx_witness(&built, otx);
+    assert_eq!(molecule_u32(mutated.base_output_cells()), 1);
+    assert_eq!(mutated.base_output_masks().raw_data().as_ref(), &[0x0a]);
+    assert_same_message_seals_and_permissions(&mutated, &original_otx);
+    assert_same_base_inputs(&mutated, &original_otx);
+    assert_same_append_counts(&mutated, &original_otx);
 }
 
 #[test]
@@ -681,6 +821,9 @@ fn mutation_otx_raw_permission_preserves_existing_message_and_seals() {
         original_otx.message().as_slice()
     );
     assert_eq!(mutated.seals().as_slice(), original_otx.seals().as_slice());
+    assert_same_base_inputs(&mutated, &original_otx);
+    assert_same_base_outputs(&mutated, &original_otx);
+    assert_same_append_counts(&mutated, &original_otx);
 }
 
 #[test]
@@ -729,6 +872,18 @@ fn mutation_otx_raw_base_input_masks_preserves_existing_message_and_seals() {
         original_otx.message().as_slice()
     );
     assert_eq!(mutated.seals().as_slice(), original_otx.seals().as_slice());
+    assert_eq!(
+        mutated.append_permissions().as_slice(),
+        original_otx.append_permissions().as_slice(),
+        "append permissions"
+    );
+    assert_eq!(
+        molecule_u32(mutated.base_input_cells()),
+        molecule_u32(original_otx.base_input_cells()),
+        "base input cells"
+    );
+    assert_same_base_outputs(&mutated, &original_otx);
+    assert_same_append_counts(&mutated, &original_otx);
 }
 
 #[test]
