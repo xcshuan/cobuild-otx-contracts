@@ -344,6 +344,8 @@ fn framework_does_not_depend_on_fixtures_or_named_test_contracts() {
         for forbidden in [
             "crate::fixtures",
             "fixtures::",
+            "ALWAYS_SUCCESS",
+            "deploy_test_lock",
             "deploy_always_success",
             "deploy_data2_script",
             "limit_order",
@@ -386,6 +388,24 @@ fn fixtures_common_contracts_and_assets_are_usable() {
         crate::fixtures::common::assets::udt_amount_data(30).as_ref(),
         &30u128.to_le_bytes()
     );
+    let udt_asset = crate::fixtures::common::assets::TestUdt::from_deployed(&udt);
+    let nft_asset = crate::fixtures::common::assets::TestNft::from_deployed(&nft);
+    assert_eq!(udt_asset.script_hash, udt.script_hash);
+    assert_eq!(udt_asset.script.as_slice(), udt.script.as_slice());
+    assert_eq!(nft_asset.script_hash, nft.script_hash);
+    assert_eq!(nft_asset.cell_dep.as_slice(), nft.cell_dep.as_slice());
+
+    let personas = crate::fixtures::common::personas::Personas::default();
+    assert_eq!(personas.owner.id.0, "owner");
+    assert!(personas.owner.secret_key.is_some());
+    assert_eq!(
+        personas.owner.lock_hash,
+        crate::framework::scripts::script_hash(&personas.owner.lock)
+    );
+    assert_eq!(personas.buyer.id.0, "buyer");
+    assert_eq!(personas.wrong_owner.id.0, "wrong_owner");
+    assert_eq!(personas.order_lock_owner.id.0, "order_lock_owner");
+
     assert_eq!(
         crate::fixtures::common::assets::nft_data(b"demo", [1, 2, 3, 4], 9).as_ref(),
         &[

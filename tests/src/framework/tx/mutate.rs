@@ -91,9 +91,7 @@ impl BuiltTxShape {
             }
             ProtocolMutation::NonContiguousOtxWitness => {
                 let witness = WitnessLayout::from(
-                    SighashAllOnly::new_builder()
-                        .seal(Vec::<u8>::new())
-                        .build(),
+                    SighashAllOnly::new_builder().seal(Vec::<u8>::new()).build(),
                 );
                 self.insert_witness_bytes(1, Bytes::copy_from_slice(witness.as_slice()));
             }
@@ -195,8 +193,13 @@ impl BuiltTxShape {
             "witness insertion index points outside transaction witnesses"
         );
         witnesses.insert(tx_index, witness.pack());
-        self.witnesses
-            .remap_tx_indexes(|current| if current >= tx_index { current + 1 } else { current });
+        self.witnesses.remap_tx_indexes(|current| {
+            if current >= tx_index {
+                current + 1
+            } else {
+                current
+            }
+        });
         self.tx = self
             .tx
             .as_advanced_builder()

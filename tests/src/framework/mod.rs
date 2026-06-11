@@ -26,9 +26,9 @@ mod tests {
         tx::{OtxTransactionBuilder, otx_start_witness},
     };
     use ckb_testtool::{
-        builtin::ALWAYS_SUCCESS,
         ckb_script::ScriptError,
         ckb_types::{
+            bytes::Bytes,
             core::ScriptHashType,
             packed::{CellInput, OutPoint},
             prelude::{Builder, Entity, Pack, Unpack},
@@ -36,13 +36,12 @@ mod tests {
         context::Context,
     };
 
-    fn deploy_test_lock(context: &mut Context, args: Vec<u8>) -> DeployedScript {
-        deploy_script_bytes(
-            context,
-            ALWAYS_SUCCESS.to_vec().into(),
-            ScriptHashType::Data,
-            args,
-        )
+    fn deploy_protocol_dummy_script(
+        context: &mut Context,
+        tag: u8,
+        args: Vec<u8>,
+    ) -> DeployedScript {
+        deploy_script_bytes(context, Bytes::from(vec![tag]), ScriptHashType::Data, args)
     }
 
     #[test]
@@ -78,7 +77,7 @@ mod tests {
     #[test]
     fn otx_transaction_builder_supports_base_append_and_remainder_outputs() {
         let mut fixture = CobuildTestFixture::new();
-        let lock = deploy_test_lock(fixture.context_mut(), Vec::new());
+        let lock = deploy_protocol_dummy_script(fixture.context_mut(), 1, Vec::new());
 
         let base_input_a = live_input(
             fixture.context_mut(),
@@ -131,7 +130,7 @@ mod tests {
     #[test]
     fn tx_builder_supports_sighash_all_message_without_otx() {
         let mut fixture = CobuildTestFixture::new();
-        let lock = deploy_test_lock(fixture.context_mut(), Vec::new());
+        let lock = deploy_protocol_dummy_script(fixture.context_mut(), 2, Vec::new());
         let input = live_input(
             fixture.context_mut(),
             normal_output(lock.script.clone(), 1_000),
@@ -183,13 +182,10 @@ mod tests {
             ScriptHashType::Data2,
             Vec::new(),
         );
-        let always_success = deploy_test_lock(&mut context, Vec::new());
+        let dummy_script = deploy_protocol_dummy_script(&mut context, 3, Vec::new());
 
         assert_eq!(data2_script.script_hash, script_hash(&data2_script.script));
-        assert_eq!(
-            always_success.script_hash,
-            script_hash(&always_success.script)
-        );
+        assert_eq!(dummy_script.script_hash, script_hash(&dummy_script.script));
         let cell_dep_index: u32 = data2_script.cell_dep.out_point().index().unpack();
         assert_eq!(cell_dep_index, 0);
     }
@@ -197,8 +193,8 @@ mod tests {
     #[test]
     fn resolved_input_helpers_preserve_cell_and_data() {
         let mut fixture = CobuildTestFixture::new();
-        let lock = deploy_test_lock(fixture.context_mut(), Vec::new());
-        let type_script = deploy_test_lock(fixture.context_mut(), Vec::new());
+        let lock = deploy_protocol_dummy_script(fixture.context_mut(), 4, Vec::new());
+        let type_script = deploy_protocol_dummy_script(fixture.context_mut(), 5, Vec::new());
         let (_input, resolved): (_, TestResolvedInput) = live_resolved_typed_input(
             fixture.context_mut(),
             lock.script.clone(),
@@ -280,10 +276,10 @@ mod tests {
     fn fixture_facade_deploys_contracts_and_starts_builders() {
         let mut fixture = CobuildTestFixture::new();
 
-        let always_success = deploy_test_lock(fixture.context_mut(), Vec::new());
+        let script = deploy_protocol_dummy_script(fixture.context_mut(), 6, Vec::new());
         let _message = fixture
             .cobuild()
-            .input_lock_action(script_hash(&always_success.script));
+            .input_lock_action(script_hash(&script.script));
         let _otx = fixture.otx();
         let _tx = fixture.tx();
     }

@@ -1,8 +1,5 @@
 use blake2b_ref::{Blake2b, Blake2bBuilder};
-use ckb_testtool::ckb_types::{
-    core::TransactionView,
-    prelude::Entity,
-};
+use ckb_testtool::ckb_types::{core::TransactionView, prelude::Entity};
 use cobuild_types::entity::core::Message as CobuildMessage;
 
 use crate::framework::{scripts::packed_hash_to_array, tx::BuiltTxShape};
