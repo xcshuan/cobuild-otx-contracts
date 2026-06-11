@@ -228,8 +228,8 @@ impl OtxTransactionBuilder {
 mod tests {
     use ckb_testtool::ckb_types::{
         bytes::Bytes,
-        packed::{CellInput, CellOutput, Script},
-        prelude::{Builder, Entity},
+        packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
+        prelude::{Builder, Entity, Pack},
     };
 
     use super::{
@@ -265,6 +265,12 @@ mod tests {
         )
     }
 
+    fn cell_dep(tag: u8) -> CellDep {
+        CellDep::new_builder()
+            .out_point(OutPoint::new([tag; 32].pack(), 0))
+            .build()
+    }
+
     #[test]
     fn tx_shape_maps_two_otxs_and_remainder_output_handles() {
         let mut shape = TxShape::new();
@@ -275,6 +281,10 @@ mod tests {
             append_inputs: vec![resolved_input(3)],
             base_outputs: vec![output(10)],
             append_outputs: vec![output(11), output(12)],
+            base_cell_deps: vec![cell_dep(10)],
+            append_cell_deps: vec![cell_dep(11), cell_dep(12)],
+            base_header_deps: vec![[10; 32]],
+            append_header_deps: vec![[11; 32], [12; 32]],
             ..Default::default()
         });
         let second_otx = shape.push_otx(OtxSegment {
@@ -282,6 +292,10 @@ mod tests {
             append_inputs: vec![resolved_input(5)],
             base_outputs: vec![output(20)],
             append_outputs: vec![output(21)],
+            base_cell_deps: vec![cell_dep(20)],
+            append_cell_deps: vec![cell_dep(21)],
+            base_header_deps: vec![[20; 32]],
+            append_header_deps: vec![[21; 32]],
             ..Default::default()
         });
         let remainder = shape.push_remainder_output(output(30));
@@ -300,9 +314,9 @@ mod tests {
             Some(InputHandle::from_raw(0))
         );
         assert_eq!(built.outputs.tx_index(first_base), 0);
-        assert_eq!(built.outputs.tx_index(second_base), 1);
-        assert_eq!(built.outputs.tx_index(first_append_0), 2);
-        assert_eq!(built.outputs.tx_index(first_append_1), 3);
+        assert_eq!(built.outputs.tx_index(first_append_0), 1);
+        assert_eq!(built.outputs.tx_index(first_append_1), 2);
+        assert_eq!(built.outputs.tx_index(second_base), 3);
         assert_eq!(built.outputs.tx_index(second_append), 4);
         assert_eq!(built.outputs.tx_index(remainder), 5);
         assert_eq!(
@@ -312,11 +326,25 @@ mod tests {
 
         assert_eq!(built.tx.inputs().len(), 5);
         assert_eq!(built.tx.outputs().len(), 6);
+        assert_eq!(built.tx.cell_deps().len(), 5);
+        assert_eq!(built.tx.header_deps().len(), 5);
         assert_eq!(built.resolved_inputs.len(), 5);
         assert_eq!(built.otx_ranges.len(), 2);
+        assert_eq!(built.otx_ranges[0].base_inputs, 1..2);
+        assert_eq!(built.otx_ranges[0].append_inputs, 2..3);
         assert_eq!(built.otx_ranges[0].base_outputs, 0..1);
-        assert_eq!(built.otx_ranges[0].append_outputs, 2..4);
-        assert_eq!(built.otx_ranges[1].base_outputs, 1..2);
+        assert_eq!(built.otx_ranges[0].append_outputs, 1..3);
+        assert_eq!(built.otx_ranges[0].base_cell_deps, 0..1);
+        assert_eq!(built.otx_ranges[0].append_cell_deps, 1..3);
+        assert_eq!(built.otx_ranges[0].base_header_deps, 0..1);
+        assert_eq!(built.otx_ranges[0].append_header_deps, 1..3);
+        assert_eq!(built.otx_ranges[1].base_inputs, 3..4);
+        assert_eq!(built.otx_ranges[1].append_inputs, 4..5);
+        assert_eq!(built.otx_ranges[1].base_outputs, 3..4);
         assert_eq!(built.otx_ranges[1].append_outputs, 4..5);
+        assert_eq!(built.otx_ranges[1].base_cell_deps, 3..4);
+        assert_eq!(built.otx_ranges[1].append_cell_deps, 4..5);
+        assert_eq!(built.otx_ranges[1].base_header_deps, 3..4);
+        assert_eq!(built.otx_ranges[1].append_header_deps, 4..5);
     }
 }

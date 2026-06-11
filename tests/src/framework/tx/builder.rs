@@ -140,11 +140,26 @@ impl TxShape {
         let mut cell_deps = EntityIndexMap::default();
         let mut header_deps = EntityIndexMap::default();
         let mut resolved_inputs = Vec::new();
-        let mut otx_ranges = Vec::new();
+        let mut otx_ranges: Vec<_> = self
+            .otxs
+            .iter()
+            .map(|otx| OtxRangeFacts {
+                otx: otx.handle,
+                base_inputs: 0..0,
+                append_inputs: 0..0,
+                base_outputs: 0..0,
+                append_outputs: 0..0,
+                base_cell_deps: 0..0,
+                append_cell_deps: 0..0,
+                base_header_deps: 0..0,
+                append_header_deps: 0..0,
+            })
+            .collect();
         let mut cell_dep_cursor = 0;
         let mut header_dep_cursor = 0;
 
-        for otx in &self.otxs {
+        for (range_index, otx) in self.otxs.iter().enumerate() {
+            let base_start = cell_dep_cursor;
             for (handle, dep) in otx
                 .base_cell_dep_handles
                 .iter()
@@ -155,8 +170,9 @@ impl TxShape {
                 builder = builder.cell_dep(dep.clone());
                 cell_dep_cursor += 1;
             }
-        }
-        for otx in &self.otxs {
+            otx_ranges[range_index].base_cell_deps = base_start..cell_dep_cursor;
+
+            let append_start = cell_dep_cursor;
             for (handle, dep) in otx
                 .append_cell_dep_handles
                 .iter()
@@ -167,9 +183,11 @@ impl TxShape {
                 builder = builder.cell_dep(dep.clone());
                 cell_dep_cursor += 1;
             }
+            otx_ranges[range_index].append_cell_deps = append_start..cell_dep_cursor;
         }
 
-        for otx in &self.otxs {
+        for (range_index, otx) in self.otxs.iter().enumerate() {
+            let base_start = header_dep_cursor;
             for (handle, dep) in otx
                 .base_header_dep_handles
                 .iter()
@@ -180,8 +198,9 @@ impl TxShape {
                 builder = builder.header_dep(dep.pack());
                 header_dep_cursor += 1;
             }
-        }
-        for otx in &self.otxs {
+            otx_ranges[range_index].base_header_deps = base_start..header_dep_cursor;
+
+            let append_start = header_dep_cursor;
             for (handle, dep) in otx
                 .append_header_dep_handles
                 .iter()
@@ -192,6 +211,7 @@ impl TxShape {
                 builder = builder.header_dep(dep.pack());
                 header_dep_cursor += 1;
             }
+            otx_ranges[range_index].append_header_deps = append_start..header_dep_cursor;
         }
 
         for (handle, input) in self.prefix_inputs {
@@ -199,7 +219,8 @@ impl TxShape {
             builder = builder.input(input.input.clone());
             resolved_inputs.push(input);
         }
-        for otx in &self.otxs {
+        for (range_index, otx) in self.otxs.iter().enumerate() {
+            let base_start = resolved_inputs.len();
             for (handle, input) in otx
                 .base_input_handles
                 .iter()
@@ -210,8 +231,9 @@ impl TxShape {
                 builder = builder.input(input.input.clone());
                 resolved_inputs.push(input.clone());
             }
-        }
-        for otx in &self.otxs {
+            otx_ranges[range_index].base_inputs = base_start..resolved_inputs.len();
+
+            let append_start = resolved_inputs.len();
             for (handle, input) in otx
                 .append_input_handles
                 .iter()
@@ -222,73 +244,54 @@ impl TxShape {
                 builder = builder.input(input.input.clone());
                 resolved_inputs.push(input.clone());
             }
+            otx_ranges[range_index].append_inputs = append_start..resolved_inputs.len();
         }
 
-        let mut base_output_cursor = 0;
-        for otx in &self.otxs {
-            let start = base_output_cursor;
+        let mut output_cursor = 0;
+        for (range_index, otx) in self.otxs.iter().enumerate() {
+            let base_start = output_cursor;
             for (handle, output) in otx
                 .base_output_handles
                 .iter()
                 .copied()
                 .zip(otx.segment.base_outputs.iter())
             {
-                outputs.insert(handle, base_output_cursor);
+                outputs.insert(handle, output_cursor);
                 builder = builder
                     .output(output.cell.clone())
                     .output_data(output.data.clone().pack());
-                base_output_cursor += 1;
+                output_cursor += 1;
             }
-            otx_ranges.push(OtxRangeFacts {
-                otx: otx.handle,
-                base_inputs: 0..0,
-                append_inputs: 0..0,
-                base_outputs: start..base_output_cursor,
-                append_outputs: 0..0,
-                base_cell_deps: 0..0,
-                append_cell_deps: 0..0,
-                base_header_deps: 0..0,
-                append_header_deps: 0..0,
-            });
-        }
+            otx_ranges[range_index].base_outputs = base_start..output_cursor;
 
-        let mut append_output_cursor = base_output_cursor;
-        for (range_index, otx) in self.otxs.iter().enumerate() {
-            let start = append_output_cursor;
+            let append_start = output_cursor;
             for (handle, output) in otx
                 .append_output_handles
                 .iter()
                 .copied()
                 .zip(otx.segment.append_outputs.iter())
             {
-                outputs.insert(handle, append_output_cursor);
+                outputs.insert(handle, output_cursor);
                 builder = builder
                     .output(output.cell.clone())
                     .output_data(output.data.clone().pack());
-                append_output_cursor += 1;
+                output_cursor += 1;
             }
-            otx_ranges[range_index].append_outputs = start..append_output_cursor;
+            otx_ranges[range_index].append_outputs = append_start..output_cursor;
         }
 
         for (handle, output) in self.remainder_outputs {
-            outputs.insert(handle, append_output_cursor);
+            outputs.insert(handle, output_cursor);
             builder = builder.output(output.cell).output_data(output.data.pack());
-            append_output_cursor += 1;
+            output_cursor += 1;
         }
-
-        fill_otx_input_ranges(&mut otx_ranges, &inputs, &self.otxs);
-        fill_otx_dep_ranges(&mut otx_ranges, &cell_deps, &header_deps, &self.otxs);
 
         if !self.otxs.is_empty() {
             let start_input_cell = resolved_inputs
                 .len()
                 .saturating_sub(total_otx_inputs(&self.otxs))
                 as u32;
-            let start_cell_deps = total_base_cell_deps(&self.otxs) as u32;
-            let start_header_deps = total_base_header_deps(&self.otxs) as u32;
-            builder = builder.witness(
-                otx_start_witness(start_input_cell, 0, start_cell_deps, start_header_deps).pack(),
-            );
+            builder = builder.witness(otx_start_witness(start_input_cell, 0, 0, 0).pack());
         }
         for otx in &self.otxs {
             let mut builder_for_otx = OtxBuilder::new()
@@ -368,55 +371,8 @@ impl TxShape {
     }
 }
 
-fn fill_otx_input_ranges(
-    ranges: &mut [OtxRangeFacts],
-    inputs: &EntityIndexMap<InputHandle>,
-    otxs: &[TrackedOtxSegment],
-) {
-    for (range, otx) in ranges.iter_mut().zip(otxs) {
-        range.base_inputs = range_from_handles(inputs, &otx.base_input_handles);
-        range.append_inputs = range_from_handles(inputs, &otx.append_input_handles);
-    }
-}
-
-fn fill_otx_dep_ranges(
-    ranges: &mut [OtxRangeFacts],
-    cell_deps: &EntityIndexMap<CellDepHandle>,
-    header_deps: &EntityIndexMap<HeaderDepHandle>,
-    otxs: &[TrackedOtxSegment],
-) {
-    for (range, otx) in ranges.iter_mut().zip(otxs) {
-        range.base_cell_deps = range_from_handles(cell_deps, &otx.base_cell_dep_handles);
-        range.append_cell_deps = range_from_handles(cell_deps, &otx.append_cell_dep_handles);
-        range.base_header_deps = range_from_handles(header_deps, &otx.base_header_dep_handles);
-        range.append_header_deps = range_from_handles(header_deps, &otx.append_header_dep_handles);
-    }
-}
-
-fn range_from_handles<T: super::handles::TxEntityHandle>(
-    index_map: &EntityIndexMap<T>,
-    handles: &[T],
-) -> Range<usize> {
-    match (handles.first(), handles.last()) {
-        (Some(first), Some(last)) => index_map.tx_index(*first)..index_map.tx_index(*last) + 1,
-        _ => 0..0,
-    }
-}
-
 fn total_otx_inputs(otxs: &[TrackedOtxSegment]) -> usize {
     otxs.iter()
         .map(|otx| otx.segment.base_inputs.len() + otx.segment.append_inputs.len())
-        .sum()
-}
-
-fn total_base_cell_deps(otxs: &[TrackedOtxSegment]) -> usize {
-    otxs.iter()
-        .map(|otx| otx.segment.base_cell_deps.len())
-        .sum()
-}
-
-fn total_base_header_deps(otxs: &[TrackedOtxSegment]) -> usize {
-    otxs.iter()
-        .map(|otx| otx.segment.base_header_deps.len())
         .sum()
 }

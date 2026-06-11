@@ -24,10 +24,6 @@ mod tests {
         },
         tx::{OtxTransactionBuilder, otx_start_witness},
     };
-    use crate::fixtures::limit_order::{
-        LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, order_data,
-        settlement_data,
-    };
     use ckb_testtool::{
         ckb_script::ScriptError,
         ckb_types::{
@@ -36,46 +32,6 @@ mod tests {
         },
         context::Context,
     };
-
-    #[test]
-    fn limit_order_helpers_encode_fixed_width_order_and_settlement_data() {
-        let order = LimitOrderState {
-            owner_lock_hash: [2; 32],
-            offered_nft_type_hash: [3; 32],
-            requested_asset_id: [4; 32],
-            requested_amount: 30,
-        };
-
-        let data = order_data(order);
-        let settlement = settlement_data([4; 32], 30);
-
-        assert_eq!(data.len(), 104);
-        assert_eq!(&data[0..32], &[2; 32]);
-        assert_eq!(&data[32..64], &[3; 32]);
-        assert_eq!(&data[64..96], &[4; 32]);
-        assert_eq!(&data[96..104], &30u64.to_le_bytes());
-        assert_eq!(settlement.len(), 40);
-        assert_eq!(&settlement[0..32], &[4; 32]);
-        assert_eq!(&settlement[32..40], &30u64.to_le_bytes());
-    }
-
-    #[test]
-    fn limit_order_fixture_encodes_fill_action_and_default_otx_layout() {
-        let message = LimitOrderCobuildMessageExt::limit_order_fill(
-            CobuildMessageBuilder::new().input_type_action([9; 32]),
-            0,
-            [4; 32],
-        )
-        .build();
-
-        let fixture = CobuildTestFixture::new();
-        let otx = fixture
-            .limit_order_append_settlement_otx()
-            .message(message)
-            .build();
-
-        assert_eq!(otx.append_permissions().as_slice(), &[0b0010]);
-    }
 
     #[test]
     fn otx_witness_helpers_encode_start_and_seal() {
@@ -209,15 +165,15 @@ mod tests {
     fn contract_helpers_deploy_scripts_and_record_script_hashes() {
         let mut context = Context::default();
 
-        let limit_order = deploy_data2_script(&mut context, "limit-order-type", Vec::new());
+        let data2_script = deploy_data2_script(&mut context, "sample-data2-script", Vec::new());
         let always_success = deploy_always_success(&mut context, Vec::new());
 
-        assert_eq!(limit_order.script_hash, script_hash(&limit_order.script));
+        assert_eq!(data2_script.script_hash, script_hash(&data2_script.script));
         assert_eq!(
             always_success.script_hash,
             script_hash(&always_success.script)
         );
-        let cell_dep_index: u32 = limit_order.cell_dep.out_point().index().unpack();
+        let cell_dep_index: u32 = data2_script.cell_dep.out_point().index().unpack();
         assert_eq!(cell_dep_index, 0);
     }
 
@@ -303,11 +259,10 @@ mod tests {
     fn fixture_facade_deploys_contracts_and_starts_builders() {
         let mut fixture = CobuildTestFixture::new();
 
-        let limit_order = fixture.deploy_limit_order();
         let always_success = fixture.deploy_always_success();
-        let owner_lock = always_success.script.clone();
-        let _order = fixture.limit_order().owner(owner_lock);
-        let _message = fixture.cobuild().input_type_action(limit_order.script_hash);
+        let _message = fixture
+            .cobuild()
+            .input_lock_action(script_hash(&always_success.script));
         let _otx = fixture.otx();
         let _tx = fixture.tx();
     }
