@@ -1,118 +1,7 @@
 use ckb_testtool::ckb_types::prelude::{Builder, Entity};
-use cobuild_types::entity::core::{
-    Action, ActionVec, Message as CobuildMessage, Otx, SealPair, SealPairVec,
-};
+use cobuild_types::entity::core::{Message as CobuildMessage, Otx, SealPair, SealPairVec};
 
-pub fn empty_message() -> CobuildMessage {
-    CobuildMessage::new_builder()
-        .actions(ActionVec::new_builder().build())
-        .build()
-}
-
-pub fn seal_pair(
-    script_hash: [u8; 32],
-    scope: u8,
-    seal: Vec<u8>,
-) -> cobuild_types::entity::core::SealPair {
-    cobuild_types::entity::core::SealPair::new_builder()
-        .script_hash(script_hash)
-        .scope(scope)
-        .seal(seal)
-        .build()
-}
-
-#[derive(Clone, Debug)]
-pub struct CobuildActionSpec {
-    pub script_hash: [u8; 32],
-    pub script_role: u8,
-    pub action_data: Vec<u8>,
-}
-
-#[derive(Clone, Debug)]
-pub struct CobuildMessageBuilder {
-    script_hash: [u8; 32],
-    script_role: u8,
-    action_data: Vec<u8>,
-    actions: Vec<CobuildActionSpec>,
-}
-
-impl CobuildMessageBuilder {
-    pub fn new() -> Self {
-        Self {
-            script_hash: [0; 32],
-            script_role: 1,
-            action_data: Vec::new(),
-            actions: Vec::new(),
-        }
-    }
-
-    pub fn input_type_action(mut self, script_hash: [u8; 32]) -> Self {
-        self.script_hash = script_hash;
-        self.script_role = 1;
-        self
-    }
-
-    pub fn input_lock_action(mut self, script_hash: [u8; 32]) -> Self {
-        self.script_hash = script_hash;
-        self.script_role = 0;
-        self
-    }
-
-    pub fn output_type_action(mut self, script_hash: [u8; 32]) -> Self {
-        self.script_hash = script_hash;
-        self.script_role = 2;
-        self
-    }
-
-    pub fn action_data(mut self, action_data: Vec<u8>) -> Self {
-        self.action_data = action_data;
-        self
-    }
-
-    pub fn push_action(
-        mut self,
-        script_role: u8,
-        script_hash: [u8; 32],
-        action_data: Vec<u8>,
-    ) -> Self {
-        self.actions.push(CobuildActionSpec {
-            script_hash,
-            script_role,
-            action_data,
-        });
-        self
-    }
-
-    pub fn build(self) -> CobuildMessage {
-        let actions = if self.actions.is_empty() {
-            vec![CobuildActionSpec {
-                script_hash: self.script_hash,
-                script_role: self.script_role,
-                action_data: self.action_data,
-            }]
-        } else {
-            self.actions
-        }
-        .into_iter()
-        .map(|spec| {
-            Action::new_builder()
-                .script_info_hash([0u8; 32])
-                .script_role(spec.script_role)
-                .script_hash(spec.script_hash)
-                .data(spec.action_data)
-                .build()
-        });
-        CobuildMessage::new_builder()
-            .actions(ActionVec::new_builder().extend(actions).build())
-            .build()
-    }
-}
-
-impl Default for CobuildMessageBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use super::message::MessageBuilder;
 
 #[derive(Clone, Debug)]
 pub struct OtxBuilder {
@@ -134,7 +23,7 @@ pub struct OtxBuilder {
 }
 
 #[derive(Clone, Debug)]
-pub struct BuiltOtx {
+pub struct BuiltOtxSpec {
     pub otx: Otx,
     pub base_input_cells: u32,
     pub base_output_cells: u32,
@@ -149,7 +38,7 @@ pub struct BuiltOtx {
 impl OtxBuilder {
     pub fn new() -> Self {
         Self {
-            message: CobuildMessageBuilder::new().build(),
+            message: MessageBuilder::new().build(),
             append_permissions: 0,
             base_input_cells: 0,
             base_input_masks: Vec::new(),
@@ -169,6 +58,41 @@ impl OtxBuilder {
 
     pub fn message(mut self, message: CobuildMessage) -> Self {
         self.message = message;
+        self
+    }
+
+    pub fn append_permissions_raw(mut self, value: u8) -> Self {
+        self.append_permissions = value;
+        self
+    }
+
+    pub fn base_input_masks_raw(mut self, masks: Vec<u8>) -> Self {
+        self.base_input_masks = masks;
+        self
+    }
+
+    pub fn base_output_masks_raw(mut self, masks: Vec<u8>) -> Self {
+        self.base_output_masks = masks;
+        self
+    }
+
+    pub fn base_cell_dep_masks_raw(mut self, masks: Vec<u8>) -> Self {
+        self.base_cell_dep_masks = masks;
+        self
+    }
+
+    pub fn base_header_dep_masks_raw(mut self, masks: Vec<u8>) -> Self {
+        self.base_header_dep_masks = masks;
+        self
+    }
+
+    pub fn raw_base_input_cells(mut self, value: u32) -> Self {
+        self.base_input_cells = value;
+        self
+    }
+
+    pub fn raw_append_output_cells(mut self, value: u32) -> Self {
+        self.append_output_cells = value;
         self
     }
 
@@ -223,13 +147,58 @@ impl OtxBuilder {
         self
     }
 
+    pub fn allow_append_inputs(mut self) -> Self {
+        self.append_permissions |= 0b0001;
+        self
+    }
+
     pub fn allow_append_outputs(mut self) -> Self {
         self.append_permissions |= 0b0010;
         self
     }
 
-    pub fn allow_append_inputs(mut self) -> Self {
-        self.append_permissions |= 0b0001;
+    pub fn allow_append_cell_deps(mut self) -> Self {
+        self.append_permissions |= 0b0100;
+        self
+    }
+
+    pub fn allow_append_header_deps(mut self) -> Self {
+        self.append_permissions |= 0b1000;
+        self
+    }
+
+    pub fn cover_base_input_since(mut self, local_input: usize) -> Self {
+        set_mask_bit(&mut self.base_input_masks, local_input * 2, true);
+        self
+    }
+
+    pub fn cover_base_input_previous_output(mut self, local_input: usize) -> Self {
+        set_mask_bit(&mut self.base_input_masks, local_input * 2 + 1, true);
+        self
+    }
+
+    pub fn cover_base_output_capacity(mut self, local_output: usize) -> Self {
+        set_mask_bit(&mut self.base_output_masks, local_output * 4, true);
+        self
+    }
+
+    pub fn cover_base_output_lock(mut self, local_output: usize) -> Self {
+        set_mask_bit(&mut self.base_output_masks, local_output * 4 + 1, true);
+        self
+    }
+
+    pub fn cover_base_output_type(mut self, local_output: usize) -> Self {
+        set_mask_bit(&mut self.base_output_masks, local_output * 4 + 2, true);
+        self
+    }
+
+    pub fn cover_base_output_data(mut self, local_output: usize) -> Self {
+        set_mask_bit(&mut self.base_output_masks, local_output * 4 + 3, true);
+        self
+    }
+
+    pub fn uncover_base_output_data(mut self, local_output: usize) -> Self {
+        set_mask_bit(&mut self.base_output_masks, local_output * 4 + 3, false);
         self
     }
 
@@ -237,7 +206,7 @@ impl OtxBuilder {
         self.build_with_layout().otx
     }
 
-    pub fn build_with_layout(self) -> BuiltOtx {
+    pub fn build_with_layout(self) -> BuiltOtxSpec {
         let base_input_cells = self.base_input_cells;
         let base_output_cells = self.base_output_cells;
         let base_cell_deps = self.base_cell_deps;
@@ -263,7 +232,7 @@ impl OtxBuilder {
             .append_header_deps(self.append_header_deps.to_le_bytes())
             .seals(SealPairVec::new_builder().extend(self.seals).build())
             .build();
-        BuiltOtx {
+        BuiltOtxSpec {
             otx,
             base_input_cells,
             base_output_cells,
@@ -295,3 +264,19 @@ fn full_base_output_masks(output_count: usize) -> Vec<u8> {
     }
     masks
 }
+
+fn set_mask_bit(masks: &mut Vec<u8>, bit: usize, covered: bool) {
+    let byte = bit / 8;
+    if masks.len() <= byte {
+        masks.resize(byte + 1, 0);
+    }
+    let mask = 1u8 << (bit % 8);
+    if covered {
+        masks[byte] |= mask;
+    } else {
+        masks[byte] &= !mask;
+    }
+}
+
+pub type OtxSpec = OtxBuilder;
+pub type BuiltOtx = BuiltOtxSpec;

@@ -75,6 +75,89 @@ fn framework_otx_builder_defaults_to_neutral_layout() {
 }
 
 #[test]
+fn cobuild_protocol_builders_encode_raw_permissions_and_masks() {
+    let built = crate::framework::cobuild::OtxBuilder::new()
+        .append_permissions_raw(0x10)
+        .base_input_masks_raw(vec![0xff])
+        .build_with_layout();
+
+    assert_eq!(built.otx.append_permissions().as_slice(), &[0x10]);
+    assert_eq!(built.otx.base_input_masks().raw_data().as_ref(), &[0xff]);
+}
+
+#[test]
+fn cobuild_protocol_builders_set_append_dep_permission_bits() {
+    let built = crate::framework::cobuild::OtxBuilder::new()
+        .allow_append_cell_deps()
+        .allow_append_header_deps()
+        .build_with_layout();
+
+    assert_eq!(built.otx.append_permissions().as_slice(), &[0b1100]);
+}
+
+#[test]
+fn cobuild_protocol_builders_cover_and_uncover_output_data_mask_bit() {
+    let covered = crate::framework::cobuild::OtxBuilder::new()
+        .base_output_cells(1)
+        .uncover_base_output_data(0)
+        .cover_base_output_data(0)
+        .build_with_layout();
+    assert_eq!(
+        covered.otx.base_output_masks().raw_data().as_ref(),
+        &[0b1111]
+    );
+
+    let uncovered = crate::framework::cobuild::OtxBuilder::new()
+        .base_output_cells(1)
+        .uncover_base_output_data(0)
+        .build_with_layout();
+    assert_eq!(
+        uncovered.otx.base_output_masks().raw_data().as_ref(),
+        &[0b0111]
+    );
+}
+
+#[test]
+fn cobuild_protocol_builders_encode_custom_otx_start_spec() {
+    let witness = crate::framework::cobuild::OtxStartSpec {
+        start_input_cell: 1,
+        start_output_cell: 2,
+        start_cell_deps: 3,
+        start_header_deps: 4,
+    }
+    .encode();
+
+    assert!(
+        witness
+            .windows(4)
+            .any(|window| window == 1u32.to_le_bytes())
+    );
+    assert!(
+        witness
+            .windows(4)
+            .any(|window| window == 2u32.to_le_bytes())
+    );
+    assert!(
+        witness
+            .windows(4)
+            .any(|window| window == 3u32.to_le_bytes())
+    );
+    assert!(
+        witness
+            .windows(4)
+            .any(|window| window == 4u32.to_le_bytes())
+    );
+}
+
+#[test]
+fn cobuild_protocol_builders_preserve_raw_cobuild_witness_bytes() {
+    let raw = ckb_testtool::ckb_types::bytes::Bytes::from(vec![0xde, 0xad, 0xbe, 0xef]);
+    let encoded = crate::framework::cobuild::WitnessSpec::RawCobuild(raw.clone()).encode();
+
+    assert_eq!(encoded, raw);
+}
+
+#[test]
 fn cobuild_otx_lock_test_file_contains_no_fixture_helpers() {
     let repo = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
