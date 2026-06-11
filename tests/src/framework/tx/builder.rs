@@ -31,6 +31,10 @@ pub struct OtxSegment {
     pub append_cell_deps: Vec<CellDep>,
     pub base_header_deps: Vec<[u8; 32]>,
     pub append_header_deps: Vec<[u8; 32]>,
+    pub base_input_masks: Option<Vec<u8>>,
+    pub base_output_masks: Option<Vec<u8>>,
+    pub base_cell_dep_masks: Option<Vec<u8>>,
+    pub base_header_dep_masks: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug)]
@@ -61,6 +65,7 @@ pub struct BuiltTxShape {
 #[derive(Clone, Debug, Default)]
 pub struct TxShape {
     prefix_inputs: Vec<(InputHandle, ResolvedInputFacts)>,
+    prefix_cell_deps: Vec<(CellDepHandle, CellDep)>,
     otxs: Vec<TrackedOtxSegment>,
     remainder_outputs: Vec<(OutputHandle, TestCellOutput)>,
     next_input: usize,
@@ -91,6 +96,12 @@ impl TxShape {
     pub fn push_prefix_input(&mut self, input: ResolvedInputFacts) -> InputHandle {
         let handle = self.next_input_handle();
         self.prefix_inputs.push((handle, input));
+        handle
+    }
+
+    pub fn push_prefix_cell_dep(&mut self, cell_dep: CellDep) -> CellDepHandle {
+        let handle = self.next_cell_dep_handle();
+        self.prefix_cell_deps.push((handle, cell_dep));
         handle
     }
 
@@ -140,6 +151,14 @@ impl TxShape {
         self.otx(otx).base_output_handles[local_index]
     }
 
+    pub fn otx_base_input(&self, otx: OtxHandle, local_index: usize) -> InputHandle {
+        self.otx(otx).base_input_handles[local_index]
+    }
+
+    pub fn otx_append_input(&self, otx: OtxHandle, local_index: usize) -> InputHandle {
+        self.otx(otx).append_input_handles[local_index]
+    }
+
     pub fn build(self) -> BuiltTxShape {
         let mut builder = TransactionBuilder::default();
         let mut inputs = EntityIndexMap::default();
@@ -165,6 +184,13 @@ impl TxShape {
             .collect();
         let mut cell_dep_cursor = 0;
         let mut header_dep_cursor = 0;
+
+        let start_cell_deps = self.prefix_cell_deps.len();
+        for (handle, dep) in &self.prefix_cell_deps {
+            cell_deps.insert(*handle, cell_dep_cursor);
+            builder = builder.cell_dep(dep.clone());
+            cell_dep_cursor += 1;
+        }
 
         for (range_index, otx) in self.otxs.iter().enumerate() {
             let base_start = cell_dep_cursor;
@@ -300,7 +326,8 @@ impl TxShape {
                 .saturating_sub(total_otx_inputs(&self.otxs))
                 as u32;
             witnesses.insert(WitnessHandle::from_raw(0), 0);
-            builder = builder.witness(otx_start_witness(start_input_cell, 0, 0, 0).pack());
+            builder = builder
+                .witness(otx_start_witness(start_input_cell, 0, start_cell_deps as u32, 0).pack());
         }
         for (otx_index, otx) in self.otxs.iter().enumerate() {
             let mut builder_for_otx = OtxBuilder::new()
@@ -317,6 +344,24 @@ impl TxShape {
             }
             if !otx.segment.append_outputs.is_empty() {
                 builder_for_otx = builder_for_otx.allow_append_outputs();
+            }
+            if !otx.segment.append_cell_deps.is_empty() {
+                builder_for_otx = builder_for_otx.allow_append_cell_deps();
+            }
+            if !otx.segment.append_header_deps.is_empty() {
+                builder_for_otx = builder_for_otx.allow_append_header_deps();
+            }
+            if let Some(masks) = &otx.segment.base_input_masks {
+                builder_for_otx = builder_for_otx.base_input_masks_raw(masks.clone());
+            }
+            if let Some(masks) = &otx.segment.base_output_masks {
+                builder_for_otx = builder_for_otx.base_output_masks_raw(masks.clone());
+            }
+            if let Some(masks) = &otx.segment.base_cell_dep_masks {
+                builder_for_otx = builder_for_otx.base_cell_dep_masks_raw(masks.clone());
+            }
+            if let Some(masks) = &otx.segment.base_header_dep_masks {
+                builder_for_otx = builder_for_otx.base_header_dep_masks_raw(masks.clone());
             }
 
             let otx = builder_for_otx.build();
@@ -387,4 +432,10 @@ fn total_otx_inputs(otxs: &[TrackedOtxSegment]) -> usize {
     otxs.iter()
         .map(|otx| otx.segment.base_inputs.len() + otx.segment.append_inputs.len())
         .sum()
+}
+
+impl BuiltTxShape {
+    pub fn otx_witness(&self, otx: OtxHandle) -> WitnessHandle {
+        WitnessHandle::from_raw(otx.0 + 1)
+    }
 }

@@ -1,7 +1,7 @@
 use ckb_testtool::ckb_types::prelude::{Builder, Entity};
-use cobuild_types::entity::core::{Message as CobuildMessage, Otx, SealPair, SealPairVec};
-
-use super::message::MessageBuilder;
+use cobuild_types::entity::core::{
+    ActionVec, Message as CobuildMessage, Otx, SealPair, SealPairVec,
+};
 
 #[derive(Clone, Debug)]
 pub struct OtxBuilder {
@@ -38,7 +38,7 @@ pub struct BuiltOtxSpec {
 impl OtxBuilder {
     pub fn new() -> Self {
         Self {
-            message: MessageBuilder::new().build(),
+            message: empty_message(),
             append_permissions: 0,
             base_input_cells: 0,
             base_input_masks: Vec::new(),
@@ -311,3 +311,9 @@ fn set_mask_bit(masks: &mut Vec<u8>, bit: usize, covered: bool) {
 
 pub type OtxSpec = OtxBuilder;
 pub type BuiltOtx = BuiltOtxSpec;
+
+fn empty_message() -> CobuildMessage {
+    CobuildMessage::new_builder()
+        .actions(ActionVec::new_builder().build())
+        .build()
+}

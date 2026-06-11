@@ -34,6 +34,12 @@ impl_handle!(HeaderDepHandle);
 impl_handle!(OtxHandle);
 impl_handle!(WitnessHandle);
 
+impl WitnessHandle {
+    pub(crate) fn synthetic_input(index: usize) -> Self {
+        Self(10_000 + index)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct EntityIndexMap<T> {
     handle_to_tx_index: Vec<(T, usize)>,
