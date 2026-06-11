@@ -232,10 +232,7 @@ mod tests {
         prelude::{Builder, Entity, Pack},
     };
 
-    use super::{
-        OtxSegment, TxShape,
-        handles::{InputHandle, OutputHandle},
-    };
+    use super::{OtxSegment, TxShape};
     use crate::framework::cells::{ResolvedInputFacts, TestCellOutput, normal_output};
 
     fn empty_script() -> Script {
@@ -309,20 +306,14 @@ mod tests {
         let built = shape.build();
 
         assert_eq!(built.inputs.tx_index(prefix), 0);
-        assert_eq!(
-            built.inputs.handle_at_tx_index(0),
-            Some(InputHandle::from_raw(0))
-        );
+        assert_eq!(built.inputs.handle_at_tx_index(0), Some(prefix));
         assert_eq!(built.outputs.tx_index(first_base), 0);
         assert_eq!(built.outputs.tx_index(first_append_0), 1);
         assert_eq!(built.outputs.tx_index(first_append_1), 2);
         assert_eq!(built.outputs.tx_index(second_base), 3);
         assert_eq!(built.outputs.tx_index(second_append), 4);
         assert_eq!(built.outputs.tx_index(remainder), 5);
-        assert_eq!(
-            built.outputs.handle_at_tx_index(5),
-            Some(OutputHandle::from_raw(5))
-        );
+        assert_eq!(built.outputs.handle_at_tx_index(5), Some(remainder));
 
         assert_eq!(built.tx.inputs().len(), 5);
         assert_eq!(built.tx.outputs().len(), 6);
@@ -346,5 +337,12 @@ mod tests {
         assert_eq!(built.otx_ranges[1].append_cell_deps, 4..5);
         assert_eq!(built.otx_ranges[1].base_header_deps, 3..4);
         assert_eq!(built.otx_ranges[1].append_header_deps, 4..5);
+    }
+
+    #[test]
+    #[should_panic(expected = "OTX segment requires non-zero base inputs")]
+    fn tx_shape_rejects_zero_base_input_otx_segments() {
+        let mut shape = TxShape::new();
+        shape.push_otx(OtxSegment::default());
     }
 }

@@ -93,6 +93,11 @@ impl TxShape {
     }
 
     pub fn push_otx(&mut self, segment: OtxSegment) -> OtxHandle {
+        assert!(
+            !segment.base_inputs.is_empty(),
+            "OTX segment requires non-zero base inputs"
+        );
+
         let handle = OtxHandle::from_raw(self.otxs.len());
         let base_input_handles = self.input_handles(segment.base_inputs.len());
         let append_input_handles = self.input_handles(segment.append_inputs.len());
