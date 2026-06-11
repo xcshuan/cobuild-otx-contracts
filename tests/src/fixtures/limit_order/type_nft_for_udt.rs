@@ -541,7 +541,7 @@ fn two_type_orders_case(case: FillActionCase) -> BuiltLimitOrderCase {
         append_outputs: vec![payment_output_a, payment_output_b],
         ..Default::default()
     });
-    let order_b = shape.otx_base_input(otx, 2);
+    let order_a = shape.otx_base_input(otx, 0);
     let payment_a = shape.otx_append_output(otx, 0);
     let payment_b = shape.otx_append_output(otx, 1);
     let second_payment = if case == FillActionCase::TwoTypeOrdersReusePaymentOutput {
@@ -578,7 +578,7 @@ fn two_type_orders_case(case: FillActionCase) -> BuiltLimitOrderCase {
         fixture,
         built,
         if case == FillActionCase::TwoTypeOrdersReusePaymentOutput {
-            input_type_error(order_b, LimitOrderTypeError::InvalidAction)
+            input_type_error(order_a, LimitOrderTypeError::InvalidAction)
         } else {
             LimitOrderExpectedOutcome::Pass
         },
