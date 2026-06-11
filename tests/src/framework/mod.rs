@@ -176,9 +176,9 @@ mod tests {
     fn contract_helpers_deploy_scripts_and_record_script_hashes() {
         let mut context = Context::default();
 
-        let data2_script = deploy_loader_binary(
+        let data2_script = deploy_script_bytes(
             &mut context,
-            "sample-data2-script",
+            Bytes::from(vec![0x42]),
             ScriptHashType::Data2,
             Vec::new(),
         );

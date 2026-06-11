@@ -312,11 +312,8 @@ fn limit_order_test_file_contains_no_fixture_scenario_builder() {
 fn fixtures_do_not_redefine_framework_helpers() {
     let fixture_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/fixtures");
     let mut source = String::new();
-    for entry in std::fs::read_dir(&fixture_dir).expect("read fixtures dir") {
-        let path = entry.expect("dir entry").path();
-        if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
-            source.push_str(&std::fs::read_to_string(path).expect("read fixture file"));
-        }
+    for path in rust_files_under(&fixture_dir) {
+        source.push_str(&std::fs::read_to_string(path).expect("read fixture file"));
     }
 
     for forbidden in [
