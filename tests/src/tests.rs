@@ -2,13 +2,13 @@ use crate::{
     TestEnv, default_test_env,
     framework::{
         cells::{ResolvedInputFacts, TestCellOutput, normal_output},
-        cobuild::CobuildMessageBuilder,
+        cobuild::{CobuildMessageBuilder, OtxBuilder},
         scripts::packed_hash_to_array,
         signing::{
             SignatureScope, SignerId, SigningHashOracle, TestSigningHashOracle,
             assert_hash_changed, fixed_secret_key, sign_scope, tx_without_message_hash_for_inputs,
         },
-        tx::{OtxSegment, TxShape, WitnessHandle},
+        tx::{BuiltTxShape, OtxSegment, TxShape, WitnessHandle},
     },
 };
 use ckb_testtool::ckb_types::{
@@ -16,6 +16,7 @@ use ckb_testtool::ckb_types::{
     packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::{Builder, Entity, Pack},
 };
+use cobuild_types::entity::witness::WitnessLayout;
 
 fn rust_files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
@@ -405,6 +406,27 @@ fn signing_cell_dep(tag: u8) -> CellDep {
         .build()
 }
 
+fn signing_replace_otx_witness(mut built: BuiltTxShape, otx_witness: Bytes) -> BuiltTxShape {
+    let mut witnesses: Vec<_> = built.tx.witnesses().into_iter().collect();
+    witnesses[1] = otx_witness.pack();
+    built.tx = built
+        .tx
+        .as_advanced_builder()
+        .set_witnesses(witnesses)
+        .build();
+    built
+}
+
+fn signing_otx_witness_with_append_output_count(append_output_cells: u32) -> Bytes {
+    let otx = OtxBuilder::new()
+        .base_input_cells(1)
+        .raw_append_output_cells(append_output_cells)
+        .allow_append_outputs()
+        .build();
+    let witness = WitnessLayout::from(otx);
+    Bytes::copy_from_slice(witness.as_slice())
+}
+
 #[test]
 fn signing_hash_oracle_tx_without_message_uses_resolved_facts() {
     let mut shape = TxShape::new();
@@ -489,6 +511,28 @@ fn signing_hash_oracle_otx_append_binds_base_hash() {
     assert_hash_changed(
         oracle.otx_append(&built, otx, [1; 32]),
         oracle.otx_append(&built, otx, [2; 32]),
+    );
+}
+
+#[test]
+fn signing_hash_oracle_otx_append_count_comes_from_witness() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_outputs: vec![signing_output(2, vec![0xbb])],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let changed = signing_replace_otx_witness(
+        built.clone(),
+        signing_otx_witness_with_append_output_count(0),
+    );
+    let oracle = TestSigningHashOracle;
+    let base_hash = [3; 32];
+
+    assert_hash_changed(
+        oracle.otx_append(&built, otx, base_hash),
+        oracle.otx_append(&changed, otx, base_hash),
     );
 }
 

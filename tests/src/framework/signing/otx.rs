@@ -44,10 +44,10 @@ pub(crate) fn otx_append_hash(
     update_cursor_with_error(&mut hasher, &view.message, CoreError::MalformedCobuild)
         .expect("message cursor");
     hasher.update(&base_hash);
-    write_otx_append_input_cells(&mut hasher, built, &layout);
-    write_otx_append_output_cells(&mut hasher, built, &layout);
-    write_otx_append_cell_deps(&mut hasher, built, &layout);
-    write_otx_append_header_deps(&mut hasher, built, &layout);
+    write_otx_append_input_cells(&mut hasher, built, &view, &layout);
+    write_otx_append_output_cells(&mut hasher, built, &view, &layout);
+    write_otx_append_cell_deps(&mut hasher, built, &view, &layout);
+    write_otx_append_header_deps(&mut hasher, built, &view, &layout);
 
     hasher.finalize(&mut out);
     out
@@ -185,9 +185,14 @@ fn write_otx_base_header_deps(
     }
 }
 
-fn write_otx_append_input_cells(hasher: &mut Blake2b, built: &BuiltTxShape, layout: &OtxLayout) {
-    write_count(hasher, layout.append_inputs.count);
-    for local_index in 0..layout.append_inputs.count {
+fn write_otx_append_input_cells(
+    hasher: &mut Blake2b,
+    built: &BuiltTxShape,
+    otx: &OtxView,
+    layout: &OtxLayout,
+) {
+    write_count(hasher, otx.append_input_cells);
+    for local_index in 0..otx.append_input_cells {
         let tx_index = checked_index(layout.append_inputs, local_index);
         write_count(hasher, local_index);
         hasher.update(built.resolved_inputs[tx_index].input.as_slice());
@@ -196,9 +201,14 @@ fn write_otx_append_input_cells(hasher: &mut Blake2b, built: &BuiltTxShape, layo
     }
 }
 
-fn write_otx_append_output_cells(hasher: &mut Blake2b, built: &BuiltTxShape, layout: &OtxLayout) {
-    write_count(hasher, layout.append_outputs.count);
-    for local_index in 0..layout.append_outputs.count {
+fn write_otx_append_output_cells(
+    hasher: &mut Blake2b,
+    built: &BuiltTxShape,
+    otx: &OtxView,
+    layout: &OtxLayout,
+) {
+    write_count(hasher, otx.append_output_cells);
+    for local_index in 0..otx.append_output_cells {
         let tx_index = checked_index(layout.append_outputs, local_index);
         write_count(hasher, local_index);
         hasher.update(&raw_output_bytes(&built.tx, tx_index));
@@ -206,18 +216,28 @@ fn write_otx_append_output_cells(hasher: &mut Blake2b, built: &BuiltTxShape, lay
     }
 }
 
-fn write_otx_append_cell_deps(hasher: &mut Blake2b, built: &BuiltTxShape, layout: &OtxLayout) {
-    write_count(hasher, layout.append_cell_deps.count);
-    for local_index in 0..layout.append_cell_deps.count {
+fn write_otx_append_cell_deps(
+    hasher: &mut Blake2b,
+    built: &BuiltTxShape,
+    otx: &OtxView,
+    layout: &OtxLayout,
+) {
+    write_count(hasher, otx.append_cell_deps);
+    for local_index in 0..otx.append_cell_deps {
         let tx_index = checked_index(layout.append_cell_deps, local_index);
         write_count(hasher, local_index);
         hasher.update(&raw_cell_dep_bytes(&built.tx, tx_index));
     }
 }
 
-fn write_otx_append_header_deps(hasher: &mut Blake2b, built: &BuiltTxShape, layout: &OtxLayout) {
-    write_count(hasher, layout.append_header_deps.count);
-    for local_index in 0..layout.append_header_deps.count {
+fn write_otx_append_header_deps(
+    hasher: &mut Blake2b,
+    built: &BuiltTxShape,
+    otx: &OtxView,
+    layout: &OtxLayout,
+) {
+    write_count(hasher, otx.append_header_deps);
+    for local_index in 0..otx.append_header_deps {
         let tx_index = checked_index(layout.append_header_deps, local_index);
         write_count(hasher, local_index);
         hasher.update(&raw_header_dep_hash(&built.tx, tx_index));
