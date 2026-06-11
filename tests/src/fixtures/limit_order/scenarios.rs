@@ -1,4 +1,4 @@
-use crate::framework::{fixture::CobuildTestFixture, tx::BuiltTxShape};
+use crate::framework::{fixture::CobuildTestFixture, signing::SigningFacts, tx::BuiltTxShape};
 
 use super::{BusinessMutation, LimitOrderExpectedOutcome};
 
@@ -122,6 +122,7 @@ pub struct BuiltLimitOrderCase {
     pub name: String,
     pub fixture: CobuildTestFixture,
     pub built: BuiltTxShape,
+    pub signing_facts: Vec<SigningFacts>,
     pub expected: LimitOrderExpectedOutcome,
     pub coverage: Vec<CoverageTag>,
 }

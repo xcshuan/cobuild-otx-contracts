@@ -13,11 +13,7 @@ mod type_nft_for_udt;
 
 pub use actions::{LimitOrderAction, create_order_action_data, encode_action};
 pub use errors::{LimitOrderExpectedOutcome, LimitOrderLockError, LimitOrderTypeError};
-pub use lock_nft_for_udt::{
-    LimitOrderLockFillCase, limit_order_lock_nft_for_udt_case,
-    limit_order_lock_nft_for_udt_case_with, limit_order_lock_otx_with_sighash_all_fill_case,
-    mixed_limit_order_type_lock_duplicate_payment_case,
-};
+pub use lock_nft_for_udt::{lock_script_cases, lock_script_fill_cases, mixed_type_lock_cases};
 pub use mutations::BusinessMutation;
 pub use scenarios::{
     ActionSourceKind, BuiltLimitOrderCase, CoverageTag, FlowKind, LimitOrderHappyPath,

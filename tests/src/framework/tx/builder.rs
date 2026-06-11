@@ -7,7 +7,7 @@ use ckb_testtool::ckb_types::{
     prelude::*,
 };
 use cobuild_types::entity::{
-    core::{Message as CobuildMessage, SighashAll},
+    core::{Message as CobuildMessage, SealPair, SighashAll},
     witness::WitnessLayout,
 };
 
@@ -38,6 +38,7 @@ pub struct OtxSegment {
     pub base_output_masks: Option<Vec<u8>>,
     pub base_cell_dep_masks: Option<Vec<u8>>,
     pub base_header_dep_masks: Option<Vec<u8>>,
+    pub seals: Vec<SealPair>,
 }
 
 #[derive(Clone, Debug)]
@@ -386,6 +387,7 @@ impl TxShape {
             if let Some(masks) = &otx.segment.base_header_dep_masks {
                 builder_for_otx = builder_for_otx.base_header_dep_masks_raw(masks.clone());
             }
+            builder_for_otx = builder_for_otx.seals(otx.segment.seals.clone());
 
             let otx = builder_for_otx.build();
             let witness = WitnessLayout::from(otx);

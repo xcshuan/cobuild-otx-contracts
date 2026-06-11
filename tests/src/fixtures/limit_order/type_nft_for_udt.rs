@@ -862,6 +862,7 @@ fn built_case(
         name: name.into(),
         fixture,
         built,
+        signing_facts: Vec::new(),
         expected,
         coverage: vec![coverage],
     }
