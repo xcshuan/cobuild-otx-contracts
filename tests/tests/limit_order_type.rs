@@ -9,7 +9,19 @@ fn assert_no_expected_failure_dump(before: usize) {
 #[test]
 fn limit_order_type_script_cases_match_expected_outcomes() {
     let cases = type_script_cases();
-    assert_eq!(cases.len(), 27, "limit order type case coverage count");
+    assert_eq!(cases.len(), 29, "limit order type case coverage count");
+    assert!(
+        cases
+            .iter()
+            .any(|case| case.name == "fill::NftForUdtScenario { payment_case: Valid, action_case: Some(TxLevelAndOtxFillOrder), sighash_all: false }"),
+        "limit order type coverage must include duplicate tx-level plus OTX fill"
+    );
+    assert!(
+        cases
+            .iter()
+            .any(|case| case.name == "fill::NftForUdtScenario { payment_case: Valid, action_case: Some(TxLevelNoiseAndOtxFillOrder), sighash_all: false }"),
+        "limit order type coverage must include unrelated tx-level action noise plus OTX fill"
+    );
 
     for case in cases {
         let before = failed_txs_count();

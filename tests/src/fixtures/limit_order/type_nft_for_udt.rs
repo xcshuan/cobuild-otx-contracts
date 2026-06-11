@@ -46,6 +46,8 @@ enum NftForUdtPaymentCase {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum FillActionCase {
     TxLevelFillOrder,
+    TxLevelAndOtxFillOrder,
+    TxLevelNoiseAndOtxFillOrder,
     OutputTypeTarget,
     PaymentInAnotherOtx,
     PaymentOutputOutOfRange,
@@ -131,6 +133,12 @@ pub fn type_script_fill_cases() -> Vec<BuiltLimitOrderCase> {
             NftForUdtPaymentCase::TxLevelRemainderOnly,
         )),
         nft_for_udt_case(NftForUdtScenario::action(FillActionCase::TxLevelFillOrder)),
+        nft_for_udt_case(NftForUdtScenario::action(
+            FillActionCase::TxLevelAndOtxFillOrder,
+        )),
+        nft_for_udt_case(NftForUdtScenario::action(
+            FillActionCase::TxLevelNoiseAndOtxFillOrder,
+        )),
         nft_for_udt_case(NftForUdtScenario::action(FillActionCase::OutputTypeTarget)),
         nft_for_udt_case(NftForUdtScenario::action(
             FillActionCase::PaymentInAnotherOtx,
@@ -377,7 +385,16 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
     } else {
         None
     };
-    if scenario.sighash_all || scenario.action_case == Some(FillActionCase::TxLevelFillOrder) {
+    if scenario.sighash_all
+        || matches!(
+            scenario.action_case,
+            Some(
+                FillActionCase::TxLevelFillOrder
+                    | FillActionCase::TxLevelAndOtxFillOrder
+                    | FillActionCase::TxLevelNoiseAndOtxFillOrder
+            )
+        )
+    {
         shape.tx_level_message(empty_message());
     }
     let mut built = shape.build();
@@ -406,6 +423,25 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
     };
     if scenario.action_case == Some(FillActionCase::TxLevelFillOrder) {
         replace_tx_level_message(&mut built, message);
+    } else if matches!(
+        scenario.action_case,
+        Some(FillActionCase::TxLevelAndOtxFillOrder | FillActionCase::TxLevelNoiseAndOtxFillOrder)
+    ) {
+        let tx_level_target =
+            if scenario.action_case == Some(FillActionCase::TxLevelNoiseAndOtxFillOrder) {
+                [8; 32]
+            } else {
+                limit_order.script_hash
+            };
+        let tx_level_message = fill_message(
+            &fixture,
+            tx_level_target,
+            payment,
+            script_hash(&buyer_lock),
+            &built,
+        );
+        replace_tx_level_message(&mut built, tx_level_message);
+        replace_otx_message(&mut built, otx, message);
     } else {
         replace_otx_message(&mut built, otx, message);
     }
@@ -413,6 +449,7 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
     let expected = match scenario.payment_case {
         NftForUdtPaymentCase::Valid => match scenario.action_case {
             None => LimitOrderExpectedOutcome::Pass,
+            Some(FillActionCase::TxLevelNoiseAndOtxFillOrder) => LimitOrderExpectedOutcome::Pass,
             Some(FillActionCase::PaymentOutputWrongUdt)
             | Some(FillActionCase::PaymentOutputWrongOwner)
             | Some(FillActionCase::PaymentOutputInsufficient) => {
@@ -925,6 +962,20 @@ fn fill_coverage(scenario: NftForUdtScenario) -> CoverageTag {
             OtxScopeKind::BaseInput,
             super::ActionSourceKind::TxLevel,
             Some(BusinessMutation::TxLevelActionInsteadOfOtxAction),
+        ),
+        (_, Some(FillActionCase::TxLevelAndOtxFillOrder)) => coverage(
+            FlowKind::TxLevelAndOtx,
+            ScriptRoleKind::InputType,
+            OtxScopeKind::BaseInput,
+            super::ActionSourceKind::Duplicate,
+            Some(BusinessMutation::TxLevelAndOtxDuplicateAction),
+        ),
+        (_, Some(FillActionCase::TxLevelNoiseAndOtxFillOrder)) => coverage(
+            FlowKind::TxLevelAndOtx,
+            ScriptRoleKind::InputType,
+            OtxScopeKind::BaseInput,
+            super::ActionSourceKind::Otx,
+            None,
         ),
         (_, Some(FillActionCase::OutputTypeTarget)) => coverage(
             FlowKind::OtxOnly,

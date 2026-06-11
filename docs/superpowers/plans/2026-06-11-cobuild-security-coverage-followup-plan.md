@@ -175,5 +175,5 @@ git commit -m "test: cover cobuild lock e2e errors"
 
 - [x] Cover `output_type_in_base_covered = false`.
 - [x] Cover type base/append/target-only relation matrix.
-- [ ] Extend tx-level plus OTX action coexistence cases.
-- [ ] Add coverage tag/checklist manifest if the fixture tag model is stable enough.
+- [x] Extend tx-level plus OTX action coexistence cases.
+- [x] Add coverage tag/checklist manifest if the fixture tag model is stable enough.

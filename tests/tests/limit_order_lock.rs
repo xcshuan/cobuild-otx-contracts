@@ -9,7 +9,19 @@ fn assert_no_expected_failure_dump(before: usize) {
 #[test]
 fn limit_order_lock_script_cases_match_expected_outcomes() {
     let cases = lock_script_cases();
-    assert_eq!(cases.len(), 24, "limit order lock case coverage count");
+    assert_eq!(cases.len(), 26, "limit order lock case coverage count");
+    assert!(
+        cases
+            .iter()
+            .any(|case| case.name == "lock_fill::TxLevelAndOtxFillOrder"),
+        "limit order lock coverage must include duplicate tx-level plus OTX fill"
+    );
+    assert!(
+        cases
+            .iter()
+            .any(|case| case.name == "lock_fill::TxLevelNoiseAndOtxFillOrder"),
+        "limit order lock coverage must include unrelated tx-level action noise plus OTX fill"
+    );
 
     for case in cases {
         let before = failed_txs_count();

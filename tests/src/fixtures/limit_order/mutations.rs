@@ -12,6 +12,7 @@ pub enum BusinessMutation {
     MalformedLockArgs,
     WrongNftType,
     TxLevelActionInsteadOfOtxAction,
+    TxLevelAndOtxDuplicateAction,
     WrongActionTarget,
     OrderInputInAppendScope,
     UnknownActionTag,

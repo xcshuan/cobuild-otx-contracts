@@ -84,6 +84,8 @@ struct LockScenario {
     order_input_scope: OrderInputScope,
     tx_level_message: bool,
     action_in_tx_level: bool,
+    tx_level_action_noise: bool,
+    tx_level_action_target: AssetChoice,
     action_target: AssetChoice,
     payment_handle: PaymentHandleSource,
     remainder_payment_amount: Option<u128>,
@@ -108,6 +110,8 @@ impl LockScenario {
             order_input_scope: OrderInputScope::Base,
             tx_level_message: false,
             action_in_tx_level: false,
+            tx_level_action_noise: false,
+            tx_level_action_target: AssetChoice::Expected,
             action_target: AssetChoice::Expected,
             payment_handle: PaymentHandleSource::CurrentOtx,
             remainder_payment_amount: None,
@@ -176,6 +180,35 @@ fn lock_fill_scenarios() -> Vec<LockScenario> {
                 None,
             ),
             ..LockScenario::happy("SighashAll")
+        },
+        LockScenario {
+            name: "TxLevelAndOtxFillOrder",
+            tx_level_message: true,
+            tx_level_action_noise: true,
+            mutation: Some(BusinessMutation::TxLevelAndOtxDuplicateAction),
+            expected_error: Some(LimitOrderLockError::InvalidAction),
+            coverage: coverage(
+                FlowKind::TxLevelAndOtx,
+                ScriptRoleKind::InputLock,
+                OtxScopeKind::BaseInput,
+                super::ActionSourceKind::Duplicate,
+                Some(BusinessMutation::TxLevelAndOtxDuplicateAction),
+            ),
+            ..LockScenario::happy("TxLevelAndOtxFillOrder")
+        },
+        LockScenario {
+            name: "TxLevelNoiseAndOtxFillOrder",
+            tx_level_message: true,
+            tx_level_action_noise: true,
+            tx_level_action_target: AssetChoice::Wrong,
+            coverage: coverage(
+                FlowKind::TxLevelAndOtx,
+                ScriptRoleKind::InputLock,
+                OtxScopeKind::BaseInput,
+                super::ActionSourceKind::Otx,
+                None,
+            ),
+            ..LockScenario::happy("TxLevelNoiseAndOtxFillOrder")
         },
         LockScenario {
             malformed_lock_args: true,
@@ -574,6 +607,14 @@ fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
     let message = fill_message(&fixture, target, action, &built);
     if scenario.action_in_tx_level {
         replace_tx_level_message(&mut built, message);
+    } else if scenario.tx_level_action_noise {
+        let tx_level_target = match scenario.tx_level_action_target {
+            AssetChoice::Expected => target,
+            AssetChoice::Wrong => [8; 32],
+        };
+        let tx_level_message = fill_message(&fixture, tx_level_target, action.clone(), &built);
+        replace_tx_level_message(&mut built, tx_level_message);
+        replace_otx_message(&mut built, otx, message);
     } else {
         replace_otx_message(&mut built, otx, message);
     }
