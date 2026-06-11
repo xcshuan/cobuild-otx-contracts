@@ -245,11 +245,12 @@ fn write_otx_append_header_deps(
 }
 
 fn otx_hash_inputs(built: &BuiltTxShape, otx: OtxHandle) -> (OtxView, OtxLayout) {
+    let witness_index = built.witnesses.tx_index(built.otx_witness(otx));
     let witness = built
         .tx
         .witnesses()
         .into_iter()
-        .nth(otx.0 + 1)
+        .nth(witness_index)
         .expect("OTX witness");
     let view =
         CobuildWitnessLayoutView::from_cursor(cursor_from_slice(witness.raw_data().as_ref()))
@@ -259,7 +260,7 @@ fn otx_hash_inputs(built: &BuiltTxShape, otx: OtxHandle) -> (OtxView, OtxLayout)
             .expect("OTX witness layout");
     let facts = otx_range_facts(built, otx);
     let layout = OtxLayout {
-        witness_index: otx.0 + 1,
+        witness_index,
         base_inputs: range(&facts.base_inputs),
         append_inputs: range(&facts.append_inputs),
         base_outputs: range(&facts.base_outputs),

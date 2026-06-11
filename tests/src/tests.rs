@@ -479,7 +479,7 @@ fn witness_bytes(built: &BuiltTxShape, witness: WitnessHandle) -> Bytes {
 }
 
 fn otx_witness(built: &BuiltTxShape, otx: crate::framework::tx::OtxHandle) -> Otx {
-    let witness = witness_bytes(built, WitnessHandle::from_raw(otx.0 + 1));
+    let witness = witness_bytes(built, built.otx_witness(otx));
     match WitnessLayout::from_slice(witness.as_ref())
         .expect("parse witness layout")
         .to_enum()
@@ -487,6 +487,30 @@ fn otx_witness(built: &BuiltTxShape, otx: crate::framework::tx::OtxHandle) -> Ot
         WitnessLayoutUnion::Otx(otx) => otx,
         other => panic!("expected OTX witness, got {}", other.item_name()),
     }
+}
+
+#[test]
+fn signing_hash_oracle_otx_uses_remapped_witness_handle() {
+    let secret_key = fixed_secret_key(1);
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        ..Default::default()
+    });
+    let mut built = shape.build();
+
+    built.apply_protocol_mutation(ProtocolMutation::NonContiguousOtxWitness);
+
+    let facts = sign_scope(
+        &built,
+        &TestSigningHashOracle,
+        SignerId("owner"),
+        &secret_key,
+        [9; 32],
+        built.otx_witness(otx),
+        SignatureScope::OtxBase { otx },
+    );
+    assert_eq!(facts.carrier, built.otx_witness(otx));
 }
 
 fn molecule_u32(value: Uint32) -> u32 {
@@ -944,6 +968,33 @@ fn mutation_seal_scope_raw_patches_matching_otx_seal() {
     assert_eq!(
         mutated.append_permissions().as_slice(),
         original_otx.append_permissions().as_slice()
+    );
+}
+
+#[test]
+fn mutation_seal_raw_patches_matching_otx_seal_bytes() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        ..Default::default()
+    });
+    let (witness, original_otx) = signing_otx_witness_with_message_and_seal();
+    let mut built = signing_replace_otx_witness(shape.build(), witness);
+
+    built.apply_protocol_mutation(ProtocolMutation::SealRaw {
+        otx,
+        script_hash: [7; 32],
+        scope: 0x42,
+        seal: vec![0xde, 0xad],
+    });
+
+    let mutated = otx_witness(&built, otx);
+    assert_ne!(mutated.seals().as_slice(), original_otx.seals().as_slice());
+    assert!(
+        mutated
+            .seals()
+            .into_iter()
+            .any(|seal| seal.seal().raw_data().as_ref() == [0xde, 0xad])
     );
 }
 

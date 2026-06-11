@@ -370,7 +370,7 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         SignatureScope::OtxAppend { otx },
     );
     fill_otx_seals(&mut built, otx, &[base_facts.clone(), append_facts.clone()]);
-    let mut signing_facts = vec![base_facts, append_facts];
+    let mut signing_facts = vec![base_facts, append_facts.clone()];
 
     if let Some(_input) = tx_input {
         let input_count = built.resolved_inputs.len();
@@ -386,7 +386,14 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
     }
 
     if config.corrupt_append_seal {
-        corrupt_otx_append_seal(&mut built, otx, contract.script_hash);
+        let mut bad_seal = append_facts.seal.clone();
+        bad_seal[0] ^= 0x01;
+        built.apply_protocol_mutation(ProtocolMutation::SealRaw {
+            otx,
+            script_hash: contract.script_hash,
+            scope: 1,
+            seal: bad_seal,
+        });
     }
     if config.malformed_permissions {
         built.apply_protocol_mutation(ProtocolMutation::OtxRawPermission {
@@ -602,33 +609,6 @@ fn fill_otx_seals(built: &mut BuiltTxShape, otx: OtxHandle, facts: &[SigningFact
             )
         })
         .collect::<Vec<_>>();
-    let updated = current_otx_witness(built, otx)
-        .as_builder()
-        .seals(SealPairVec::new_builder().extend(seals).build())
-        .build();
-    replace_otx_witness(built, otx, updated);
-}
-
-fn corrupt_otx_append_seal(built: &mut BuiltTxShape, otx: OtxHandle, script_hash: [u8; 32]) {
-    let mut corrupted = false;
-    let seals = current_otx_witness(built, otx)
-        .seals()
-        .into_iter()
-        .map(|seal| {
-            if seal.script_hash().as_slice() == script_hash
-                && seal.scope().as_slice() == &[1]
-                && !corrupted
-            {
-                corrupted = true;
-                let mut bad = seal.seal().raw_data().to_vec();
-                bad[0] ^= 0x01;
-                seal.as_builder().seal(bad).build()
-            } else {
-                seal
-            }
-        })
-        .collect::<Vec<_>>();
-    assert!(corrupted, "append seal must exist before corruption");
     let updated = current_otx_witness(built, otx)
         .as_builder()
         .seals(SealPairVec::new_builder().extend(seals).build())

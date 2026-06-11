@@ -32,6 +32,12 @@ pub enum ProtocolMutation {
         script_hash: [u8; 32],
         scope: u8,
     },
+    SealRaw {
+        otx: OtxHandle,
+        script_hash: [u8; 32],
+        scope: u8,
+        seal: Vec<u8>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -106,6 +112,17 @@ impl BuiltTxShape {
                 let updated = self
                     .current_otx_witness(otx)
                     .with_raw_seal_scope(script_hash, scope);
+                self.replace_otx_witness(otx, updated);
+            }
+            ProtocolMutation::SealRaw {
+                otx,
+                script_hash,
+                scope,
+                seal,
+            } => {
+                let updated = self
+                    .current_otx_witness(otx)
+                    .with_raw_seal(script_hash, scope, seal);
                 self.replace_otx_witness(otx, updated);
             }
         }
@@ -306,13 +323,13 @@ impl BuiltTxShape {
     fn replace_otx_witness(&mut self, otx: OtxHandle, otx_entity: Otx) {
         let witness = WitnessLayout::from(otx_entity);
         self.replace_witness_bytes(
-            WitnessHandle::from_raw(otx.0 + 1),
+            self.otx_witness(otx),
             Bytes::copy_from_slice(witness.as_slice()),
         );
     }
 
     fn current_otx_witness(&self, otx: OtxHandle) -> Otx {
-        let witness_index = self.witnesses.tx_index(WitnessHandle::from_raw(otx.0 + 1));
+        let witness_index = self.witnesses.tx_index(self.otx_witness(otx));
         let witness = self
             .tx
             .witnesses()
@@ -405,6 +422,7 @@ impl OtxOutputCountMutation for Otx {
 
 trait OtxSealMutation {
     fn with_raw_seal_scope(self, script_hash: [u8; 32], scope: u8) -> Self;
+    fn with_raw_seal(self, script_hash: [u8; 32], scope: u8, seal: Vec<u8>) -> Self;
 }
 
 impl OtxSealMutation for Otx {
@@ -428,6 +446,38 @@ impl OtxSealMutation for Otx {
                     .script_hash(script_hash)
                     .scope(scope)
                     .seal(Vec::<u8>::new())
+                    .build(),
+            );
+        }
+
+        self.as_builder()
+            .seals(SealPairVec::new_builder().extend(seals).build())
+            .build()
+    }
+
+    fn with_raw_seal(self, script_hash: [u8; 32], scope: u8, seal: Vec<u8>) -> Self {
+        let mut replaced = false;
+        let mut seals: Vec<_> = self
+            .seals()
+            .into_iter()
+            .map(|existing| {
+                if existing.script_hash().raw_data().as_ref() == script_hash
+                    && existing.scope().as_slice() == &[scope]
+                    && !replaced
+                {
+                    replaced = true;
+                    existing.as_builder().seal(seal.clone()).build()
+                } else {
+                    existing
+                }
+            })
+            .collect();
+        if !replaced {
+            seals.push(
+                SealPair::new_builder()
+                    .script_hash(script_hash)
+                    .scope(scope)
+                    .seal(seal)
                     .build(),
             );
         }
