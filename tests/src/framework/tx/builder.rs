@@ -6,7 +6,10 @@ use ckb_testtool::ckb_types::{
     packed::CellDep,
     prelude::*,
 };
-use cobuild_types::entity::witness::WitnessLayout;
+use cobuild_types::entity::{
+    core::{Message as CobuildMessage, SighashAll},
+    witness::WitnessLayout,
+};
 
 use crate::framework::{
     cells::{ResolvedInputFacts, TestCellOutput},
@@ -60,6 +63,7 @@ pub struct BuiltTxShape {
     pub header_deps: EntityIndexMap<HeaderDepHandle>,
     pub resolved_inputs: Vec<ResolvedInputFacts>,
     pub otx_ranges: Vec<OtxRangeFacts>,
+    otx_witness_start: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -68,6 +72,7 @@ pub struct TxShape {
     prefix_cell_deps: Vec<(CellDepHandle, CellDep)>,
     otxs: Vec<TrackedOtxSegment>,
     remainder_outputs: Vec<(OutputHandle, TestCellOutput)>,
+    tx_level_message: Option<CobuildMessage>,
     next_input: usize,
     next_output: usize,
     next_cell_dep: usize,
@@ -141,6 +146,10 @@ impl TxShape {
         let handle = self.next_output_handle();
         self.remainder_outputs.push((handle, output));
         handle
+    }
+
+    pub fn tx_level_message(&mut self, message: CobuildMessage) {
+        self.tx_level_message = Some(message);
     }
 
     pub fn otx_append_output(&self, otx: OtxHandle, local_index: usize) -> OutputHandle {
@@ -320,15 +329,29 @@ impl TxShape {
             output_cursor += 1;
         }
 
+        let mut witness_cursor = 0;
+        if let Some(message) = self.tx_level_message {
+            let witness = WitnessLayout::from(
+                SighashAll::new_builder()
+                    .seal(Vec::<u8>::new())
+                    .message(message)
+                    .build(),
+            );
+            witnesses.insert(WitnessHandle::from_raw(witness_cursor), witness_cursor);
+            builder = builder.witness(Bytes::copy_from_slice(witness.as_slice()).pack());
+            witness_cursor += 1;
+        }
         if !self.otxs.is_empty() {
             let start_input_cell = resolved_inputs
                 .len()
                 .saturating_sub(total_otx_inputs(&self.otxs))
                 as u32;
-            witnesses.insert(WitnessHandle::from_raw(0), 0);
+            witnesses.insert(WitnessHandle::from_raw(witness_cursor), witness_cursor);
             builder = builder
                 .witness(otx_start_witness(start_input_cell, 0, start_cell_deps as u32, 0).pack());
+            witness_cursor += 1;
         }
+        let otx_witness_start = witness_cursor;
         for (otx_index, otx) in self.otxs.iter().enumerate() {
             let mut builder_for_otx = OtxBuilder::new()
                 .base_input_cells(otx.segment.base_inputs.len() as u32)
@@ -366,7 +389,7 @@ impl TxShape {
 
             let otx = builder_for_otx.build();
             let witness = WitnessLayout::from(otx);
-            let witness_index = otx_index + 1;
+            let witness_index = witness_cursor + otx_index;
             witnesses.insert(WitnessHandle::from_raw(witness_index), witness_index);
             builder = builder.witness(Bytes::copy_from_slice(witness.as_slice()).pack());
         }
@@ -380,6 +403,7 @@ impl TxShape {
             header_deps,
             resolved_inputs,
             otx_ranges,
+            otx_witness_start,
         }
     }
 
@@ -436,6 +460,6 @@ fn total_otx_inputs(otxs: &[TrackedOtxSegment]) -> usize {
 
 impl BuiltTxShape {
     pub fn otx_witness(&self, otx: OtxHandle) -> WitnessHandle {
-        WitnessHandle::from_raw(otx.0 + 1)
+        WitnessHandle::from_raw(self.otx_witness_start + otx.0)
     }
 }

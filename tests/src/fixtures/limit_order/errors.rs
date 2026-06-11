@@ -67,6 +67,10 @@ pub enum LimitOrderExpectedOutcome {
 }
 
 impl LimitOrderExpectedOutcome {
+    pub fn is_pass(&self) -> bool {
+        matches!(self, Self::Pass)
+    }
+
     pub fn assert(&self, fixture: &CobuildTestFixture, built: &BuiltTxShape) {
         self.expected_outcome().assert(fixture, built);
     }

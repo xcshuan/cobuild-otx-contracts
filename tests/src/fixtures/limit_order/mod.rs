@@ -1,8 +1,5 @@
 use ckb_testtool::{
-    ckb_types::{
-        core::TransactionView,
-        packed::{CellInput, Script},
-    },
+    ckb_types::packed::{CellInput, Script},
     context::Context,
 };
 
@@ -28,21 +25,18 @@ pub use scenarios::{
 };
 pub use state::{LimitOrderState, order_data, settlement_data};
 pub use type_nft_for_udt::{
-    CreateOrderCase, FillActionCase, NftForUdtPaymentCase, limit_order_action_failure_case,
-    limit_order_create_nft_order_case, limit_order_create_nft_order_case_with,
-    limit_order_nft_for_udt_case, limit_order_nft_for_udt_case_with,
-    limit_order_type_otx_with_sighash_all_fill_case,
+    type_script_cases, type_script_create_order_cases, type_script_fill_cases,
+    type_script_legacy_settlement_cases,
 };
 
 use crate::framework::{
-    cells::{TestCellOutput, live_input, normal_output, typed_output},
-    cobuild::{CobuildMessageBuilder, OtxBuilder},
-    contracts::{DeployedScript, cell_dep_for_script},
+    cells::{live_input, typed_output},
+    contracts::DeployedScript,
     fixture::CobuildTestFixture,
     scripts::script_hash,
 };
 
-use super::common::contracts::{deploy_always_success, deploy_limit_order_type};
+use super::common::contracts::deploy_limit_order_type;
 
 pub use crate::framework::assertions::failed_txs_count;
 
@@ -50,73 +44,9 @@ const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
 const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
 pub(crate) const NFT_TYPE_ARGS: [u8; 32] = [5; 32];
 
-pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, TransactionView) {
-    let mut fixture = CobuildTestFixture::new();
-
-    let limit_order = fixture.deploy_limit_order();
-    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
-    let owner_lock = always_success.script.clone();
-
-    let order_input = fixture
-        .limit_order()
-        .owner(owner_lock.clone())
-        .offered_nft_type_hash(OFFERED_ASSET_ID)
-        .requested_asset_id(REQUESTED_ASSET_ID)
-        .requested_amount(30)
-        .build_input(&limit_order.script);
-
-    let settlement_output = LimitOrderBuilder::settlement_output(
-        owner_lock.clone(),
-        REQUESTED_ASSET_ID,
-        settlement_amount,
-        90_000_000_000,
-    );
-
-    let message = LimitOrderCobuildMessageExt::limit_order_fill(
-        fixture.cobuild().input_type_action(limit_order.script_hash),
-        0,
-        script_hash(&owner_lock),
-    )
-    .build();
-    let otx = fixture
-        .limit_order_append_settlement_otx()
-        .message(message)
-        .build_with_layout();
-
-    let tx = fixture
-        .tx()
-        .cell_dep(cell_dep_for_script(&limit_order))
-        .cell_dep(cell_dep_for_script(&always_success))
-        .base_input(order_input)
-        .append_output(settlement_output)
-        .otx(otx)
-        .build();
-
-    (fixture, tx)
-}
-
-pub(crate) trait LimitOrderCobuildMessageExt {
-    fn limit_order_create(self, order: LimitOrderState) -> Self;
-    fn limit_order_fill(self, payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Self;
-}
-
-impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
-    fn limit_order_create(self, order: LimitOrderState) -> Self {
-        self.action_data(create_order_action_data(order))
-    }
-
-    fn limit_order_fill(self, payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Self {
-        self.action_data(actions::fill_order_action_data_by_index(
-            payment_output_index,
-            buyer_lock_hash,
-        ))
-    }
-}
-
 pub trait LimitOrderFixtureExt {
     fn deploy_limit_order(&mut self) -> DeployedScript;
     fn limit_order(&mut self) -> LimitOrderBuilder<'_>;
-    fn limit_order_append_settlement_otx(&self) -> OtxBuilder;
 }
 
 impl LimitOrderFixtureExt for CobuildTestFixture {
@@ -126,13 +56,6 @@ impl LimitOrderFixtureExt for CobuildTestFixture {
 
     fn limit_order(&mut self) -> LimitOrderBuilder<'_> {
         LimitOrderBuilder::new(self.context_mut())
-    }
-
-    fn limit_order_append_settlement_otx(&self) -> OtxBuilder {
-        OtxBuilder::new()
-            .base_input_cells(1)
-            .append_output_cells(1)
-            .allow_append_outputs()
     }
 }
 
@@ -188,17 +111,5 @@ impl<'a> LimitOrderBuilder<'a> {
             requested_amount: self.requested_amount,
         });
         live_input(self.context, output, data)
-    }
-
-    pub fn settlement_output(
-        owner: Script,
-        requested_asset_id: [u8; 32],
-        amount: u64,
-        capacity: u64,
-    ) -> TestCellOutput {
-        TestCellOutput::new(
-            normal_output(owner, capacity),
-            settlement_data(requested_asset_id, amount),
-        )
     }
 }
