@@ -12,6 +12,21 @@ use cobuild_types::entity::{
 use super::cells::TestCellOutput;
 use super::cobuild::BuiltOtx;
 
+#[path = "tx/builder.rs"]
+pub mod builder;
+#[path = "tx/handles.rs"]
+pub mod handles;
+#[path = "tx/malformed.rs"]
+pub mod malformed;
+#[path = "tx/mutate.rs"]
+pub mod mutate;
+
+pub use builder::{BuiltTxShape, OtxRangeFacts, OtxSegment, TxShape};
+pub use handles::{
+    CellDepHandle, EntityIndexMap, HeaderDepHandle, InputHandle, OtxHandle, OutputHandle,
+    WitnessHandle,
+};
+
 pub fn otx_start_witness(
     start_input_cell: u32,
     start_output_cell: u32,
@@ -206,5 +221,102 @@ impl OtxTransactionBuilder {
         }
 
         builder.build()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use ckb_testtool::ckb_types::{
+        bytes::Bytes,
+        packed::{CellInput, CellOutput, Script},
+        prelude::{Builder, Entity},
+    };
+
+    use super::{
+        OtxSegment, TxShape,
+        handles::{InputHandle, OutputHandle},
+    };
+    use crate::framework::cells::{ResolvedInputFacts, TestCellOutput, normal_output};
+
+    fn empty_script() -> Script {
+        Script::new_builder().build()
+    }
+
+    fn resolved_input(tag: u8) -> ResolvedInputFacts {
+        let lock = empty_script();
+        let output = normal_output(lock, 1_000 + u64::from(tag));
+
+        ResolvedInputFacts {
+            input: CellInput::new_builder().build(),
+            output,
+            data: Bytes::from(vec![tag]),
+            lock_hash: [tag; 32],
+            type_hash: None,
+        }
+    }
+
+    fn output(tag: u8) -> TestCellOutput {
+        TestCellOutput::new(
+            CellOutput::new_builder()
+                .capacity(1_000 + u64::from(tag))
+                .lock(empty_script())
+                .build(),
+            vec![tag],
+        )
+    }
+
+    #[test]
+    fn tx_shape_maps_two_otxs_and_remainder_output_handles() {
+        let mut shape = TxShape::new();
+        let prefix = shape.push_prefix_input(resolved_input(1));
+
+        let first_otx = shape.push_otx(OtxSegment {
+            base_inputs: vec![resolved_input(2)],
+            append_inputs: vec![resolved_input(3)],
+            base_outputs: vec![output(10)],
+            append_outputs: vec![output(11), output(12)],
+            ..Default::default()
+        });
+        let second_otx = shape.push_otx(OtxSegment {
+            base_inputs: vec![resolved_input(4)],
+            append_inputs: vec![resolved_input(5)],
+            base_outputs: vec![output(20)],
+            append_outputs: vec![output(21)],
+            ..Default::default()
+        });
+        let remainder = shape.push_remainder_output(output(30));
+
+        let first_base = shape.otx_base_output(first_otx, 0);
+        let second_base = shape.otx_base_output(second_otx, 0);
+        let first_append_0 = shape.otx_append_output(first_otx, 0);
+        let first_append_1 = shape.otx_append_output(first_otx, 1);
+        let second_append = shape.otx_append_output(second_otx, 0);
+
+        let built = shape.build();
+
+        assert_eq!(built.inputs.tx_index(prefix), 0);
+        assert_eq!(
+            built.inputs.handle_at_tx_index(0),
+            Some(InputHandle::from_raw(0))
+        );
+        assert_eq!(built.outputs.tx_index(first_base), 0);
+        assert_eq!(built.outputs.tx_index(second_base), 1);
+        assert_eq!(built.outputs.tx_index(first_append_0), 2);
+        assert_eq!(built.outputs.tx_index(first_append_1), 3);
+        assert_eq!(built.outputs.tx_index(second_append), 4);
+        assert_eq!(built.outputs.tx_index(remainder), 5);
+        assert_eq!(
+            built.outputs.handle_at_tx_index(5),
+            Some(OutputHandle::from_raw(5))
+        );
+
+        assert_eq!(built.tx.inputs().len(), 5);
+        assert_eq!(built.tx.outputs().len(), 6);
+        assert_eq!(built.resolved_inputs.len(), 5);
+        assert_eq!(built.otx_ranges.len(), 2);
+        assert_eq!(built.otx_ranges[0].base_outputs, 0..1);
+        assert_eq!(built.otx_ranges[0].append_outputs, 2..4);
+        assert_eq!(built.otx_ranges[1].base_outputs, 1..2);
+        assert_eq!(built.otx_ranges[1].append_outputs, 4..5);
     }
 }

@@ -7,10 +7,21 @@ use ckb_testtool::{
     context::Context,
 };
 
+use super::scripts::script_hash;
+
 #[derive(Clone, Debug)]
 pub struct TestCellOutput {
     pub cell: CellOutput,
     pub data: Bytes,
+}
+
+#[derive(Clone, Debug)]
+pub struct ResolvedInputFacts {
+    pub input: CellInput,
+    pub output: CellOutput,
+    pub data: Bytes,
+    pub lock_hash: [u8; 32],
+    pub type_hash: Option<[u8; 32]>,
 }
 
 #[derive(Clone, Debug)]
@@ -47,6 +58,31 @@ pub fn typed_output(lock: Script, type_script: Script, capacity: u64) -> CellOut
 pub fn live_input(context: &mut Context, output: CellOutput, data: impl Into<Bytes>) -> CellInput {
     let out_point: OutPoint = context.create_cell(output, data.into());
     CellInput::new_builder().previous_output(out_point).build()
+}
+
+pub fn live_resolved_facts(
+    context: &mut Context,
+    output: CellOutput,
+    data: impl Into<Bytes>,
+) -> ResolvedInputFacts {
+    let data = data.into();
+    let previous_output: OutPoint = context.create_cell(output.clone(), data.clone());
+    let input = CellInput::new_builder()
+        .previous_output(previous_output)
+        .build();
+    let lock_hash = script_hash(&output.lock());
+    let type_hash = output
+        .type_()
+        .to_opt()
+        .map(|type_script| script_hash(&type_script));
+
+    ResolvedInputFacts {
+        input,
+        output,
+        data,
+        lock_hash,
+        type_hash,
+    }
 }
 
 pub fn live_resolved_input(

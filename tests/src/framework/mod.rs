@@ -12,7 +12,8 @@ mod tests {
     use super::{
         assertions::{assert_lock_script_exit_result, assert_type_script_exit_result},
         cells::{
-            TestCellOutput, TestResolvedInput, live_input, live_resolved_typed_input, normal_output,
+            TestCellOutput, TestResolvedInput, live_input, live_resolved_facts,
+            live_resolved_typed_input, normal_output, typed_output,
         },
         cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, seal_pair},
         contracts::{deploy_always_success, deploy_data2_script},
@@ -236,6 +237,15 @@ mod tests {
         assert!(!resolved.raw_input.is_empty());
         assert!(!resolved.resolved_output.is_empty());
         assert_eq!(resolved.data, vec![1, 2, 3]);
+
+        let facts = live_resolved_facts(
+            fixture.context_mut(),
+            typed_output(lock.script.clone(), type_script.script.clone(), 2_000),
+            vec![4, 5, 6],
+        );
+        assert_eq!(facts.data, vec![4, 5, 6]);
+        assert_eq!(facts.lock_hash, script_hash(&lock.script));
+        assert_eq!(facts.type_hash, Some(script_hash(&type_script.script)));
 
         let deployed =
             deploy_data2_script(fixture.context_mut(), "cobuild-otx-lock", vec![0u8; 21]);
