@@ -2,13 +2,13 @@ use std::ops::Range;
 
 use ckb_testtool::ckb_types::{bytes::Bytes, prelude::*};
 use cobuild_types::entity::{
-    core::Otx,
+    core::{Otx, SealPair, SealPairVec, SighashAll, SighashAllOnly},
     witness::{WitnessLayout, WitnessLayoutUnion},
 };
 
 use crate::framework::{
     cells::{ResolvedInputFacts, TestCellOutput},
-    cobuild::OtxStartSpec,
+    cobuild::{OtxStartSpec, empty_message},
 };
 
 use super::{BuiltTxShape, InputHandle, OtxHandle, OutputHandle, WitnessHandle};
@@ -79,16 +79,36 @@ impl BuiltTxShape {
                 self.replace_otx_witness(otx, updated);
             }
             ProtocolMutation::DuplicateSighashAll => {
-                panic!("unsupported protocol mutation: DuplicateSighashAll")
+                let witness = WitnessLayout::from(
+                    SighashAll::new_builder()
+                        .message(empty_message())
+                        .seal(Vec::<u8>::new())
+                        .build(),
+                );
+                let bytes = Bytes::copy_from_slice(witness.as_slice());
+                self.insert_witness_bytes(0, bytes.clone());
+                self.insert_witness_bytes(1, bytes);
             }
             ProtocolMutation::NonContiguousOtxWitness => {
-                panic!("unsupported protocol mutation: NonContiguousOtxWitness")
+                let witness = WitnessLayout::from(
+                    SighashAllOnly::new_builder()
+                        .seal(Vec::<u8>::new())
+                        .build(),
+                );
+                self.insert_witness_bytes(1, Bytes::copy_from_slice(witness.as_slice()));
             }
             ProtocolMutation::OtxBeforeOtxStart => {
-                panic!("unsupported protocol mutation: OtxBeforeOtxStart")
+                self.swap_witnesses(0, 1);
             }
-            ProtocolMutation::SealScopeRaw { .. } => {
-                panic!("unsupported protocol mutation: SealScopeRaw")
+            ProtocolMutation::SealScopeRaw {
+                otx,
+                script_hash,
+                scope,
+            } => {
+                let updated = self
+                    .current_otx_witness(otx)
+                    .with_raw_seal_scope(script_hash, scope);
+                self.replace_otx_witness(otx, updated);
             }
         }
     }
@@ -161,6 +181,45 @@ impl BuiltTxShape {
             .get_mut(tx_index)
             .expect("witness handle points outside transaction witnesses");
         *witness_slot = replacement.pack();
+        self.tx = self
+            .tx
+            .as_advanced_builder()
+            .set_witnesses(witnesses)
+            .build();
+    }
+
+    fn insert_witness_bytes(&mut self, tx_index: usize, witness: Bytes) {
+        let mut witnesses: Vec<_> = self.tx.witnesses().into_iter().collect();
+        assert!(
+            tx_index <= witnesses.len(),
+            "witness insertion index points outside transaction witnesses"
+        );
+        witnesses.insert(tx_index, witness.pack());
+        self.witnesses
+            .remap_tx_indexes(|current| if current >= tx_index { current + 1 } else { current });
+        self.tx = self
+            .tx
+            .as_advanced_builder()
+            .set_witnesses(witnesses)
+            .build();
+    }
+
+    fn swap_witnesses(&mut self, left: usize, right: usize) {
+        let mut witnesses: Vec<_> = self.tx.witnesses().into_iter().collect();
+        assert!(
+            left < witnesses.len() && right < witnesses.len(),
+            "witness swap index points outside transaction witnesses"
+        );
+        witnesses.swap(left, right);
+        self.witnesses.remap_tx_indexes(|current| {
+            if current == left {
+                right
+            } else if current == right {
+                left
+            } else {
+                current
+            }
+        });
         self.tx = self
             .tx
             .as_advanced_builder()
@@ -337,6 +396,41 @@ impl OtxOutputCountMutation for Otx {
         assert!(old_count > 0, "cannot decrement zero append_output_cells");
         self.as_builder()
             .append_output_cells((old_count - 1).to_le_bytes())
+            .build()
+    }
+}
+
+trait OtxSealMutation {
+    fn with_raw_seal_scope(self, script_hash: [u8; 32], scope: u8) -> Self;
+}
+
+impl OtxSealMutation for Otx {
+    fn with_raw_seal_scope(self, script_hash: [u8; 32], scope: u8) -> Self {
+        let mut replaced = false;
+        let mut seals: Vec<_> = self
+            .seals()
+            .into_iter()
+            .map(|seal| {
+                if seal.script_hash().raw_data().as_ref() == script_hash {
+                    replaced = true;
+                    seal.as_builder().scope(scope).build()
+                } else {
+                    seal
+                }
+            })
+            .collect();
+        if !replaced {
+            seals.push(
+                SealPair::new_builder()
+                    .script_hash(script_hash)
+                    .scope(scope)
+                    .seal(Vec::<u8>::new())
+                    .build(),
+            );
+        }
+
+        self.as_builder()
+            .seals(SealPairVec::new_builder().extend(seals).build())
             .build()
     }
 }
