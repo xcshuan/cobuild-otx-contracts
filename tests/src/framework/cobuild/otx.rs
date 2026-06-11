@@ -98,7 +98,7 @@ impl OtxBuilder {
 
     pub fn base_input_cells(mut self, count: u32) -> Self {
         self.base_input_cells = count;
-        self.base_input_masks = if count == 0 { Vec::new() } else { vec![0] };
+        self.base_input_masks = zero_masks(count as usize * 2);
         self
     }
 
@@ -119,11 +119,13 @@ impl OtxBuilder {
 
     pub fn base_cell_deps(mut self, count: u32) -> Self {
         self.base_cell_deps = count;
+        self.base_cell_dep_masks = zero_masks(count as usize);
         self
     }
 
     pub fn base_header_deps(mut self, count: u32) -> Self {
         self.base_header_deps = count;
+        self.base_header_dep_masks = zero_masks(count as usize);
         self
     }
 
@@ -288,6 +290,10 @@ fn full_base_output_masks(output_count: usize) -> Vec<u8> {
         *last = (1u8 << keep_bits) - 1;
     }
     masks
+}
+
+fn zero_masks(bits: usize) -> Vec<u8> {
+    vec![0; bits.div_ceil(8)]
 }
 
 fn set_mask_bit(masks: &mut Vec<u8>, bit: usize, covered: bool) {

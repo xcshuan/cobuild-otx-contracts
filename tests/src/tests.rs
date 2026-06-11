@@ -96,6 +96,39 @@ fn cobuild_protocol_builders_set_append_dep_permission_bits() {
 }
 
 #[test]
+fn cobuild_protocol_builders_size_semantic_base_masks() {
+    let input_masks = crate::framework::cobuild::OtxBuilder::new()
+        .base_input_cells(5)
+        .build()
+        .base_input_masks();
+    assert_eq!(input_masks.len(), 2);
+
+    let cell_dep_masks = crate::framework::cobuild::OtxBuilder::new()
+        .base_cell_deps(9)
+        .build()
+        .base_cell_dep_masks();
+    assert_eq!(cell_dep_masks.len(), 2);
+
+    let header_dep_masks = crate::framework::cobuild::OtxBuilder::new()
+        .base_header_deps(9)
+        .build()
+        .base_header_dep_masks();
+    assert_eq!(header_dep_masks.len(), 2);
+}
+
+#[test]
+fn cobuild_protocol_builders_preserve_malformed_raw_mask_lengths() {
+    let cell_dep_masks = crate::framework::cobuild::OtxBuilder::new()
+        .base_cell_deps(9)
+        .base_cell_dep_masks_raw(vec![0xff])
+        .build()
+        .base_cell_dep_masks();
+
+    assert_eq!(cell_dep_masks.len(), 1);
+    assert_eq!(cell_dep_masks.raw_data().as_ref(), &[0xff]);
+}
+
+#[test]
 fn cobuild_protocol_builders_cover_and_uncover_input_mask_bits() {
     let covered = crate::framework::cobuild::OtxBuilder::new()
         .base_input_cells(1)
