@@ -1,5 +1,4 @@
 use ckb_testtool::{
-    builtin::ALWAYS_SUCCESS,
     ckb_types::{
         bytes::Bytes,
         core::ScriptHashType,
@@ -21,25 +20,21 @@ pub struct DeployedScript {
     pub cell_dep: CellDep,
 }
 
-pub fn deploy_data2_script(context: &mut Context, name: &str, args: Vec<u8>) -> DeployedScript {
+pub fn deploy_loader_binary(
+    context: &mut Context,
+    name: &str,
+    hash_type: ScriptHashType,
+    args: Vec<u8>,
+) -> DeployedScript {
     let bin = Loader::default().load_binary(name);
-    deploy_script(context, bin, ScriptHashType::Data2, args)
-}
-
-pub fn deploy_always_success(context: &mut Context, args: Vec<u8>) -> DeployedScript {
-    deploy_script(
-        context,
-        ALWAYS_SUCCESS.to_vec().into(),
-        ScriptHashType::Data,
-        args,
-    )
+    deploy_script_bytes(context, bin, hash_type, args)
 }
 
 pub fn cell_dep_for_script(script: &DeployedScript) -> CellDep {
     script.cell_dep.clone()
 }
 
-fn deploy_script(
+pub fn deploy_script_bytes(
     context: &mut Context,
     bin: Bytes,
     hash_type: ScriptHashType,

@@ -28,10 +28,12 @@ pub use type_nft_for_udt::{
 use crate::framework::{
     cells::{TestCellOutput, live_input, normal_output, typed_output},
     cobuild::{CobuildMessageBuilder, OtxBuilder},
-    contracts::{DeployedScript, cell_dep_for_script, deploy_data2_script},
+    contracts::{DeployedScript, cell_dep_for_script},
     fixture::CobuildTestFixture,
     scripts::script_hash,
 };
+
+use super::common::contracts::{deploy_always_success, deploy_limit_order_type};
 
 pub use crate::framework::assertions::failed_txs_count;
 
@@ -80,7 +82,7 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
     let mut fixture = CobuildTestFixture::new();
 
     let limit_order = fixture.deploy_limit_order();
-    let always_success = fixture.deploy_always_success();
+    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
     let owner_lock = always_success.script.clone();
 
     let order_input = fixture
@@ -148,7 +150,7 @@ pub trait LimitOrderFixtureExt {
 
 impl LimitOrderFixtureExt for CobuildTestFixture {
     fn deploy_limit_order(&mut self) -> DeployedScript {
-        deploy_data2_script(self.context_mut(), "limit-order-type", Vec::new())
+        deploy_limit_order_type(self.context_mut())
     }
 
     fn limit_order(&mut self) -> LimitOrderBuilder<'_> {

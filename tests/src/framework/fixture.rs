@@ -3,7 +3,6 @@ use ckb_testtool::{ckb_types::core::TransactionView, context::Context};
 use super::{
     assertions,
     cobuild::{CobuildMessageBuilder, OtxBuilder},
-    contracts::{DeployedScript, deploy_always_success},
     tx::OtxTransactionBuilder,
 };
 
@@ -24,10 +23,6 @@ impl CobuildTestFixture {
 
     pub fn context_mut(&mut self) -> &mut Context {
         &mut self.context
-    }
-
-    pub fn deploy_always_success(&mut self) -> DeployedScript {
-        deploy_always_success(&mut self.context, Vec::new())
     }
 
     pub fn cobuild(&self) -> CobuildMessageBuilder {

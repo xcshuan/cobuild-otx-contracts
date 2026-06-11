@@ -2,21 +2,17 @@ use ckb_testtool::{
     ckb_error::Error,
     ckb_types::{
         bytes::Bytes,
-        core::{Cycle, ScriptHashType, TransactionBuilder, TransactionView},
-        packed::{CellDep, CellInput, CellOutput},
+        core::{Cycle, TransactionBuilder, TransactionView},
+        packed::{CellInput, CellOutput},
         prelude::*,
     },
     context::Context,
 };
 use cobuild_types::entity::core::Otx;
 
-use crate::{
-    Loader,
-    framework::{
-        cobuild::{empty_message, seal_pair},
-        contracts::deploy_always_success,
-    },
-};
+use crate::framework::cobuild::{empty_message, seal_pair};
+
+use super::common::contracts::{deploy_always_success, deploy_cobuild_otx_lock_code};
 
 pub struct Case {
     pub(super) context: Context,
@@ -110,18 +106,11 @@ pub(super) fn otx_witness(
 
 pub(super) fn build_case(args: Bytes) -> Case {
     let mut context = Context::default();
-    let contract_bin = Loader::default().load_binary("cobuild-otx-lock");
-    let contract_out_point = context.deploy_cell(contract_bin);
-    let contract_dep = CellDep::new_builder()
-        .out_point(contract_out_point.clone())
-        .build();
-    let lock = context
-        .build_script_with_hash_type(&contract_out_point, ScriptHashType::Data2, args)
-        .expect("build cobuild-otx-lock script");
+    let contract = deploy_cobuild_otx_lock_code(&mut context, args.to_vec());
     let input_out_point = context.create_cell(
         CellOutput::new_builder()
             .capacity(100_000_000_000u64)
-            .lock(lock)
+            .lock(contract.script)
             .build(),
         Bytes::new(),
     );
@@ -130,7 +119,7 @@ pub(super) fn build_case(args: Bytes) -> Case {
         .lock(deploy_always_success(&mut context, Vec::new()).script)
         .build();
     let tx = TransactionBuilder::default()
-        .cell_dep(contract_dep)
+        .cell_dep(contract.cell_dep)
         .input(
             CellInput::new_builder()
                 .previous_output(input_out_point)

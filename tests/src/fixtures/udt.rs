@@ -1,8 +1,8 @@
 use ckb_testtool::{
     ckb_types::{
         bytes::Bytes,
-        core::{ScriptHashType, TransactionBuilder, TransactionView},
-        packed::{CellDep, CellInput, CellOutput, Script},
+        core::{TransactionBuilder, TransactionView},
+        packed::{CellInput, CellOutput, Script},
         prelude::*,
     },
     context::Context,
@@ -18,7 +18,9 @@ use super::{
     support::{OtxFixtureInput, OtxFixtureOutputPart, OtxFixtureParts},
 };
 use crate::{
-    Loader,
+    fixtures::common::contracts::{
+        deploy_cobuild_otx_lock_code, deploy_test_udt, rebuild_data2_script,
+    },
     framework::{
         cells::{
             TestCellOutput, TestResolvedInput, live_resolved_normal_input,
@@ -159,52 +161,30 @@ pub fn two_udt_transfer_otxs_case(include_fee_input: bool) -> TwoUdtTransferOtxs
     let otx_b_secret_key = SecretKey::from_slice(&[3u8; 32]).expect("fixed secret key");
 
     let mut context = Context::default();
-    let lock_bin = Loader::default().load_binary("cobuild-otx-lock");
-    let lock_out_point = context.deploy_cell(lock_bin);
-    let lock_dep = CellDep::new_builder()
-        .out_point(lock_out_point.clone())
-        .build();
-    let fee_lock = context
-        .build_script_with_hash_type(
-            &lock_out_point,
-            ScriptHashType::Data2,
-            lock_args_for_key(&secp, &fee_secret_key).into(),
-        )
-        .expect("build fee cobuild-otx-lock script");
-    let otx_a_lock = context
-        .build_script_with_hash_type(
-            &lock_out_point,
-            ScriptHashType::Data2,
-            lock_args_for_key(&secp, &otx_a_secret_key).into(),
-        )
-        .expect("build otx A cobuild-otx-lock script");
-    let otx_b_lock = context
-        .build_script_with_hash_type(
-            &lock_out_point,
-            ScriptHashType::Data2,
-            lock_args_for_key(&secp, &otx_b_secret_key).into(),
-        )
-        .expect("build otx B cobuild-otx-lock script");
+    let lock_code = deploy_cobuild_otx_lock_code(&mut context, Vec::new());
+    let fee_lock = rebuild_data2_script(
+        &mut context,
+        &lock_code,
+        lock_args_for_key(&secp, &fee_secret_key),
+    );
+    let otx_a_lock = rebuild_data2_script(
+        &mut context,
+        &lock_code,
+        lock_args_for_key(&secp, &otx_a_secret_key),
+    );
+    let otx_b_lock = rebuild_data2_script(
+        &mut context,
+        &lock_code,
+        lock_args_for_key(&secp, &otx_b_secret_key),
+    );
     let fee_lock_hash = packed_hash_to_array(fee_lock.calc_script_hash());
     let otx_a_lock_hash = packed_hash_to_array(otx_a_lock.calc_script_hash());
     let otx_b_lock_hash = packed_hash_to_array(otx_b_lock.calc_script_hash());
-    let issuer_lock = context
-        .build_script_with_hash_type(&lock_out_point, ScriptHashType::Data2, vec![0u8; 21].into())
-        .expect("build cobuild-otx-lock script");
+    let issuer_lock = rebuild_data2_script(&mut context, &lock_code, vec![0u8; 21]);
     let issuer_lock_hash = packed_hash_to_array(issuer_lock.calc_script_hash());
 
-    let udt_bin = Loader::default().load_binary("test-udt");
-    let udt_out_point = context.deploy_cell(udt_bin);
-    let udt_dep = CellDep::new_builder()
-        .out_point(udt_out_point.clone())
-        .build();
-    let udt_type = context
-        .build_script_with_hash_type(
-            &udt_out_point,
-            ScriptHashType::Data2,
-            Bytes::copy_from_slice(issuer_lock_hash.as_slice()),
-        )
-        .expect("build test-udt type script");
+    let udt = deploy_test_udt(&mut context, issuer_lock_hash);
+    let udt_type = udt.script.clone();
 
     let mut inputs = Vec::new();
     let mut input_parts = Vec::new();
@@ -239,8 +219,8 @@ pub fn two_udt_transfer_otxs_case(include_fee_input: bool) -> TwoUdtTransferOtxs
     ];
 
     let mut builder = TransactionBuilder::default()
-        .cell_dep(lock_dep)
-        .cell_dep(udt_dep);
+        .cell_dep(lock_code.cell_dep)
+        .cell_dep(udt.cell_dep);
     for input in &inputs {
         builder = builder.input(input.clone());
     }

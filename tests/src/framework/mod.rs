@@ -17,7 +17,7 @@ mod tests {
             live_resolved_typed_input, normal_output, typed_output,
         },
         cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, seal_pair},
-        contracts::{deploy_always_success, deploy_data2_script},
+        contracts::{DeployedScript, deploy_loader_binary, deploy_script_bytes},
         fixture::CobuildTestFixture,
         scripts::script_hash,
         signing::{
@@ -26,13 +26,24 @@ mod tests {
         tx::{OtxTransactionBuilder, otx_start_witness},
     };
     use ckb_testtool::{
+        builtin::ALWAYS_SUCCESS,
         ckb_script::ScriptError,
         ckb_types::{
+            core::ScriptHashType,
             packed::{CellInput, OutPoint},
             prelude::{Builder, Entity, Pack, Unpack},
         },
         context::Context,
     };
+
+    fn deploy_test_lock(context: &mut Context, args: Vec<u8>) -> DeployedScript {
+        deploy_script_bytes(
+            context,
+            ALWAYS_SUCCESS.to_vec().into(),
+            ScriptHashType::Data,
+            args,
+        )
+    }
 
     #[test]
     fn otx_witness_helpers_encode_start_and_seal() {
@@ -67,7 +78,7 @@ mod tests {
     #[test]
     fn otx_transaction_builder_supports_base_append_and_remainder_outputs() {
         let mut fixture = CobuildTestFixture::new();
-        let lock = fixture.deploy_always_success();
+        let lock = deploy_test_lock(fixture.context_mut(), Vec::new());
 
         let base_input_a = live_input(
             fixture.context_mut(),
@@ -120,7 +131,7 @@ mod tests {
     #[test]
     fn tx_builder_supports_sighash_all_message_without_otx() {
         let mut fixture = CobuildTestFixture::new();
-        let lock = fixture.deploy_always_success();
+        let lock = deploy_test_lock(fixture.context_mut(), Vec::new());
         let input = live_input(
             fixture.context_mut(),
             normal_output(lock.script.clone(), 1_000),
@@ -166,8 +177,13 @@ mod tests {
     fn contract_helpers_deploy_scripts_and_record_script_hashes() {
         let mut context = Context::default();
 
-        let data2_script = deploy_data2_script(&mut context, "sample-data2-script", Vec::new());
-        let always_success = deploy_always_success(&mut context, Vec::new());
+        let data2_script = deploy_loader_binary(
+            &mut context,
+            "sample-data2-script",
+            ScriptHashType::Data2,
+            Vec::new(),
+        );
+        let always_success = deploy_test_lock(&mut context, Vec::new());
 
         assert_eq!(data2_script.script_hash, script_hash(&data2_script.script));
         assert_eq!(
@@ -181,8 +197,8 @@ mod tests {
     #[test]
     fn resolved_input_helpers_preserve_cell_and_data() {
         let mut fixture = CobuildTestFixture::new();
-        let lock = fixture.deploy_always_success();
-        let type_script = fixture.deploy_always_success();
+        let lock = deploy_test_lock(fixture.context_mut(), Vec::new());
+        let type_script = deploy_test_lock(fixture.context_mut(), Vec::new());
         let (_input, resolved): (_, TestResolvedInput) = live_resolved_typed_input(
             fixture.context_mut(),
             lock.script.clone(),
@@ -204,8 +220,12 @@ mod tests {
         assert_eq!(facts.lock_hash, script_hash(&lock.script));
         assert_eq!(facts.type_hash, Some(script_hash(&type_script.script)));
 
-        let deployed =
-            deploy_data2_script(fixture.context_mut(), "cobuild-otx-lock", vec![0u8; 21]);
+        let deployed = deploy_loader_binary(
+            fixture.context_mut(),
+            "cobuild-otx-lock",
+            ScriptHashType::Data2,
+            vec![0u8; 21],
+        );
         assert_eq!(deployed.script.args().raw_data().len(), 21);
     }
 
@@ -260,7 +280,7 @@ mod tests {
     fn fixture_facade_deploys_contracts_and_starts_builders() {
         let mut fixture = CobuildTestFixture::new();
 
-        let always_success = fixture.deploy_always_success();
+        let always_success = deploy_test_lock(fixture.context_mut(), Vec::new());
         let _message = fixture
             .cobuild()
             .input_lock_action(script_hash(&always_success.script));

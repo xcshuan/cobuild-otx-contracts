@@ -1,7 +1,7 @@
 use ckb_testtool::{
     ckb_types::{
         bytes::Bytes,
-        core::{ScriptHashType, TransactionBuilder},
+        core::TransactionBuilder,
         packed::{CellDep, CellInput, CellOutput},
         prelude::*,
     },
@@ -13,17 +13,14 @@ use cobuild_types::entity::{
 };
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
-use crate::{
-    Loader,
-    framework::{
-        cobuild::empty_message,
-        contracts::deploy_always_success,
-        scripts::packed_hash_to_array,
-        signing::{sign_recoverable, tx_without_message_hash, tx_without_message_hash_for_inputs},
-    },
+use crate::framework::{
+    cobuild::empty_message,
+    scripts::packed_hash_to_array,
+    signing::{sign_recoverable, tx_without_message_hash, tx_without_message_hash_for_inputs},
 };
 
 use super::{
+    common::contracts::{deploy_always_success, deploy_cobuild_otx_lock},
     otx_hash::{otx_append_hash, otx_base_hash},
     support::*,
 };
@@ -44,18 +41,10 @@ pub fn signed_sighash_all_case() -> Case {
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
     let public_key_hash = ckb_hash::blake2b_256(public_key.serialize());
 
-    let mut args = vec![0u8];
-    args.extend_from_slice(&public_key_hash[..20]);
-
     let mut context = Context::default();
-    let contract_bin = Loader::default().load_binary("cobuild-otx-lock");
-    let contract_out_point = context.deploy_cell(contract_bin);
-    let contract_dep = CellDep::new_builder()
-        .out_point(contract_out_point.clone())
-        .build();
-    let lock = context
-        .build_script_with_hash_type(&contract_out_point, ScriptHashType::Data2, args.into())
-        .expect("build cobuild-otx-lock script");
+    let contract = deploy_cobuild_otx_lock(&mut context, 0, &public_key_hash[..20]);
+    let contract_dep = contract.cell_dep;
+    let lock = contract.script;
     let input_output = CellOutput::new_builder()
         .capacity(100_000_000_000u64)
         .lock(lock)
@@ -99,18 +88,10 @@ pub fn signed_sighash_all_offset_lock_case() -> Case {
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
     let public_key_hash = ckb_hash::blake2b_256(public_key.serialize());
 
-    let mut args = vec![0u8];
-    args.extend_from_slice(&public_key_hash[..20]);
-
     let mut context = Context::default();
-    let contract_bin = Loader::default().load_binary("cobuild-otx-lock");
-    let contract_out_point = context.deploy_cell(contract_bin);
-    let contract_dep = CellDep::new_builder()
-        .out_point(contract_out_point.clone())
-        .build();
-    let lock = context
-        .build_script_with_hash_type(&contract_out_point, ScriptHashType::Data2, args.into())
-        .expect("build cobuild-otx-lock script");
+    let contract = deploy_cobuild_otx_lock(&mut context, 0, &public_key_hash[..20]);
+    let contract_dep = contract.cell_dep;
+    let lock = contract.script;
 
     let always_success = deploy_always_success(&mut context, Vec::new());
     let always_success_dep = always_success.cell_dep;
@@ -250,19 +231,11 @@ fn signed_otx_case_with_config(config: OtxCaseConfig) -> Case {
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
     let public_key_hash = ckb_hash::blake2b_256(public_key.serialize());
 
-    let mut args = vec![0u8];
-    args.extend_from_slice(&public_key_hash[..20]);
-
     let mut context = Context::default();
-    let contract_bin = Loader::default().load_binary("cobuild-otx-lock");
-    let contract_out_point = context.deploy_cell(contract_bin);
-    let contract_dep = CellDep::new_builder()
-        .out_point(contract_out_point.clone())
-        .build();
-    let lock = context
-        .build_script_with_hash_type(&contract_out_point, ScriptHashType::Data2, args.into())
-        .expect("build cobuild-otx-lock script");
-    let script_hash = packed_hash_to_array(lock.calc_script_hash());
+    let contract = deploy_cobuild_otx_lock(&mut context, 0, &public_key_hash[..20]);
+    let script_hash = contract.script_hash;
+    let contract_dep = contract.cell_dep;
+    let lock = contract.script;
 
     let input_output = CellOutput::new_builder()
         .capacity(100_000_000_000u64)

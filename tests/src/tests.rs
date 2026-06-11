@@ -344,6 +344,8 @@ fn framework_does_not_depend_on_fixtures_or_named_test_contracts() {
         for forbidden in [
             "crate::fixtures",
             "fixtures::",
+            "deploy_always_success",
+            "deploy_data2_script",
             "limit_order",
             "cobuild_otx_lock",
             "test-udt",
@@ -357,6 +359,39 @@ fn framework_does_not_depend_on_fixtures_or_named_test_contracts() {
             );
         }
     }
+}
+
+#[test]
+fn fixtures_common_contracts_and_assets_are_usable() {
+    let mut context = ckb_testtool::context::Context::default();
+
+    let always_success =
+        crate::fixtures::common::contracts::deploy_always_success(&mut context, Vec::new());
+    let udt = crate::fixtures::common::contracts::deploy_test_udt(
+        &mut context,
+        always_success.script_hash,
+    );
+    let nft = crate::fixtures::common::contracts::deploy_test_nft(&mut context, [7; 32]);
+
+    assert_eq!(
+        always_success.script_hash,
+        crate::framework::scripts::script_hash(&always_success.script)
+    );
+    assert_eq!(
+        udt.script.args().raw_data().as_ref(),
+        always_success.script_hash.as_slice()
+    );
+    assert_eq!(nft.script.args().raw_data().as_ref(), &[7; 32]);
+    assert_eq!(
+        crate::fixtures::common::assets::udt_amount_data(30).as_ref(),
+        &30u128.to_le_bytes()
+    );
+    assert_eq!(
+        crate::fixtures::common::assets::nft_data(b"demo", [1, 2, 3, 4], 9).as_ref(),
+        &[
+            4, b'd', b'e', b'm', b'o', 1, 2, 3, 4, 9, 0, 0, 0, 0, 0, 0, 0
+        ]
+    );
 }
 
 #[test]
@@ -774,6 +809,125 @@ fn mutation_otx_start_raw_replaces_start_witness_bytes() {
     }));
 
     assert_eq!(witness_bytes(&built, start_witness), replacement);
+}
+
+#[test]
+fn mutation_duplicate_sighash_all_inserts_two_sighash_witnesses() {
+    let mut shape = TxShape::new();
+    shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        ..Default::default()
+    });
+    let mut built = shape.build();
+
+    built.apply_protocol_mutation(ProtocolMutation::DuplicateSighashAll);
+
+    assert_eq!(built.tx.witnesses().len(), 4);
+    for index in 0..2 {
+        let witness = built
+            .tx
+            .witnesses()
+            .into_iter()
+            .nth(index)
+            .expect("inserted sighash witness");
+        match WitnessLayout::from_slice(witness.raw_data().as_ref())
+            .expect("parse sighash witness")
+            .to_enum()
+        {
+            WitnessLayoutUnion::SighashAll(_) => {}
+            other => panic!("expected SighashAll witness, got {}", other.item_name()),
+        }
+    }
+    assert_eq!(built.witnesses.tx_index(WitnessHandle::from_raw(0)), 2);
+    assert_eq!(built.witnesses.tx_index(WitnessHandle::from_raw(1)), 3);
+}
+
+#[test]
+fn mutation_non_contiguous_otx_witness_inserts_gap_after_start() {
+    let mut shape = TxShape::new();
+    shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        ..Default::default()
+    });
+    let mut built = shape.build();
+
+    built.apply_protocol_mutation(ProtocolMutation::NonContiguousOtxWitness);
+
+    assert_eq!(built.tx.witnesses().len(), 3);
+    let gap = built
+        .tx
+        .witnesses()
+        .into_iter()
+        .nth(1)
+        .expect("inserted witness gap");
+    match WitnessLayout::from_slice(gap.raw_data().as_ref())
+        .expect("parse witness gap")
+        .to_enum()
+    {
+        WitnessLayoutUnion::SighashAllOnly(_) => {}
+        other => panic!("expected SighashAllOnly witness, got {}", other.item_name()),
+    }
+    assert_eq!(built.witnesses.tx_index(WitnessHandle::from_raw(0)), 0);
+    assert_eq!(built.witnesses.tx_index(WitnessHandle::from_raw(1)), 2);
+}
+
+#[test]
+fn mutation_otx_before_otx_start_swaps_witness_handles() {
+    let mut shape = TxShape::new();
+    shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        ..Default::default()
+    });
+    let mut built = shape.build();
+
+    built.apply_protocol_mutation(ProtocolMutation::OtxBeforeOtxStart);
+
+    assert_eq!(built.witnesses.tx_index(WitnessHandle::from_raw(0)), 1);
+    assert_eq!(built.witnesses.tx_index(WitnessHandle::from_raw(1)), 0);
+    match WitnessLayout::from_slice(
+        built
+            .tx
+            .witnesses()
+            .into_iter()
+            .next()
+            .expect("first witness")
+            .raw_data()
+            .as_ref(),
+    )
+    .expect("parse first witness")
+    .to_enum()
+    {
+        WitnessLayoutUnion::Otx(_) => {}
+        other => panic!("expected OTX witness, got {}", other.item_name()),
+    }
+}
+
+#[test]
+fn mutation_seal_scope_raw_patches_matching_otx_seal() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        ..Default::default()
+    });
+    let (witness, original_otx) = signing_otx_witness_with_message_and_seal();
+    let mut built = signing_replace_otx_witness(shape.build(), witness);
+
+    built.apply_protocol_mutation(ProtocolMutation::SealScopeRaw {
+        otx,
+        script_hash: [7; 32],
+        scope: 0xfe,
+    });
+
+    let mutated = otx_witness(&built, otx);
+    assert_ne!(mutated.seals().as_slice(), original_otx.seals().as_slice());
+    assert_eq!(
+        mutated.message().as_slice(),
+        original_otx.message().as_slice()
+    );
+    assert_eq!(
+        mutated.append_permissions().as_slice(),
+        original_otx.append_permissions().as_slice()
+    );
 }
 
 #[test]
