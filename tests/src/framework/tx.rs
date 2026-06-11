@@ -26,6 +26,7 @@ pub use handles::{
     CellDepHandle, EntityIndexMap, HeaderDepHandle, InputHandle, OtxHandle, OutputHandle,
     WitnessHandle,
 };
+pub use mutate::{ProtocolMutation, TxShapeMutation};
 
 pub fn otx_start_witness(
     start_input_cell: u32,

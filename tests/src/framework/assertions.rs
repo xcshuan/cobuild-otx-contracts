@@ -73,6 +73,21 @@ pub fn assert_lock_script_exit_result(result: Result<Cycle, Error>, input_index:
     assert_script_exit_result(result, format!("Inputs[{input_index}].Lock"), code);
 }
 
+pub fn failed_txs_count() -> usize {
+    let path = std::env::current_dir()
+        .expect("current dir")
+        .join("failed_txs");
+    match std::fs::read_dir(path) {
+        Ok(entries) => entries.count(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(error) => panic!("read failed_txs: {error}"),
+    }
+}
+
+pub fn assert_no_failed_tx_dump_delta(before: usize) {
+    assert_eq!(failed_txs_count(), before);
+}
+
 fn assert_script_exit_result(result: Result<Cycle, Error>, originating_script: String, code: i8) {
     let err = result.expect_err("transaction must fail closed");
     assert_eq!(err.kind(), ErrorKind::Script);

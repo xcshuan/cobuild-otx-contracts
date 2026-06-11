@@ -3,6 +3,7 @@ pub mod cells;
 pub mod cobuild;
 pub mod contracts;
 pub mod fixture;
+pub mod scenario;
 pub mod scripts;
 pub mod signing;
 pub mod tx;

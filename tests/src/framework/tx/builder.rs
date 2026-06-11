@@ -16,6 +16,7 @@ use crate::framework::{
 use super::{
     handles::{
         CellDepHandle, EntityIndexMap, HeaderDepHandle, InputHandle, OtxHandle, OutputHandle,
+        WitnessHandle,
     },
     otx_start_witness,
 };
@@ -50,6 +51,7 @@ pub struct BuiltTxShape {
     pub tx: TransactionView,
     pub inputs: EntityIndexMap<InputHandle>,
     pub outputs: EntityIndexMap<OutputHandle>,
+    pub witnesses: EntityIndexMap<WitnessHandle>,
     pub cell_deps: EntityIndexMap<CellDepHandle>,
     pub header_deps: EntityIndexMap<HeaderDepHandle>,
     pub resolved_inputs: Vec<ResolvedInputFacts>,
@@ -142,6 +144,7 @@ impl TxShape {
         let mut builder = TransactionBuilder::default();
         let mut inputs = EntityIndexMap::default();
         let mut outputs = EntityIndexMap::default();
+        let mut witnesses = EntityIndexMap::default();
         let mut cell_deps = EntityIndexMap::default();
         let mut header_deps = EntityIndexMap::default();
         let mut resolved_inputs = Vec::new();
@@ -296,9 +299,10 @@ impl TxShape {
                 .len()
                 .saturating_sub(total_otx_inputs(&self.otxs))
                 as u32;
+            witnesses.insert(WitnessHandle::from_raw(0), 0);
             builder = builder.witness(otx_start_witness(start_input_cell, 0, 0, 0).pack());
         }
-        for otx in &self.otxs {
+        for (otx_index, otx) in self.otxs.iter().enumerate() {
             let mut builder_for_otx = OtxBuilder::new()
                 .base_input_cells(otx.segment.base_inputs.len() as u32)
                 .base_output_cells(otx.segment.base_outputs.len() as u32)
@@ -317,6 +321,8 @@ impl TxShape {
 
             let otx = builder_for_otx.build();
             let witness = WitnessLayout::from(otx);
+            let witness_index = otx_index + 1;
+            witnesses.insert(WitnessHandle::from_raw(witness_index), witness_index);
             builder = builder.witness(Bytes::copy_from_slice(witness.as_slice()).pack());
         }
 
@@ -324,6 +330,7 @@ impl TxShape {
             tx: builder.build(),
             inputs,
             outputs,
+            witnesses,
             cell_deps,
             header_deps,
             resolved_inputs,
