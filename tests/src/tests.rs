@@ -324,6 +324,7 @@ fn fixtures_do_not_redefine_framework_helpers() {
         "fn sign_recoverable",
         "fn tx_without_message_hash",
         "fn tx_without_message_hash_for_inputs",
+        "fn failed_txs_count",
         "fn empty_message_entity",
         "fn always_success_script",
         "const TX_WITHOUT_MESSAGE_PERSONAL",

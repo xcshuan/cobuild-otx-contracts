@@ -33,6 +33,8 @@ use crate::framework::{
     scripts::script_hash,
 };
 
+pub use crate::framework::assertions::failed_txs_count;
+
 pub(crate) const CREATE_ORDER_TAG: u8 = 1;
 pub(crate) const FILL_ORDER_TAG: u8 = 2;
 const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
@@ -117,17 +119,6 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
         .build();
 
     (fixture, tx)
-}
-
-pub fn failed_txs_count() -> usize {
-    let path = std::env::current_dir()
-        .expect("current dir")
-        .join("failed_txs");
-    match std::fs::read_dir(path) {
-        Ok(entries) => entries.count(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
-        Err(error) => panic!("read failed_txs: {error}"),
-    }
 }
 
 pub trait LimitOrderCobuildMessageExt {
