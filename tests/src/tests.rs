@@ -1,5 +1,22 @@
 use crate::{TestEnv, default_test_env};
 
+fn rust_files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(path) = stack.pop() {
+        if path.is_dir() {
+            for entry in std::fs::read_dir(&path).expect("read directory") {
+                stack.push(entry.expect("directory entry").path());
+            }
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+            files.push(path);
+        }
+    }
+    files
+}
+
 #[test]
 fn default_test_env_defaults_to_debug_build_when_mode_is_unset() {
     assert_eq!(default_test_env(), TestEnv::Debug);
@@ -142,4 +159,46 @@ fn fixtures_do_not_redefine_framework_helpers() {
             "`{forbidden}` should be imported from tests::framework"
         );
     }
+}
+
+#[test]
+fn framework_does_not_depend_on_fixtures_or_named_test_contracts() {
+    let framework_dir = std::path::Path::new("src/framework");
+    for path in rust_files_under(framework_dir) {
+        let source = std::fs::read_to_string(&path).expect("read framework source file");
+        for forbidden in [
+            "crate::fixtures",
+            "fixtures::",
+            "limit_order",
+            "cobuild_otx_lock",
+            "test-udt",
+            "test-nft",
+            "input-type-proxy-lock",
+            "wrong-owner",
+        ] {
+            assert!(
+                !source.contains(forbidden),
+                "framework source {path:?} must not depend on fixture or named test-contract term `{forbidden}`"
+            );
+        }
+    }
+}
+
+#[test]
+fn signing_hash_oracle_is_framework_owned() {
+    let oracle_path = std::path::Path::new("src/framework/signing/oracle.rs");
+    let oracle_source = if oracle_path.exists() {
+        std::fs::read_to_string(oracle_path).expect("read signing hash oracle")
+    } else {
+        String::new()
+    };
+
+    assert!(
+        oracle_source.contains("pub trait SigningHashOracle"),
+        "signing hash oracle trait should be owned by tests/src/framework/signing/oracle.rs"
+    );
+    assert!(
+        !std::path::Path::new("src/fixtures/otx_hash.rs").exists(),
+        "signing hash oracle implementation should not live in tests/src/fixtures/otx_hash.rs"
+    );
 }
