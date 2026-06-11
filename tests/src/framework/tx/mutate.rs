@@ -1,14 +1,17 @@
 use std::ops::Range;
 
 use ckb_testtool::ckb_types::{bytes::Bytes, prelude::*};
-use cobuild_types::entity::witness::WitnessLayout;
+use cobuild_types::entity::{
+    core::Otx,
+    witness::{WitnessLayout, WitnessLayoutUnion},
+};
 
 use crate::framework::{
     cells::{ResolvedInputFacts, TestCellOutput},
-    cobuild::{OtxBuilder, OtxStartSpec},
+    cobuild::OtxStartSpec,
 };
 
-use super::{BuiltTxShape, InputHandle, OtxHandle, OtxRangeFacts, OutputHandle, WitnessHandle};
+use super::{BuiltTxShape, InputHandle, OtxHandle, OutputHandle, WitnessHandle};
 
 #[derive(Clone, Debug)]
 pub enum ProtocolMutation {
@@ -60,14 +63,20 @@ impl BuiltTxShape {
                 self.replace_witness_bytes(WitnessHandle::from_raw(0), spec.encode());
             }
             ProtocolMutation::OtxRawPermission { otx, permissions } => {
-                let builder = self
-                    .otx_builder_for_ranges(otx)
-                    .append_permissions_raw(permissions);
-                self.replace_otx_witness(otx, builder);
+                let updated = self
+                    .current_otx_witness(otx)
+                    .as_builder()
+                    .append_permissions(permissions)
+                    .build();
+                self.replace_otx_witness(otx, updated);
             }
             ProtocolMutation::OtxRawBaseInputMasks { otx, masks } => {
-                let builder = self.otx_builder_for_ranges(otx).base_input_masks_raw(masks);
-                self.replace_otx_witness(otx, builder);
+                let updated = self
+                    .current_otx_witness(otx)
+                    .as_builder()
+                    .base_input_masks(masks)
+                    .build();
+                self.replace_otx_witness(otx, updated);
             }
             ProtocolMutation::DuplicateSighashAll => {
                 panic!("unsupported protocol mutation: DuplicateSighashAll")
@@ -178,6 +187,7 @@ impl BuiltTxShape {
 
     fn move_output_to_remainder(&mut self, output: OutputHandle) {
         let old_index = self.outputs.tx_index(output);
+        let witness_updates = self.otx_witness_updates_for_moved_output(old_index);
         let mut outputs: Vec<_> = self.tx.outputs().into_iter().collect();
         let mut outputs_data: Vec<_> = self.tx.outputs_data().into_iter().collect();
         assert_eq!(
@@ -215,6 +225,9 @@ impl BuiltTxShape {
             .set_outputs(outputs)
             .set_outputs_data(outputs_data)
             .build();
+        for (otx, updated) in witness_updates {
+            self.replace_otx_witness(otx, updated);
+        }
     }
 
     fn next_output_handle(&self) -> OutputHandle {
@@ -228,45 +241,60 @@ impl BuiltTxShape {
         OutputHandle::from_raw(next)
     }
 
-    fn replace_otx_witness(&mut self, otx: OtxHandle, builder: OtxBuilder) {
-        let witness = WitnessLayout::from(builder.build());
+    fn replace_otx_witness(&mut self, otx: OtxHandle, otx_entity: Otx) {
+        let witness = WitnessLayout::from(otx_entity);
         self.replace_witness_bytes(
             WitnessHandle::from_raw(otx.0 + 1),
             Bytes::copy_from_slice(witness.as_slice()),
         );
     }
 
-    fn otx_builder_for_ranges(&self, otx: OtxHandle) -> OtxBuilder {
-        let facts = self.otx_range_facts(otx);
-        let mut builder = OtxBuilder::new()
-            .base_input_cells(range_len(&facts.base_inputs) as u32)
-            .base_output_cells(range_len(&facts.base_outputs) as u32)
-            .base_cell_deps(range_len(&facts.base_cell_deps) as u32)
-            .base_header_deps(range_len(&facts.base_header_deps) as u32)
-            .append_input_cells(range_len(&facts.append_inputs) as u32)
-            .append_output_cells(range_len(&facts.append_outputs) as u32)
-            .append_cell_deps(range_len(&facts.append_cell_deps) as u32)
-            .append_header_deps(range_len(&facts.append_header_deps) as u32);
-        if !facts.append_inputs.is_empty() {
-            builder = builder.allow_append_inputs();
+    fn current_otx_witness(&self, otx: OtxHandle) -> Otx {
+        let witness_index = self.witnesses.tx_index(WitnessHandle::from_raw(otx.0 + 1));
+        let witness = self
+            .tx
+            .witnesses()
+            .into_iter()
+            .nth(witness_index)
+            .expect("OTX witness handle points outside transaction witnesses");
+        match WitnessLayout::from_slice(witness.raw_data().as_ref())
+            .expect("parse cobuild witness layout")
+            .to_enum()
+        {
+            WitnessLayoutUnion::Otx(otx) => otx,
+            other => panic!("expected OTX witness, got {}", other.item_name()),
         }
-        if !facts.append_outputs.is_empty() {
-            builder = builder.allow_append_outputs();
-        }
-        if !facts.append_cell_deps.is_empty() {
-            builder = builder.allow_append_cell_deps();
-        }
-        if !facts.append_header_deps.is_empty() {
-            builder = builder.allow_append_header_deps();
-        }
-        builder
     }
 
-    fn otx_range_facts(&self, otx: OtxHandle) -> &OtxRangeFacts {
-        self.otx_ranges
-            .iter()
-            .find(|facts| facts.otx == otx)
-            .expect("unknown OTX handle")
+    fn otx_witness_updates_for_moved_output(&self, old_index: usize) -> Vec<(OtxHandle, Otx)> {
+        let mut updates = Vec::new();
+        for facts in &self.otx_ranges {
+            let in_base = facts.base_outputs.contains(&old_index);
+            let in_append = facts.append_outputs.contains(&old_index);
+            assert!(
+                !(in_base && in_append),
+                "output index belongs to both base and append OTX output ranges"
+            );
+            if in_base {
+                updates.push((
+                    facts.otx,
+                    self.current_otx_witness(facts.otx)
+                        .decrement_base_output_count(old_index - facts.base_outputs.start),
+                ));
+            }
+            if in_append {
+                updates.push((
+                    facts.otx,
+                    self.current_otx_witness(facts.otx)
+                        .decrement_append_output_count(),
+                ));
+            }
+        }
+        assert!(
+            updates.len() <= 1,
+            "output index belongs to multiple OTX output ranges"
+        );
+        updates
     }
 }
 
@@ -279,6 +307,87 @@ fn move_index_out_of_otx_range(range: &mut Range<usize>, old_index: usize) {
     }
 }
 
-fn range_len(range: &Range<usize>) -> usize {
-    range.end.saturating_sub(range.start)
+trait OtxOutputCountMutation {
+    fn decrement_base_output_count(self, removed_local_index: usize) -> Self;
+    fn decrement_append_output_count(self) -> Self;
+}
+
+impl OtxOutputCountMutation for Otx {
+    fn decrement_base_output_count(self, removed_local_index: usize) -> Self {
+        let old_count = u32_field(self.base_output_cells(), "base_output_cells");
+        assert!(old_count > 0, "cannot decrement zero base_output_cells");
+        assert!(
+            removed_local_index < old_count as usize,
+            "removed base output local index out of range"
+        );
+        let new_count = old_count - 1;
+        let masks = remove_base_output_mask_group(
+            self.base_output_masks().raw_data().as_ref(),
+            old_count as usize,
+            removed_local_index,
+        );
+        self.as_builder()
+            .base_output_cells(new_count.to_le_bytes())
+            .base_output_masks(masks)
+            .build()
+    }
+
+    fn decrement_append_output_count(self) -> Self {
+        let old_count = u32_field(self.append_output_cells(), "append_output_cells");
+        assert!(old_count > 0, "cannot decrement zero append_output_cells");
+        self.as_builder()
+            .append_output_cells((old_count - 1).to_le_bytes())
+            .build()
+    }
+}
+
+fn u32_field(value: cobuild_types::entity::blockchain::Uint32, field: &str) -> u32 {
+    u32::from_le_bytes(value.as_slice().try_into().expect(field))
+}
+
+fn remove_base_output_mask_group(
+    masks: &[u8],
+    old_count: usize,
+    removed_local_index: usize,
+) -> Vec<u8> {
+    let old_bits = old_count * 4;
+    let removed_start = removed_local_index * 4;
+    let removed_end = removed_start + 4;
+    let new_bits = old_bits.saturating_sub(4);
+    let mut updated = vec![0u8; new_bits.div_ceil(8)];
+    let mut new_bit = 0;
+
+    for old_bit in 0..old_bits {
+        if (removed_start..removed_end).contains(&old_bit) {
+            continue;
+        }
+        if mask_bit(masks, old_bit) {
+            set_mask_bit(&mut updated, new_bit);
+        }
+        new_bit += 1;
+    }
+
+    clear_padding_bits(&mut updated, new_bits);
+    updated
+}
+
+fn mask_bit(masks: &[u8], bit: usize) -> bool {
+    masks
+        .get(bit / 8)
+        .map(|byte| byte & (1 << (bit % 8)) != 0)
+        .unwrap_or(false)
+}
+
+fn set_mask_bit(masks: &mut [u8], bit: usize) {
+    masks[bit / 8] |= 1 << (bit % 8);
+}
+
+fn clear_padding_bits(masks: &mut [u8], bit_count: usize) {
+    let used_bits = bit_count % 8;
+    if used_bits == 0 || masks.is_empty() {
+        return;
+    }
+    let keep_mask = (1u8 << used_bits) - 1;
+    let last = masks.last_mut().expect("non-empty mask");
+    *last &= keep_mask;
 }

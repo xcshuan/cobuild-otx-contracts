@@ -3,7 +3,7 @@ use crate::{
     framework::{
         assertions,
         cells::{ResolvedInputFacts, TestCellOutput, normal_output},
-        cobuild::{CobuildMessageBuilder, OtxBuilder, OtxStartSpec},
+        cobuild::{CobuildMessageBuilder, OtxBuilder, OtxStartSpec, seal_pair},
         scenario::{ExpectedOutcome, ScriptLocation},
         scripts::packed_hash_to_array,
         signing::{
@@ -21,7 +21,11 @@ use ckb_testtool::{
         prelude::{Builder, Entity, Pack},
     },
 };
-use cobuild_types::entity::witness::WitnessLayout;
+use cobuild_types::entity::{
+    blockchain::Uint32,
+    core::Otx,
+    witness::{WitnessLayout, WitnessLayoutUnion},
+};
 
 fn rust_files_under(root: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
@@ -421,6 +425,21 @@ fn witness_bytes(built: &BuiltTxShape, witness: WitnessHandle) -> Bytes {
         .raw_data()
 }
 
+fn otx_witness(built: &BuiltTxShape, otx: crate::framework::tx::OtxHandle) -> Otx {
+    let witness = witness_bytes(built, WitnessHandle::from_raw(otx.0 + 1));
+    match WitnessLayout::from_slice(witness.as_ref())
+        .expect("parse witness layout")
+        .to_enum()
+    {
+        WitnessLayoutUnion::Otx(otx) => otx,
+        other => panic!("expected OTX witness, got {}", other.item_name()),
+    }
+}
+
+fn molecule_u32(value: Uint32) -> u32 {
+    u32::from_le_bytes(value.as_slice().try_into().expect("uint32 bytes"))
+}
+
 fn signing_replace_otx_witness(mut built: BuiltTxShape, otx_witness: Bytes) -> BuiltTxShape {
     let mut witnesses: Vec<_> = built.tx.witnesses().into_iter().collect();
     witnesses[1] = otx_witness.pack();
@@ -440,6 +459,28 @@ fn signing_otx_witness_with_append_output_count(append_output_cells: u32) -> Byt
         .build();
     let witness = WitnessLayout::from(otx);
     Bytes::copy_from_slice(witness.as_slice())
+}
+
+fn signing_otx_witness_with_message_and_seal() -> (Bytes, Otx) {
+    let message = CobuildMessageBuilder::new()
+        .input_lock_action([9; 32])
+        .action_data(vec![1, 2, 3])
+        .build();
+    let seal = seal_pair([7; 32], 0x42, vec![0xaa, 0xbb, 0xcc]);
+    let otx = OtxBuilder::new()
+        .message(message)
+        .append_permissions_raw(0x03)
+        .base_input_cells(1)
+        .base_input_masks_raw(vec![0x00])
+        .base_output_cells(1)
+        .base_output_masks_raw(vec![0x0f])
+        .append_output_cells(1)
+        .allow_append_outputs()
+        .seals(vec![seal])
+        .build();
+    let witness = WitnessLayout::from(otx.clone());
+
+    (Bytes::copy_from_slice(witness.as_slice()), otx)
 }
 
 #[test]
@@ -471,6 +512,55 @@ fn mutation_move_output_to_remainder_keeps_output_handle_stable() {
     );
     assert!(!built.otx_ranges[0].append_outputs.contains(&new_index));
     assert_eq!(built.otx_ranges[0].append_outputs, 1..2);
+}
+
+#[test]
+fn mutation_move_append_output_to_remainder_updates_otx_witness_count_for_signing_oracle() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_outputs: vec![signing_output(3, vec![0xcc]), signing_output(4, vec![0xdd])],
+        ..Default::default()
+    });
+    let moved_output = shape.otx_append_output(otx, 0);
+    let mut built = shape.build();
+
+    built.apply_shape_mutation(TxShapeMutation::MoveOutputToRemainder {
+        output: moved_output,
+    });
+
+    assert_eq!(
+        molecule_u32(otx_witness(&built, otx).append_output_cells()),
+        1
+    );
+    let oracle = TestSigningHashOracle;
+    let actual_hash = oracle.otx_append(&built, otx, [3; 32]);
+    let expected = signing_replace_otx_witness(
+        built.clone(),
+        signing_otx_witness_with_append_output_count(1),
+    );
+    assert_eq!(actual_hash, oracle.otx_append(&expected, otx, [3; 32]));
+}
+
+#[test]
+fn mutation_move_base_output_to_remainder_updates_otx_witness_count_and_mask() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_outputs: vec![signing_output(2, vec![0xbb]), signing_output(3, vec![0xcc])],
+        ..Default::default()
+    });
+    let moved_output = shape.otx_base_output(otx, 0);
+    let mut built = shape.build();
+
+    built.apply_shape_mutation(TxShapeMutation::MoveOutputToRemainder {
+        output: moved_output,
+    });
+
+    let mutated = otx_witness(&built, otx);
+    assert_eq!(molecule_u32(mutated.base_output_cells()), 1);
+    assert_eq!(mutated.base_output_masks().raw_data().as_ref(), &[0x0f]);
+    TestSigningHashOracle.otx_base(&built, otx);
 }
 
 #[test]
@@ -568,6 +658,32 @@ fn mutation_otx_raw_permission_changes_witness_bytes_and_signing_hash() {
 }
 
 #[test]
+fn mutation_otx_raw_permission_preserves_existing_message_and_seals() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_outputs: vec![signing_output(2, vec![0xbb])],
+        append_outputs: vec![signing_output(3, vec![0xcc])],
+        ..Default::default()
+    });
+    let (witness, original_otx) = signing_otx_witness_with_message_and_seal();
+    let mut built = signing_replace_otx_witness(shape.build(), witness);
+
+    built.apply_protocol_mutation(ProtocolMutation::OtxRawPermission {
+        otx,
+        permissions: 0xf0,
+    });
+
+    let mutated = otx_witness(&built, otx);
+    assert_eq!(mutated.append_permissions().as_slice(), &[0xf0]);
+    assert_eq!(
+        mutated.message().as_slice(),
+        original_otx.message().as_slice()
+    );
+    assert_eq!(mutated.seals().as_slice(), original_otx.seals().as_slice());
+}
+
+#[test]
 fn mutation_otx_raw_base_input_masks_changes_witness_bytes_and_signing_hash() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
@@ -587,6 +703,32 @@ fn mutation_otx_raw_base_input_masks_changes_witness_bytes_and_signing_hash() {
 
     assert_ne!(witness_bytes(&built, otx_witness), before_witness);
     assert_hash_changed(before_hash, oracle.otx_base(&built, otx));
+}
+
+#[test]
+fn mutation_otx_raw_base_input_masks_preserves_existing_message_and_seals() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_outputs: vec![signing_output(2, vec![0xbb])],
+        append_outputs: vec![signing_output(3, vec![0xcc])],
+        ..Default::default()
+    });
+    let (witness, original_otx) = signing_otx_witness_with_message_and_seal();
+    let mut built = signing_replace_otx_witness(shape.build(), witness);
+
+    built.apply_protocol_mutation(ProtocolMutation::OtxRawBaseInputMasks {
+        otx,
+        masks: vec![0xff],
+    });
+
+    let mutated = otx_witness(&built, otx);
+    assert_eq!(mutated.base_input_masks().raw_data().as_ref(), &[0xff]);
+    assert_eq!(
+        mutated.message().as_slice(),
+        original_otx.message().as_slice()
+    );
+    assert_eq!(mutated.seals().as_slice(), original_otx.seals().as_slice());
 }
 
 #[test]
