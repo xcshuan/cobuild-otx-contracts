@@ -459,6 +459,14 @@ fn total_otx_inputs(otxs: &[TrackedOtxSegment]) -> usize {
 }
 
 impl BuiltTxShape {
+    pub fn otx_start_witness(&self) -> WitnessHandle {
+        assert!(
+            self.otx_witness_start > 0,
+            "transaction shape has no OTX start witness"
+        );
+        WitnessHandle::from_raw(self.otx_witness_start - 1)
+    }
+
     pub fn otx_witness(&self, otx: OtxHandle) -> WitnessHandle {
         WitnessHandle::from_raw(self.otx_witness_start + otx.0)
     }

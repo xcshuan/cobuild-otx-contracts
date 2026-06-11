@@ -119,6 +119,7 @@ impl LimitOrderHappyPath {
 }
 
 pub struct BuiltLimitOrderCase {
+    pub name: String,
     pub fixture: CobuildTestFixture,
     pub built: BuiltTxShape,
     pub expected: LimitOrderExpectedOutcome,
@@ -128,5 +129,28 @@ pub struct BuiltLimitOrderCase {
 impl BuiltLimitOrderCase {
     pub fn assert_expected(&self) {
         self.expected.assert(&self.fixture, &self.built);
+    }
+
+    pub fn assert_expected_with_context(&self) {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.assert_expected();
+        }));
+        if let Err(payload) = result {
+            std::panic::resume_unwind(Box::new(format!(
+                "limit order case `{}` failed: {}",
+                self.name,
+                panic_message(payload)
+            )));
+        }
+    }
+}
+
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else if let Some(message) = payload.downcast_ref::<&'static str>() {
+        (*message).to_owned()
+    } else {
+        "non-string panic payload".to_owned()
     }
 }

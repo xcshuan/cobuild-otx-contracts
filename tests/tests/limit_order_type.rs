@@ -8,13 +8,17 @@ fn assert_no_expected_failure_dump(before: usize) {
 
 #[test]
 fn limit_order_type_script_cases_match_expected_outcomes() {
-    for case in type_script_cases() {
+    let cases = type_script_cases();
+    assert_eq!(cases.len(), 27, "limit order type case coverage count");
+
+    for case in cases {
         let before = failed_txs_count();
 
-        case.assert_expected();
+        case.assert_expected_with_context();
         assert!(
             !case.coverage.is_empty(),
-            "limit order type case must declare coverage"
+            "limit order type case {} must declare coverage",
+            case.name
         );
 
         if !case.expected.is_pass() {

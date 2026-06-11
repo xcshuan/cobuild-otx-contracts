@@ -1017,6 +1017,42 @@ fn mutation_otx_start_raw_replaces_start_witness_bytes() {
 }
 
 #[test]
+fn mutation_otx_start_raw_uses_start_handle_after_tx_level_witness() {
+    let mut shape = TxShape::new();
+    shape.tx_level_message(
+        CobuildMessageBuilder::new()
+            .input_lock_action([1; 32])
+            .action_data(vec![1])
+            .build(),
+    );
+    shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        ..Default::default()
+    });
+    let mut built = shape.build();
+    let tx_level_witness = WitnessHandle::from_raw(0);
+    let tx_level_before = witness_bytes(&built, tx_level_witness);
+    let start_witness = built.otx_start_witness();
+    let replacement = OtxStartSpec {
+        start_input_cell: 9,
+        start_output_cell: 8,
+        start_cell_deps: 7,
+        start_header_deps: 6,
+    }
+    .encode();
+
+    built.apply_protocol_mutation(ProtocolMutation::OtxStartRaw(OtxStartSpec {
+        start_input_cell: 9,
+        start_output_cell: 8,
+        start_cell_deps: 7,
+        start_header_deps: 6,
+    }));
+
+    assert_eq!(witness_bytes(&built, tx_level_witness), tx_level_before);
+    assert_eq!(witness_bytes(&built, start_witness), replacement);
+}
+
+#[test]
 fn mutation_duplicate_sighash_all_inserts_two_sighash_witnesses() {
     let mut shape = TxShape::new();
     shape.push_otx(OtxSegment {

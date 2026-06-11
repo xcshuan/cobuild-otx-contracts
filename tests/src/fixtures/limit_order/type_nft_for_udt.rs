@@ -212,6 +212,7 @@ fn legacy_settlement_case(case: LegacySettlementCase) -> BuiltLimitOrderCase {
     replace_otx_message(&mut built, otx, message);
 
     built_case(
+        format!("legacy_settlement::{case:?}"),
         fixture,
         built,
         input_type_error(order, LimitOrderTypeError::InvalidPayment),
@@ -422,7 +423,13 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
         _ => input_type_error(order, LimitOrderTypeError::InvalidPayment),
     };
 
-    built_case(fixture, built, expected, fill_coverage(scenario))
+    built_case(
+        format!("fill::{scenario:?}"),
+        fixture,
+        built,
+        expected,
+        fill_coverage(scenario),
+    )
 }
 
 fn two_type_orders_case(case: FillActionCase) -> BuiltLimitOrderCase {
@@ -567,6 +574,7 @@ fn two_type_orders_case(case: FillActionCase) -> BuiltLimitOrderCase {
     replace_otx_message(&mut built, otx, message);
 
     built_case(
+        format!("two_type_orders::{case:?}"),
         fixture,
         built,
         if case == FillActionCase::TwoTypeOrdersReusePaymentOutput {
@@ -720,7 +728,13 @@ fn create_order_case(case: CreateOrderCase) -> BuiltLimitOrderCase {
         _ => output_type_error(order_output_handle, LimitOrderTypeError::InvalidAction),
     };
 
-    built_case(fixture, built, expected, create_coverage(case))
+    built_case(
+        format!("create::{case:?}"),
+        fixture,
+        built,
+        expected,
+        create_coverage(case),
+    )
 }
 
 fn limit_order_input(
@@ -838,12 +852,14 @@ fn output_type_error(
 }
 
 fn built_case(
+    name: impl Into<String>,
     fixture: CobuildTestFixture,
     built: BuiltTxShape,
     expected: LimitOrderExpectedOutcome,
     coverage: CoverageTag,
 ) -> BuiltLimitOrderCase {
     BuiltLimitOrderCase {
+        name: name.into(),
         fixture,
         built,
         expected,

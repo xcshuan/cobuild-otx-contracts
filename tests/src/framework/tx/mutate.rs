@@ -66,7 +66,7 @@ impl BuiltTxShape {
     pub fn apply_protocol_mutation(&mut self, mutation: ProtocolMutation) {
         match mutation {
             ProtocolMutation::OtxStartRaw(spec) => {
-                self.replace_witness_bytes(WitnessHandle::from_raw(0), spec.encode());
+                self.replace_witness_bytes(self.otx_start_witness(), spec.encode());
             }
             ProtocolMutation::OtxRawPermission { otx, permissions } => {
                 let updated = self
@@ -99,10 +99,16 @@ impl BuiltTxShape {
                 let witness = WitnessLayout::from(
                     SighashAllOnly::new_builder().seal(Vec::<u8>::new()).build(),
                 );
-                self.insert_witness_bytes(1, Bytes::copy_from_slice(witness.as_slice()));
+                let first_otx_index = self.witnesses.tx_index(self.first_otx_witness());
+                self.insert_witness_bytes(
+                    first_otx_index,
+                    Bytes::copy_from_slice(witness.as_slice()),
+                );
             }
             ProtocolMutation::OtxBeforeOtxStart => {
-                self.swap_witnesses(0, 1);
+                let start_index = self.witnesses.tx_index(self.otx_start_witness());
+                let first_otx_index = self.witnesses.tx_index(self.first_otx_witness());
+                self.swap_witnesses(start_index, first_otx_index);
             }
             ProtocolMutation::SealScopeRaw {
                 otx,
@@ -343,6 +349,15 @@ impl BuiltTxShape {
             WitnessLayoutUnion::Otx(otx) => otx,
             other => panic!("expected OTX witness, got {}", other.item_name()),
         }
+    }
+
+    fn first_otx_witness(&self) -> WitnessHandle {
+        let first = self
+            .otx_ranges
+            .first()
+            .expect("protocol mutation requires at least one OTX")
+            .otx;
+        self.otx_witness(first)
     }
 
     fn otx_witness_updates_for_moved_output(&self, old_index: usize) -> Vec<(OtxHandle, Otx)> {
