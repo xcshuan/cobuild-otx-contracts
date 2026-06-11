@@ -826,4 +826,50 @@ mod tests {
             TypeActionOtxScope::TargetOnly
         );
     }
+
+    #[test]
+    fn otx_scope_is_in_scope_for_each_type_relation_presence() {
+        for relation in [
+            type_relation(true, false, false, false, false),
+            type_relation(false, true, false, false, false),
+            type_relation(false, false, true, false, false),
+            type_relation(false, false, true, true, false),
+            type_relation(false, false, false, false, true),
+        ] {
+            assert_eq!(
+                type_action_otx_scope(relation),
+                TypeActionOtxScope::InOtxScope(relation)
+            );
+        }
+    }
+
+    #[test]
+    fn otx_scope_preserves_uncovered_base_output_relation() {
+        let relation = type_relation(false, false, true, false, false);
+
+        assert_eq!(
+            type_action_otx_scope(relation),
+            TypeActionOtxScope::InOtxScope(relation)
+        );
+        assert_eq!(
+            type_action_otx_scope(relation).in_otx_scope(),
+            Some(relation)
+        );
+    }
+
+    fn type_relation(
+        input_type_in_base: bool,
+        input_type_in_append: bool,
+        output_type_in_base: bool,
+        output_type_in_base_covered: bool,
+        output_type_in_append: bool,
+    ) -> crate::plan::OtxTypeRelation {
+        crate::plan::OtxTypeRelation {
+            input_type_in_base,
+            input_type_in_append,
+            output_type_in_base,
+            output_type_in_base_covered,
+            output_type_in_append,
+        }
+    }
 }

@@ -514,6 +514,127 @@ mod tests {
             .is_ok());
     }
 
+    #[test]
+    fn type_relation_tracks_base_append_inputs_and_outputs() {
+        let type_hash = hash(1);
+        let context = context_with_scripts(
+            CurrentScript::Type(type_hash),
+            alloc::vec![hash(9), hash(9), hash(9)],
+            alloc::vec![Some(type_hash), Some(type_hash), None],
+            alloc::vec![Some(type_hash), Some(type_hash), None],
+        );
+        let otx = otx_entry_for_type_relation(
+            range(0, 1),
+            range(1, 1),
+            range(0, 1),
+            range(1, 1),
+            &[0b0000_0100],
+        );
+
+        let relation = context.type_relation_for_otx(&otx).unwrap();
+
+        assert!(relation.input_type_in_base);
+        assert!(relation.input_type_in_append);
+        assert!(relation.output_type_in_base);
+        assert!(relation.output_type_in_base_covered);
+        assert!(relation.output_type_in_append);
+    }
+
+    #[test]
+    fn type_relation_reports_uncovered_base_output_type() {
+        let type_hash = hash(1);
+        let context = context_with_scripts(
+            CurrentScript::Type(type_hash),
+            alloc::vec![hash(9)],
+            alloc::vec![None],
+            alloc::vec![Some(type_hash)],
+        );
+        let otx = otx_entry_for_type_relation(
+            range(0, 1),
+            range(1, 0),
+            range(0, 1),
+            range(1, 0),
+            &[0b0000_0000],
+        );
+
+        let relation = context.type_relation_for_otx(&otx).unwrap();
+
+        assert!(!relation.input_type_in_base);
+        assert!(!relation.input_type_in_append);
+        assert!(relation.output_type_in_base);
+        assert!(!relation.output_type_in_base_covered);
+        assert!(!relation.output_type_in_append);
+    }
+
+    #[test]
+    fn type_relation_ignores_current_type_outside_otx_ranges() {
+        let type_hash = hash(1);
+        let context = context_with_scripts(
+            CurrentScript::Type(type_hash),
+            alloc::vec![hash(9), hash(9), hash(9)],
+            alloc::vec![None, None, Some(type_hash)],
+            alloc::vec![None, None, Some(type_hash)],
+        );
+        let otx = otx_entry_for_type_relation(
+            range(0, 1),
+            range(1, 1),
+            range(0, 1),
+            range(1, 1),
+            &[0b0000_0100],
+        );
+
+        let relation = context.type_relation_for_otx(&otx).unwrap();
+
+        assert!(!relation.input_type_in_base);
+        assert!(!relation.input_type_in_append);
+        assert!(!relation.output_type_in_base);
+        assert!(!relation.output_type_in_base_covered);
+        assert!(!relation.output_type_in_append);
+    }
+
+    fn otx_entry_for_type_relation(
+        base_inputs: Range,
+        append_inputs: Range,
+        base_outputs: Range,
+        append_outputs: Range,
+        base_output_masks: &[u8],
+    ) -> crate::layout::OtxLayoutEntry {
+        crate::layout::OtxLayoutEntry {
+            layout: crate::layout::OtxLayout {
+                witness_index: 0,
+                base_inputs,
+                append_inputs,
+                base_outputs,
+                append_outputs,
+                base_cell_deps: range(0, 0),
+                append_cell_deps: range(0, 0),
+                base_header_deps: range(0, 0),
+                append_header_deps: range(0, 0),
+            },
+            witness: crate::view::OtxView {
+                message: crate::reader::cursor_from_slice(&empty_message()),
+                append_permissions: 0,
+                base_input_cells: base_inputs.count,
+                base_input_masks: crate::view::MaskView::new(alloc::vec![0]),
+                base_output_cells: base_outputs.count,
+                base_output_masks: crate::view::MaskView::new(base_output_masks.to_vec()),
+                base_cell_deps: 0,
+                base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
+                base_header_deps: 0,
+                base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
+                append_input_cells: append_inputs.count,
+                append_output_cells: append_outputs.count,
+                append_cell_deps: 0,
+                append_header_deps: 0,
+                seals: Vec::new(),
+            },
+        }
+    }
+
+    fn empty_message() -> Vec<u8> {
+        table_bytes(&[dynvec_bytes(&[])])
+    }
+
     fn context_with_scripts(
         current_script: CurrentScript,
         input_locks: Vec<[u8; 32]>,

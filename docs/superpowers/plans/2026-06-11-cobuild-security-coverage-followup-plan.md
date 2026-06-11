@@ -173,7 +173,7 @@ git commit -m "test: cover cobuild lock e2e errors"
 - Modify: `tests/tests/limit_order_type.rs`
 - Modify: `tests/tests/limit_order_lock.rs`
 
-- [ ] Cover `output_type_in_base_covered = false`.
-- [ ] Cover type base/append/target-only relation matrix.
+- [x] Cover `output_type_in_base_covered = false`.
+- [x] Cover type base/append/target-only relation matrix.
 - [ ] Extend tx-level plus OTX action coexistence cases.
 - [ ] Add coverage tag/checklist manifest if the fixture tag model is stable enough.
