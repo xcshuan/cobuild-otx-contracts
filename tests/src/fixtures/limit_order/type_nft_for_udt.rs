@@ -23,7 +23,7 @@ use crate::framework::{
 
 use super::{
     LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, NFT_TYPE_ARGS,
-    fill_order_action_data_by_index, order_data,
+    actions::fill_order_action_data_by_index, order_data,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

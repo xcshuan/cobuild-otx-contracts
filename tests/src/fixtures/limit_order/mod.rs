@@ -46,8 +46,6 @@ use super::common::contracts::{deploy_always_success, deploy_limit_order_type};
 
 pub use crate::framework::assertions::failed_txs_count;
 
-pub(crate) use actions::fill_order_action_data_by_index;
-
 const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
 const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
 pub(crate) const NFT_TYPE_ARGS: [u8; 32] = [5; 32];
@@ -97,7 +95,7 @@ pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, Transact
     (fixture, tx)
 }
 
-pub trait LimitOrderCobuildMessageExt {
+pub(crate) trait LimitOrderCobuildMessageExt {
     fn limit_order_create(self, order: LimitOrderState) -> Self;
     fn limit_order_fill(self, payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Self;
 }
@@ -108,7 +106,7 @@ impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
     }
 
     fn limit_order_fill(self, payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Self {
-        self.action_data(fill_order_action_data_by_index(
+        self.action_data(actions::fill_order_action_data_by_index(
             payment_output_index,
             buyer_lock_hash,
         ))

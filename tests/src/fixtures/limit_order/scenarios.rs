@@ -1,11 +1,22 @@
 use crate::framework::{fixture::CobuildTestFixture, tx::BuiltTxShape};
 
-use super::LimitOrderExpectedOutcome;
+use super::{BusinessMutation, LimitOrderExpectedOutcome};
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LimitOrderHappyPath {
+    TypeNftForUdt,
+    LockNftForUdt,
+    MixedTypeAndLock,
+    CreateTypeOrder,
+    TwoTypeOrders,
+    TwoLockOrders,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FlowKind {
-    Create,
-    Fill,
+    TxLevel,
+    OtxOnly,
+    TxLevelAndOtx,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -17,64 +28,93 @@ pub enum ScriptRoleKind {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OtxScopeKind {
-    Current,
-    AnotherOtx,
+    BaseInput,
+    AppendInput,
+    BaseOutput,
+    AppendOutput,
     Remainder,
-    TxLevel,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ActionSourceKind {
-    Otx,
     TxLevel,
+    Otx,
+    Absent,
+    WrongTarget,
+    Duplicate,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum CoverageTag {
-    Flow(FlowKind),
-    ScriptRole(ScriptRoleKind),
-    OtxScope(OtxScopeKind),
-    ActionSource(ActionSourceKind),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct LimitOrderHappyPath {
+pub struct CoverageTag {
     pub flow: FlowKind,
     pub script_role: ScriptRoleKind,
+    pub otx_scope: OtxScopeKind,
     pub action_source: ActionSourceKind,
+    pub mutation: Option<BusinessMutation>,
+}
+
+impl CoverageTag {
+    pub fn new(
+        flow: FlowKind,
+        script_role: ScriptRoleKind,
+        otx_scope: OtxScopeKind,
+        action_source: ActionSourceKind,
+    ) -> Self {
+        Self {
+            flow,
+            script_role,
+            otx_scope,
+            action_source,
+            mutation: None,
+        }
+    }
+
+    pub fn with_mutation(mut self, mutation: BusinessMutation) -> Self {
+        self.mutation = Some(mutation);
+        self
+    }
 }
 
 impl LimitOrderHappyPath {
-    pub fn fill_type_otx() -> Self {
-        Self {
-            flow: FlowKind::Fill,
-            script_role: ScriptRoleKind::InputType,
-            action_source: ActionSourceKind::Otx,
+    pub fn default_coverage(self) -> CoverageTag {
+        match self {
+            Self::TypeNftForUdt => CoverageTag::new(
+                FlowKind::OtxOnly,
+                ScriptRoleKind::InputType,
+                OtxScopeKind::BaseInput,
+                ActionSourceKind::Otx,
+            ),
+            Self::LockNftForUdt => CoverageTag::new(
+                FlowKind::OtxOnly,
+                ScriptRoleKind::InputLock,
+                OtxScopeKind::BaseInput,
+                ActionSourceKind::Otx,
+            ),
+            Self::MixedTypeAndLock => CoverageTag::new(
+                FlowKind::OtxOnly,
+                ScriptRoleKind::InputLock,
+                OtxScopeKind::BaseInput,
+                ActionSourceKind::Duplicate,
+            ),
+            Self::CreateTypeOrder => CoverageTag::new(
+                FlowKind::TxLevel,
+                ScriptRoleKind::OutputType,
+                OtxScopeKind::Remainder,
+                ActionSourceKind::TxLevel,
+            ),
+            Self::TwoTypeOrders => CoverageTag::new(
+                FlowKind::OtxOnly,
+                ScriptRoleKind::InputType,
+                OtxScopeKind::BaseInput,
+                ActionSourceKind::Duplicate,
+            ),
+            Self::TwoLockOrders => CoverageTag::new(
+                FlowKind::OtxOnly,
+                ScriptRoleKind::InputLock,
+                OtxScopeKind::BaseInput,
+                ActionSourceKind::Duplicate,
+            ),
         }
-    }
-
-    pub fn fill_lock_otx() -> Self {
-        Self {
-            flow: FlowKind::Fill,
-            script_role: ScriptRoleKind::InputLock,
-            action_source: ActionSourceKind::Otx,
-        }
-    }
-
-    pub fn create_type_tx_level() -> Self {
-        Self {
-            flow: FlowKind::Create,
-            script_role: ScriptRoleKind::OutputType,
-            action_source: ActionSourceKind::TxLevel,
-        }
-    }
-
-    pub fn coverage(&self) -> Vec<CoverageTag> {
-        vec![
-            CoverageTag::Flow(self.flow),
-            CoverageTag::ScriptRole(self.script_role),
-            CoverageTag::ActionSource(self.action_source),
-        ]
     }
 }
 

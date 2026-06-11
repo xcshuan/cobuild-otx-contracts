@@ -18,7 +18,7 @@ use crate::framework::{
     scripts::script_hash,
 };
 
-use super::{LimitOrderFixtureExt, NFT_TYPE_ARGS, fill_order_action_data_by_index};
+use super::{LimitOrderFixtureExt, NFT_TYPE_ARGS, actions::fill_order_action_data_by_index};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LimitOrderLockFillCase {

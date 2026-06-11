@@ -1,7 +1,9 @@
 use crate::{
     TestEnv, default_test_env,
     fixtures::limit_order::{
-        LimitOrderAction, LimitOrderLockError, LimitOrderTypeError, encode_action,
+        ActionSourceKind, BusinessMutation, FlowKind, LimitOrderAction, LimitOrderHappyPath,
+        LimitOrderLockError, LimitOrderState, LimitOrderTypeError, OtxScopeKind, ScriptRoleKind,
+        encode_action, order_data,
     },
     framework::{
         assertions,
@@ -495,6 +497,31 @@ fn limit_order_fill_action_encodes_payment_output_handle_tx_index() {
 }
 
 #[test]
+fn limit_order_create_action_encodes_order_state() {
+    let built = TxShape::new().build();
+    let order = LimitOrderState {
+        owner_lock_hash: [1; 32],
+        offered_nft_type_hash: [2; 32],
+        requested_asset_id: [3; 32],
+        requested_amount: 30,
+    };
+
+    let encoded = encode_action(&LimitOrderAction::Create { order }, &built);
+
+    assert_eq!(encoded[0], 1);
+    assert_eq!(&encoded[1..], order_data(order).as_ref());
+}
+
+#[test]
+fn limit_order_unknown_action_uses_unknown_tag() {
+    let built = TxShape::new().build();
+    let encoded = encode_action(&LimitOrderAction::UnknownTag, &built);
+
+    assert_ne!(encoded[0], 1);
+    assert_ne!(encoded[0], 2);
+}
+
+#[test]
 fn limit_order_duplicate_payment_is_expressed_by_reusing_the_same_output_handle() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
@@ -584,6 +611,19 @@ fn limit_order_error_mappings_match_contract_exit_codes() {
     assert_eq!(LimitOrderLockError::WrongNftType.code(), 8);
     assert_eq!(LimitOrderLockError::InvalidPayment.code(), 10);
     assert_eq!(LimitOrderLockError::InvalidAction.code(), 12);
+}
+
+#[test]
+fn limit_order_happy_path_coverage_has_full_tag_shape() {
+    let tag = LimitOrderHappyPath::TwoTypeOrders
+        .default_coverage()
+        .with_mutation(BusinessMutation::ReusePaymentOutput);
+
+    assert_eq!(tag.flow, FlowKind::OtxOnly);
+    assert_eq!(tag.script_role, ScriptRoleKind::InputType);
+    assert_eq!(tag.otx_scope, OtxScopeKind::BaseInput);
+    assert_eq!(tag.action_source, ActionSourceKind::Duplicate);
+    assert_eq!(tag.mutation, Some(BusinessMutation::ReusePaymentOutput));
 }
 
 fn signing_cell_dep(tag: u8) -> CellDep {
