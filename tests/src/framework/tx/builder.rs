@@ -170,6 +170,14 @@ impl TxShape {
         self.otx(otx).append_input_handles[local_index]
     }
 
+    pub fn otx_append_cell_dep(&self, otx: OtxHandle, local_index: usize) -> CellDepHandle {
+        self.otx(otx).append_cell_dep_handles[local_index]
+    }
+
+    pub fn otx_append_header_dep(&self, otx: OtxHandle, local_index: usize) -> HeaderDepHandle {
+        self.otx(otx).append_header_dep_handles[local_index]
+    }
+
     pub fn build(self) -> BuiltTxShape {
         let mut builder = TransactionBuilder::default();
         let mut inputs = EntityIndexMap::default();

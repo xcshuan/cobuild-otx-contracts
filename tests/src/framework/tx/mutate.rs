@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use ckb_testtool::ckb_types::{bytes::Bytes, prelude::*};
+use ckb_testtool::ckb_types::{bytes::Bytes, packed::CellDep, prelude::*};
 use cobuild_types::entity::{
     core::{Otx, SealPair, SealPairVec, SighashAll, SighashAllOnly},
     witness::{WitnessLayout, WitnessLayoutUnion},
@@ -11,7 +11,10 @@ use crate::framework::{
     cobuild::{OtxStartSpec, empty_message},
 };
 
-use super::{BuiltTxShape, InputHandle, OtxHandle, OutputHandle, WitnessHandle};
+use super::{
+    BuiltTxShape, CellDepHandle, HeaderDepHandle, InputHandle, OtxHandle, OutputHandle,
+    WitnessHandle,
+};
 
 #[derive(Clone, Debug)]
 pub enum ProtocolMutation {
@@ -51,9 +54,21 @@ pub enum TxShapeMutation {
         output: OutputHandle,
         replacement: TestCellOutput,
     },
+    SwapOutputs {
+        left: OutputHandle,
+        right: OutputHandle,
+    },
     ReplaceWitness {
         witness: WitnessHandle,
         replacement: Bytes,
+    },
+    ReplaceCellDep {
+        cell_dep: CellDepHandle,
+        replacement: CellDep,
+    },
+    ReplaceHeaderDep {
+        header_dep: HeaderDepHandle,
+        replacement: [u8; 32],
     },
     AppendRemainderOutput {
         output: TestCellOutput,
@@ -159,11 +174,29 @@ impl BuiltTxShape {
                 self.replace_output(output, replacement);
                 None
             }
+            TxShapeMutation::SwapOutputs { left, right } => {
+                self.swap_outputs(left, right);
+                None
+            }
             TxShapeMutation::ReplaceWitness {
                 witness,
                 replacement,
             } => {
                 self.replace_witness_bytes(witness, replacement);
+                None
+            }
+            TxShapeMutation::ReplaceCellDep {
+                cell_dep,
+                replacement,
+            } => {
+                self.replace_cell_dep(cell_dep, replacement);
+                None
+            }
+            TxShapeMutation::ReplaceHeaderDep {
+                header_dep,
+                replacement,
+            } => {
+                self.replace_header_dep(header_dep, replacement);
                 None
             }
             TxShapeMutation::AppendRemainderOutput { output } => {
@@ -207,6 +240,34 @@ impl BuiltTxShape {
             .build();
     }
 
+    fn swap_outputs(&mut self, left: OutputHandle, right: OutputHandle) {
+        let left_index = self.outputs.tx_index(left);
+        let right_index = self.outputs.tx_index(right);
+        let mut outputs: Vec<_> = self.tx.outputs().into_iter().collect();
+        let mut outputs_data: Vec<_> = self.tx.outputs_data().into_iter().collect();
+        assert!(
+            left_index < outputs.len() && right_index < outputs.len(),
+            "output handle points outside transaction outputs"
+        );
+        outputs.swap(left_index, right_index);
+        outputs_data.swap(left_index, right_index);
+        self.outputs.remap_tx_indexes(|tx_index| {
+            if tx_index == left_index {
+                right_index
+            } else if tx_index == right_index {
+                left_index
+            } else {
+                tx_index
+            }
+        });
+        self.tx = self
+            .tx
+            .as_advanced_builder()
+            .set_outputs(outputs)
+            .set_outputs_data(outputs_data)
+            .build();
+    }
+
     fn replace_witness_bytes(&mut self, witness: WitnessHandle, replacement: Bytes) {
         let tx_index = self.witnesses.tx_index(witness);
         let mut witnesses: Vec<_> = self.tx.witnesses().into_iter().collect();
@@ -218,6 +279,34 @@ impl BuiltTxShape {
             .tx
             .as_advanced_builder()
             .set_witnesses(witnesses)
+            .build();
+    }
+
+    fn replace_cell_dep(&mut self, cell_dep: CellDepHandle, replacement: CellDep) {
+        let tx_index = self.cell_deps.tx_index(cell_dep);
+        let mut cell_deps: Vec<_> = self.tx.cell_deps().into_iter().collect();
+        let slot = cell_deps
+            .get_mut(tx_index)
+            .expect("cell dep handle points outside transaction cell deps");
+        *slot = replacement;
+        self.tx = self
+            .tx
+            .as_advanced_builder()
+            .set_cell_deps(cell_deps)
+            .build();
+    }
+
+    fn replace_header_dep(&mut self, header_dep: HeaderDepHandle, replacement: [u8; 32]) {
+        let tx_index = self.header_deps.tx_index(header_dep);
+        let mut header_deps: Vec<_> = self.tx.header_deps().into_iter().collect();
+        let slot = header_deps
+            .get_mut(tx_index)
+            .expect("header dep handle points outside transaction header deps");
+        *slot = replacement.pack();
+        self.tx = self
+            .tx
+            .as_advanced_builder()
+            .set_header_deps(header_deps)
             .build();
     }
 

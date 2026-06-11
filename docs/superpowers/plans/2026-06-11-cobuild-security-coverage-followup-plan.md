@@ -161,9 +161,9 @@ git commit -m "test: cover cobuild lock e2e errors"
 - Optionally modify: `tests/src/framework/tx/mutate.rs`
 - Optionally modify: `tests/src/fixtures/cobuild_otx_lock/cases.rs`
 
-- [ ] Add hash-change tests for base previous output and append input/output/cell_dep/header_dep mutation.
-- [ ] Add entity reorder/local-index signature reuse regression if current mutation API can express it narrowly.
-- [ ] Add one lock E2E representative for old append seal rejection after signed append mutation.
+- [x] Add hash-change tests for base previous output and append input/output/cell_dep/header_dep mutation.
+- [x] Add entity reorder/local-index signature reuse regression if current mutation API can express it narrowly.
+- [x] Add one lock E2E representative for old append seal rejection after signed append mutation.
 
 ## Task 4: P2 Type Plan And Business Matrix
 
