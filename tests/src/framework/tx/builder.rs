@@ -26,6 +26,7 @@ use super::{
 
 #[derive(Clone, Debug, Default)]
 pub struct OtxSegment {
+    pub message: Option<CobuildMessage>,
     pub base_inputs: Vec<ResolvedInputFacts>,
     pub append_inputs: Vec<ResolvedInputFacts>,
     pub base_outputs: Vec<TestCellOutput>,
@@ -386,6 +387,9 @@ impl TxShape {
             }
             if let Some(masks) = &otx.segment.base_header_dep_masks {
                 builder_for_otx = builder_for_otx.base_header_dep_masks_raw(masks.clone());
+            }
+            if let Some(message) = &otx.segment.message {
+                builder_for_otx = builder_for_otx.message(message.clone());
             }
             builder_for_otx = builder_for_otx.seals(otx.segment.seals.clone());
 
