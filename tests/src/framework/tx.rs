@@ -47,7 +47,7 @@ mod tests {
         witness::{WitnessLayout, WitnessLayoutUnion},
     };
 
-    use super::{BuiltTxShape, OtxSegment, TxShape, WitnessHandle};
+    use super::{BuiltTxShape, OtxSegment, TxShape};
     use crate::framework::cells::{ResolvedInputFacts, TestCellOutput, normal_output};
 
     fn empty_script() -> Script {
@@ -92,7 +92,7 @@ mod tests {
             .tx
             .witnesses()
             .into_iter()
-            .nth(built.witnesses.tx_index(WitnessHandle::from_raw(0)))
+            .nth(built.witnesses.tx_index(built.otx_start_witness()))
             .expect("OTX start witness")
             .raw_data();
         match WitnessLayout::from_slice(witness.as_ref())
