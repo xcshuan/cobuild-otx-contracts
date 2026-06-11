@@ -85,6 +85,18 @@ impl CurrentScriptContext {
         }
     }
 
+    #[cfg(test)]
+    pub(crate) fn input_lock_for_tests(
+        current_lock_hash: [u8; 32],
+        input_locks: Vec<[u8; 32]>,
+    ) -> Self {
+        let mut context = Self::from_script_for_tests(CurrentScript::InputLock(current_lock_hash));
+        for (index, lock_hash) in input_locks.into_iter().enumerate() {
+            context.push_input_lock_hash(index, lock_hash).unwrap();
+        }
+        context
+    }
+
     pub(crate) fn from_reader(
         reader: &SyscallTxReader,
         current_script: CurrentScript,

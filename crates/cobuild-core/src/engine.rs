@@ -599,6 +599,30 @@ mod tests {
         }
     }
 
+    fn lock_context_with_input_range(
+        current_lock_hash: [u8; 32],
+        input_locks: Vec<[u8; 32]>,
+        input_range: crate::layout::Range,
+    ) -> CobuildContext {
+        CobuildContext {
+            tx: crate::syscalls::SyscallTxReader::from_cached_parts_for_tests(
+                crate::syscalls::TxCounts::default(),
+                crate::reader::cursor_from_slice(&empty_transaction()),
+                [0u8; 32],
+            ),
+            script_context: crate::context::CurrentScriptContext::input_lock_for_tests(
+                current_lock_hash,
+                input_locks,
+            ),
+            witnesses: crate::witness::WitnessScan::with_capacity(0),
+            otx_layouts: crate::layout::OtxLayouts::Complete(crate::layout::BuiltLayout {
+                input_range,
+                output_range: crate::layout::Range { start: 0, count: 0 },
+                otx_entries: Vec::new(),
+            }),
+        }
+    }
+
     fn test_context_without_otx_layouts() -> CobuildContext {
         CobuildContext {
             tx: crate::syscalls::SyscallTxReader::from_cached_parts_for_tests(
@@ -855,6 +879,55 @@ mod tests {
             type_action_otx_scope(relation).in_otx_scope(),
             Some(relation)
         );
+    }
+
+    #[test]
+    fn missing_lock_group_coverage_is_reachable_after_otx_signature_planning() {
+        let lock_hash = [0x44; 32];
+        let context = lock_context_with_input_range(
+            lock_hash,
+            vec![lock_hash, [0x55; 32], lock_hash],
+            crate::layout::Range { start: 0, count: 2 },
+        );
+        let builder = LockPlanBuilder {
+            context: &context,
+            lock_script_hash: lock_hash,
+            required_signatures: vec![SigningRequirement {
+                origin: SignatureOrigin::OtxBase,
+                carrier_witness_index: 0,
+                seal: Vec::new(),
+                signing_message_hash: [0u8; 32],
+            }],
+            related_actions: Vec::new(),
+        };
+
+        assert_eq!(
+            builder.ensure_otx_lock_group_coverage(),
+            Err(CoreError::MissingLockGroupCoverage)
+        );
+    }
+
+    #[test]
+    fn other_lock_inputs_outside_otx_range_do_not_require_current_tx_level_coverage() {
+        let lock_hash = [0x44; 32];
+        let context = lock_context_with_input_range(
+            lock_hash,
+            vec![lock_hash, [0x55; 32], [0x55; 32]],
+            crate::layout::Range { start: 0, count: 1 },
+        );
+        let builder = LockPlanBuilder {
+            context: &context,
+            lock_script_hash: lock_hash,
+            required_signatures: vec![SigningRequirement {
+                origin: SignatureOrigin::OtxBase,
+                carrier_witness_index: 0,
+                seal: Vec::new(),
+                signing_message_hash: [0u8; 32],
+            }],
+            related_actions: Vec::new(),
+        };
+
+        assert_eq!(builder.ensure_otx_lock_group_coverage(), Ok(()));
     }
 
     fn type_relation(

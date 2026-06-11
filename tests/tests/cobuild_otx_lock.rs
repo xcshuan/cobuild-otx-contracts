@@ -5,7 +5,15 @@ use tests::{
 
 #[test]
 fn cobuild_otx_lock_cases_match_expected_outcomes() {
-    for case in cases() {
+    let cases = cases();
+    assert_eq!(cases.len(), 22, "cobuild otx lock case coverage count");
+    assert!(
+        cases.iter().any(|case| case.name
+            == "contract_accepts_other_lock_outside_otx_without_tx_level_signature"),
+        "cobuild otx lock coverage must include unrelated outside lock inputs"
+    );
+
+    for case in cases {
         case.expected.assert(&case.fixture, &case.built);
     }
 }
