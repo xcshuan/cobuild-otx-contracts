@@ -22,7 +22,8 @@ use crate::framework::{
 };
 
 use super::{
-    LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, NFT_TYPE_ARGS, order_data,
+    LimitOrderCobuildMessageExt, LimitOrderFixtureExt, LimitOrderState, NFT_TYPE_ARGS,
+    fill_order_action_data_by_index, order_data,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -657,9 +658,5 @@ fn type_id_args(first_input: &CellInput, output_index: u64) -> [u8; 32] {
 }
 
 fn fill_action_data(payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Vec<u8> {
-    let mut data = Vec::with_capacity(37);
-    data.push(super::FILL_ORDER_TAG);
-    data.extend_from_slice(&payment_output_index.to_le_bytes());
-    data.extend_from_slice(&buyer_lock_hash);
-    data
+    fill_order_action_data_by_index(payment_output_index, buyer_lock_hash)
 }

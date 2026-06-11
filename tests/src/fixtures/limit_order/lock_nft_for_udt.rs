@@ -18,7 +18,7 @@ use crate::framework::{
     scripts::script_hash,
 };
 
-use super::{FILL_ORDER_TAG, LimitOrderFixtureExt, NFT_TYPE_ARGS};
+use super::{LimitOrderFixtureExt, NFT_TYPE_ARGS, fill_order_action_data_by_index};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LimitOrderLockFillCase {
@@ -655,11 +655,7 @@ fn action_data(
 }
 
 fn fill_action_data(payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Vec<u8> {
-    let mut data = Vec::with_capacity(37);
-    data.push(FILL_ORDER_TAG);
-    data.extend_from_slice(&payment_output_index.to_le_bytes());
-    data.extend_from_slice(&buyer_lock_hash);
-    data
+    fill_order_action_data_by_index(payment_output_index, buyer_lock_hash)
 }
 
 fn lock_args(order: LockOrder) -> Vec<u8> {

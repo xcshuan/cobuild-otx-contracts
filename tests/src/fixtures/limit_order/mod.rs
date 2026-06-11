@@ -6,18 +6,27 @@ use ckb_testtool::{
     context::Context,
 };
 
-#[cfg(not(test))]
+mod actions;
+mod errors;
 mod lock_nft_for_udt;
-#[cfg(not(test))]
+mod mutations;
+mod scenarios;
+mod state;
 mod type_nft_for_udt;
 
-#[cfg(not(test))]
+pub use actions::{LimitOrderAction, create_order_action_data, encode_action};
+pub use errors::{LimitOrderExpectedOutcome, LimitOrderLockError, LimitOrderTypeError};
 pub use lock_nft_for_udt::{
     LimitOrderLockFillCase, limit_order_lock_nft_for_udt_case,
     limit_order_lock_nft_for_udt_case_with, limit_order_lock_otx_with_sighash_all_fill_case,
     mixed_limit_order_type_lock_duplicate_payment_case,
 };
-#[cfg(not(test))]
+pub use mutations::BusinessMutation;
+pub use scenarios::{
+    ActionSourceKind, BuiltLimitOrderCase, CoverageTag, FlowKind, LimitOrderHappyPath,
+    OtxScopeKind, ScriptRoleKind,
+};
+pub use state::{LimitOrderState, order_data, settlement_data};
 pub use type_nft_for_udt::{
     CreateOrderCase, FillActionCase, NftForUdtPaymentCase, limit_order_action_failure_case,
     limit_order_create_nft_order_case, limit_order_create_nft_order_case_with,
@@ -37,46 +46,11 @@ use super::common::contracts::{deploy_always_success, deploy_limit_order_type};
 
 pub use crate::framework::assertions::failed_txs_count;
 
-pub(crate) const CREATE_ORDER_TAG: u8 = 1;
-pub(crate) const FILL_ORDER_TAG: u8 = 2;
+pub(crate) use actions::fill_order_action_data_by_index;
+
 const OFFERED_ASSET_ID: [u8; 32] = [3; 32];
 const REQUESTED_ASSET_ID: [u8; 32] = [4; 32];
-#[cfg(not(test))]
 pub(crate) const NFT_TYPE_ARGS: [u8; 32] = [5; 32];
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LimitOrderState {
-    pub owner_lock_hash: [u8; 32],
-    pub offered_nft_type_hash: [u8; 32],
-    pub requested_asset_id: [u8; 32],
-    pub requested_amount: u64,
-}
-
-pub fn order_data(order: LimitOrderState) -> Vec<u8> {
-    let mut data = Vec::with_capacity(104);
-    data.extend_from_slice(&order.owner_lock_hash);
-    data.extend_from_slice(&order.offered_nft_type_hash);
-    data.extend_from_slice(&order.requested_asset_id);
-    data.extend_from_slice(&order.requested_amount.to_le_bytes());
-    data
-}
-
-pub fn create_order_action_data(order: LimitOrderState) -> Vec<u8> {
-    let mut data = Vec::with_capacity(105);
-    data.push(CREATE_ORDER_TAG);
-    data.extend_from_slice(&order.owner_lock_hash);
-    data.extend_from_slice(&order.offered_nft_type_hash);
-    data.extend_from_slice(&order.requested_asset_id);
-    data.extend_from_slice(&order.requested_amount.to_le_bytes());
-    data
-}
-
-pub fn settlement_data(asset_id: [u8; 32], amount: u64) -> Vec<u8> {
-    let mut data = Vec::with_capacity(40);
-    data.extend_from_slice(&asset_id);
-    data.extend_from_slice(&amount.to_le_bytes());
-    data
-}
 
 pub fn limit_order_case(settlement_amount: u64) -> (CobuildTestFixture, TransactionView) {
     let mut fixture = CobuildTestFixture::new();
@@ -134,11 +108,10 @@ impl LimitOrderCobuildMessageExt for CobuildMessageBuilder {
     }
 
     fn limit_order_fill(self, payment_output_index: u32, buyer_lock_hash: [u8; 32]) -> Self {
-        let mut data = Vec::with_capacity(37);
-        data.push(FILL_ORDER_TAG);
-        data.extend_from_slice(&payment_output_index.to_le_bytes());
-        data.extend_from_slice(&buyer_lock_hash);
-        self.action_data(data)
+        self.action_data(fill_order_action_data_by_index(
+            payment_output_index,
+            buyer_lock_hash,
+        ))
     }
 }
 
