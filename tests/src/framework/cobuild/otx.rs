@@ -172,8 +172,18 @@ impl OtxBuilder {
         self
     }
 
+    pub fn uncover_base_input_since(mut self, local_input: usize) -> Self {
+        set_mask_bit(&mut self.base_input_masks, local_input * 2, false);
+        self
+    }
+
     pub fn cover_base_input_previous_output(mut self, local_input: usize) -> Self {
         set_mask_bit(&mut self.base_input_masks, local_input * 2 + 1, true);
+        self
+    }
+
+    pub fn uncover_base_input_previous_output(mut self, local_input: usize) -> Self {
+        set_mask_bit(&mut self.base_input_masks, local_input * 2 + 1, false);
         self
     }
 
@@ -182,13 +192,28 @@ impl OtxBuilder {
         self
     }
 
+    pub fn uncover_base_output_capacity(mut self, local_output: usize) -> Self {
+        set_mask_bit(&mut self.base_output_masks, local_output * 4, false);
+        self
+    }
+
     pub fn cover_base_output_lock(mut self, local_output: usize) -> Self {
         set_mask_bit(&mut self.base_output_masks, local_output * 4 + 1, true);
         self
     }
 
+    pub fn uncover_base_output_lock(mut self, local_output: usize) -> Self {
+        set_mask_bit(&mut self.base_output_masks, local_output * 4 + 1, false);
+        self
+    }
+
     pub fn cover_base_output_type(mut self, local_output: usize) -> Self {
         set_mask_bit(&mut self.base_output_masks, local_output * 4 + 2, true);
+        self
+    }
+
+    pub fn uncover_base_output_type(mut self, local_output: usize) -> Self {
+        set_mask_bit(&mut self.base_output_masks, local_output * 4 + 2, false);
         self
     }
 

@@ -96,24 +96,55 @@ fn cobuild_protocol_builders_set_append_dep_permission_bits() {
 }
 
 #[test]
-fn cobuild_protocol_builders_cover_and_uncover_output_data_mask_bit() {
+fn cobuild_protocol_builders_cover_and_uncover_input_mask_bits() {
+    let covered = crate::framework::cobuild::OtxBuilder::new()
+        .base_input_cells(1)
+        .cover_base_input_since(0)
+        .cover_base_input_previous_output(0)
+        .build_with_layout();
+    assert_eq!(
+        covered.otx.base_input_masks().raw_data().as_ref(),
+        &[0b0011]
+    );
+
+    let uncovered = crate::framework::cobuild::OtxBuilder::new()
+        .base_input_cells(1)
+        .cover_base_input_since(0)
+        .cover_base_input_previous_output(0)
+        .uncover_base_input_since(0)
+        .uncover_base_input_previous_output(0)
+        .build_with_layout();
+    assert_eq!(uncovered.otx.base_input_masks().raw_data().as_ref(), &[0]);
+}
+
+#[test]
+fn cobuild_protocol_builders_cover_and_uncover_output_mask_bits() {
+    let uncovered = crate::framework::cobuild::OtxBuilder::new()
+        .base_output_cells(1)
+        .uncover_base_output_capacity(0)
+        .uncover_base_output_lock(0)
+        .uncover_base_output_type(0)
+        .uncover_base_output_data(0)
+        .build_with_layout();
+    assert_eq!(
+        uncovered.otx.base_output_masks().raw_data().as_ref(),
+        &[0b0000]
+    );
+
     let covered = crate::framework::cobuild::OtxBuilder::new()
         .base_output_cells(1)
+        .uncover_base_output_capacity(0)
+        .uncover_base_output_lock(0)
+        .uncover_base_output_type(0)
         .uncover_base_output_data(0)
+        .cover_base_output_capacity(0)
+        .cover_base_output_lock(0)
+        .cover_base_output_type(0)
         .cover_base_output_data(0)
         .build_with_layout();
     assert_eq!(
         covered.otx.base_output_masks().raw_data().as_ref(),
         &[0b1111]
-    );
-
-    let uncovered = crate::framework::cobuild::OtxBuilder::new()
-        .base_output_cells(1)
-        .uncover_base_output_data(0)
-        .build_with_layout();
-    assert_eq!(
-        uncovered.otx.base_output_masks().raw_data().as_ref(),
-        &[0b0111]
     );
 }
 
