@@ -60,6 +60,23 @@ enum TwoLockOrdersCase {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct LockScenario {
+    happy_path: LimitOrderHappyPath,
+    mutation: Option<BusinessMutation>,
+    variant: LockFillCase,
+}
+
+impl LockScenario {
+    fn new(variant: LockFillCase) -> Self {
+        Self {
+            happy_path: LimitOrderHappyPath::LockNftForUdt,
+            mutation: lock_fill_mutation(variant),
+            variant,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct LockOrder {
     owner_lock_hash: [u8; 32],
     offered_nft_type_hash: [u8; 32],
@@ -76,37 +93,43 @@ pub fn lock_script_cases() -> Vec<BuiltLimitOrderCase> {
 
 pub fn lock_script_fill_cases() -> Vec<BuiltLimitOrderCase> {
     vec![
-        lock_nft_for_udt_case(LockFillCase::Valid),
-        lock_nft_for_udt_case(LockFillCase::SighashAll),
-        lock_nft_for_udt_case(LockFillCase::MalformedArgs),
-        lock_nft_for_udt_case(LockFillCase::WrongNftType),
-        lock_nft_for_udt_case(LockFillCase::TxLevelFillOrder),
-        lock_nft_for_udt_case(LockFillCase::WrongActionTarget),
-        lock_nft_for_udt_case(LockFillCase::OrderInputInAppendScope),
-        lock_nft_for_udt_case(LockFillCase::InsufficientUdt),
-        lock_nft_for_udt_case(LockFillCase::WrongUdt),
-        lock_nft_for_udt_case(LockFillCase::WrongOwner),
-        lock_nft_for_udt_case(LockFillCase::TxLevelRemainderOnly),
-        lock_nft_for_udt_case(LockFillCase::PaymentInAnotherOtx),
-        lock_nft_for_udt_case(LockFillCase::PaymentOutputOutOfRange),
-        lock_nft_for_udt_case(LockFillCase::PaymentOutputWrongUdt),
-        lock_nft_for_udt_case(LockFillCase::PaymentOutputWrongOwner),
-        lock_nft_for_udt_case(LockFillCase::PaymentOutputInsufficient),
-        lock_nft_for_udt_case(LockFillCase::MissingBuyerNftOutput),
-        lock_nft_for_udt_case(LockFillCase::BuyerNftWrongLock),
-        lock_nft_for_udt_case(LockFillCase::BuyerNftWrongType),
-        lock_nft_for_udt_case(LockFillCase::UnknownActionTag),
-        lock_nft_for_udt_case(LockFillCase::MalformedAction),
+        LockFillCase::Valid,
+        LockFillCase::SighashAll,
+        LockFillCase::MalformedArgs,
+        LockFillCase::WrongNftType,
+        LockFillCase::TxLevelFillOrder,
+        LockFillCase::WrongActionTarget,
+        LockFillCase::OrderInputInAppendScope,
+        LockFillCase::InsufficientUdt,
+        LockFillCase::WrongUdt,
+        LockFillCase::WrongOwner,
+        LockFillCase::TxLevelRemainderOnly,
+        LockFillCase::PaymentInAnotherOtx,
+        LockFillCase::PaymentOutputOutOfRange,
+        LockFillCase::PaymentOutputWrongUdt,
+        LockFillCase::PaymentOutputWrongOwner,
+        LockFillCase::PaymentOutputInsufficient,
+        LockFillCase::MissingBuyerNftOutput,
+        LockFillCase::BuyerNftWrongLock,
+        LockFillCase::BuyerNftWrongType,
+        LockFillCase::UnknownActionTag,
+        LockFillCase::MalformedAction,
+    ]
+    .into_iter()
+    .map(|variant| lock_nft_for_udt_case(LockScenario::new(variant)))
+    .chain([
         two_lock_orders_case(TwoLockOrdersCase::ReusePaymentOutput),
         two_lock_orders_case(TwoLockOrdersCase::DistinctPaymentOutputs),
-    ]
+    ])
+    .collect()
 }
 
 pub fn mixed_type_lock_cases() -> Vec<BuiltLimitOrderCase> {
     vec![mixed_type_lock_duplicate_payment_case()]
 }
 
-fn lock_nft_for_udt_case(case: LockFillCase) -> BuiltLimitOrderCase {
+fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
+    let case = scenario.variant;
     let mut fixture = CobuildTestFixture::new();
     let limit_order_lock_code = deploy_limit_order_lock(fixture.context_mut());
     let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
@@ -343,7 +366,7 @@ fn lock_nft_for_udt_case(case: LockFillCase) -> BuiltLimitOrderCase {
         built,
         signing_facts,
         expected,
-        lock_fill_coverage(case),
+        lock_fill_coverage(scenario),
     )
 }
 
@@ -688,20 +711,26 @@ fn replace_otx_message(built: &mut BuiltTxShape, otx: OtxHandle, message: Cobuil
         other => panic!("expected OTX witness, got {}", other.item_name()),
     };
     let updated = otx.as_builder().message(message).build();
-    replace_witness_bytes(built, tx_index, otx_witness_bytes(updated));
+    replace_witness_bytes(built, witness, otx_witness_bytes(updated));
 }
 
 fn replace_tx_level_message(built: &mut BuiltTxShape, message: CobuildMessage) {
+    let tx_level_witness = built.tx_level_witness();
     let witness = WitnessLayout::from(
         SighashAll::new_builder()
             .seal(Vec::<u8>::new())
             .message(message)
             .build(),
     );
-    replace_witness_bytes(built, 0, Bytes::copy_from_slice(witness.as_slice()));
+    replace_witness_bytes(
+        built,
+        tx_level_witness,
+        Bytes::copy_from_slice(witness.as_slice()),
+    );
 }
 
-fn replace_witness_bytes(built: &mut BuiltTxShape, tx_index: usize, replacement: Bytes) {
+fn replace_witness_bytes(built: &mut BuiltTxShape, witness: WitnessHandle, replacement: Bytes) {
+    let tx_index = built.witnesses.tx_index(witness);
     let mut witnesses: Vec<_> = built.tx.witnesses().into_iter().collect();
     witnesses[tx_index] = replacement.pack();
     built.tx = built
@@ -827,15 +856,16 @@ fn coverage(
     }
 }
 
-fn lock_fill_coverage(case: LockFillCase) -> CoverageTag {
+fn lock_fill_coverage(scenario: LockScenario) -> CoverageTag {
+    let case = scenario.variant;
     match case {
-        LockFillCase::Valid => LimitOrderHappyPath::LockNftForUdt.default_coverage(),
+        LockFillCase::Valid => scenario.happy_path.default_coverage(),
         LockFillCase::SighashAll => coverage(
             FlowKind::TxLevelAndOtx,
             ScriptRoleKind::InputLock,
             OtxScopeKind::BaseInput,
             super::ActionSourceKind::Otx,
-            None,
+            scenario.mutation,
         ),
         LockFillCase::TxLevelFillOrder => fill_mutation(
             OtxScopeKind::BaseInput,
@@ -904,9 +934,40 @@ fn lock_fill_coverage(case: LockFillCase) -> CoverageTag {
             super::ActionSourceKind::Otx,
             BusinessMutation::MalformedAction,
         ),
-        LockFillCase::MalformedArgs | LockFillCase::WrongNftType => {
-            LimitOrderHappyPath::LockNftForUdt.default_coverage()
+        LockFillCase::MalformedArgs | LockFillCase::WrongNftType => coverage(
+            FlowKind::OtxOnly,
+            ScriptRoleKind::InputLock,
+            OtxScopeKind::BaseInput,
+            super::ActionSourceKind::Otx,
+            scenario.mutation,
+        ),
+    }
+}
+
+fn lock_fill_mutation(case: LockFillCase) -> Option<BusinessMutation> {
+    match case {
+        LockFillCase::Valid | LockFillCase::SighashAll => None,
+        LockFillCase::MalformedArgs => Some(BusinessMutation::MalformedLockArgs),
+        LockFillCase::WrongNftType => Some(BusinessMutation::WrongNftType),
+        LockFillCase::TxLevelFillOrder => Some(BusinessMutation::TxLevelActionInsteadOfOtxAction),
+        LockFillCase::WrongActionTarget => Some(BusinessMutation::WrongActionTarget),
+        LockFillCase::OrderInputInAppendScope => Some(BusinessMutation::OrderInputInAppendScope),
+        LockFillCase::InsufficientUdt => Some(BusinessMutation::PaymentOutputInsufficient),
+        LockFillCase::WrongUdt => Some(BusinessMutation::PaymentOutputWrongUdt),
+        LockFillCase::WrongOwner => Some(BusinessMutation::PaymentOutputWrongOwner),
+        LockFillCase::TxLevelRemainderOnly => Some(BusinessMutation::PaymentOutputInRemainder),
+        LockFillCase::PaymentInAnotherOtx => Some(BusinessMutation::PaymentOutputInAnotherOtx),
+        LockFillCase::PaymentOutputOutOfRange => Some(BusinessMutation::PaymentOutputInRemainder),
+        LockFillCase::PaymentOutputWrongUdt => Some(BusinessMutation::PaymentOutputWrongUdt),
+        LockFillCase::PaymentOutputWrongOwner => Some(BusinessMutation::PaymentOutputWrongOwner),
+        LockFillCase::PaymentOutputInsufficient => {
+            Some(BusinessMutation::PaymentOutputInsufficient)
         }
+        LockFillCase::MissingBuyerNftOutput => Some(BusinessMutation::BuyerNftMissing),
+        LockFillCase::BuyerNftWrongLock => Some(BusinessMutation::BuyerNftWrongLock),
+        LockFillCase::BuyerNftWrongType => Some(BusinessMutation::BuyerNftWrongType),
+        LockFillCase::UnknownActionTag => Some(BusinessMutation::UnknownActionTag),
+        LockFillCase::MalformedAction => Some(BusinessMutation::MalformedAction),
     }
 }
 

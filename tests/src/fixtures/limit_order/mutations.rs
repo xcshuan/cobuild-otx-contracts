@@ -9,6 +9,8 @@ pub enum BusinessMutation {
     BuyerNftMissing,
     BuyerNftWrongLock,
     BuyerNftWrongType,
+    MalformedLockArgs,
+    WrongNftType,
     TxLevelActionInsteadOfOtxAction,
     WrongActionTarget,
     OrderInputInAppendScope,

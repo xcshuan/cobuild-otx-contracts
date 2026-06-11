@@ -461,6 +461,12 @@ fn total_otx_inputs(otxs: &[TrackedOtxSegment]) -> usize {
 }
 
 impl BuiltTxShape {
+    pub fn tx_level_witness(&self) -> WitnessHandle {
+        self.witnesses
+            .handle_at_tx_index(0)
+            .expect("transaction shape has no tx-level witness")
+    }
+
     pub fn otx_start_witness(&self) -> WitnessHandle {
         assert!(
             self.otx_witness_start > 0,
