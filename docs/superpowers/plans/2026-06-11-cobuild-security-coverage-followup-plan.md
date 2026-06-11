@@ -87,7 +87,7 @@ Recommended sequence:
 - Modify: `tests/src/fixtures/cobuild_otx_lock/cases.rs`
 - Test: `tests/tests/cobuild_otx_lock.rs`
 
-- [ ] **Step 1: Write failing E2E cases**
+- [x] **Step 1: Write failing E2E cases**
 
 Add cases to `cases()` for:
 
@@ -107,7 +107,7 @@ cargo test -p tests --offline --test cobuild_otx_lock cobuild_otx_lock_cases_mat
 
 Expected: fail until the fixture cases and error mappings are fully implemented.
 
-- [ ] **Step 2: Add fixture error mappings**
+- [x] **Step 2: Add fixture error mappings**
 
 Extend `CobuildOtxLockError` with:
 
@@ -120,11 +120,11 @@ InvalidSealScope = 37
 InvalidLockGroupWitness = 39
 ```
 
-- [ ] **Step 3: Implement minimal case construction**
+- [x] **Step 3: Implement minimal case construction**
 
 Reuse existing `signed_otx_case` logic by introducing a local config/mutation enum for seal pair shape and message target mutations. Keep tx construction typed through `TxShape`, `OtxHandle`, `InputHandle`, `SigningFacts`, and `ExpectedOutcome`.
 
-- [ ] **Step 4: Verify targeted test**
+- [x] **Step 4: Verify targeted test**
 
 Run:
 
@@ -134,7 +134,7 @@ cargo test -p tests --offline --test cobuild_otx_lock cobuild_otx_lock_cases_mat
 
 Expected: pass.
 
-- [ ] **Step 5: Commit first batch**
+- [x] **Step 5: Commit first batch**
 
 ```bash
 git add docs/superpowers/plans/2026-06-11-cobuild-security-coverage-followup-plan.md tests/src/fixtures/cobuild_otx_lock
@@ -150,9 +150,9 @@ git commit -m "test: cover cobuild lock e2e errors"
 - Test: `crates/cobuild-core/src/layout/tests.rs`
 - Test: `tests/tests/cobuild_otx_lock.rs`
 
-- [ ] Add exact layout tests for duplicate `OtxStart`, no OTX after start, count overrun, append permission mismatch, mask padding, and mask length.
-- [ ] Add one E2E representative if the current fixture mutation API can express it without broad refactor.
-- [ ] Run `cargo test -p cobuild-core --offline layout` and the cobuild lock integration target.
+- [x] Add exact layout tests for duplicate `OtxStart`, no OTX after start, count overrun, append permission mismatch, mask padding, and mask length.
+- [x] Add one E2E representative if the current fixture mutation API can express it without broad refactor.
+- [x] Run `cargo test -p cobuild-core --offline layout` and the cobuild lock integration target.
 
 ## Task 3: P1-C Signing Hash Preimage Mutations
 

@@ -48,6 +48,157 @@ fn otx_sequence_rules_reject_invalid_shapes() {
 }
 
 #[test]
+fn duplicate_otx_start_is_rejected() {
+    assert_invalid(
+        build_layout(
+            vec![otx_start_witness(), otx_start_witness(), otx_witness()],
+            1,
+            0,
+            0,
+            0,
+        ),
+        CoreError::InvalidOtxLayout,
+    );
+}
+
+#[test]
+fn otx_start_without_following_otx_is_rejected() {
+    assert_invalid(
+        build_layout(vec![otx_start_witness()], 0, 0, 0, 0),
+        CoreError::InvalidOtxLayout,
+    );
+}
+
+#[test]
+fn otx_entity_counts_must_fit_transaction_entity_counts() {
+    for (witness, input_count, output_count, cell_dep_count, header_dep_count) in [
+        (otx_witness_with_counts(2, 0, 0, 0, 0, 0), 1, 0, 0, 0),
+        (otx_witness_with_counts(1, 1, 0, 0, 0, 0), 1, 0, 0, 0),
+        (otx_witness_with_counts(1, 0, 2, 0, 0, 0), 1, 1, 0, 0),
+        (otx_witness_with_counts(1, 0, 0, 1, 0, 0), 1, 0, 0, 0),
+        (otx_witness_with_counts(1, 0, 0, 0, 2, 0), 1, 0, 1, 0),
+        (
+            otx_witness_custom(OtxWitnessCustom {
+                append_permissions: 0b0100,
+                append_cell_deps: 1,
+                ..OtxWitnessCustom::default()
+            }),
+            1,
+            0,
+            0,
+            0,
+        ),
+        (
+            otx_witness_custom(OtxWitnessCustom {
+                append_permissions: 0b1000,
+                append_header_deps: 1,
+                ..OtxWitnessCustom::default()
+            }),
+            1,
+            0,
+            0,
+            0,
+        ),
+    ] {
+        assert_invalid(
+            build_layout(
+                vec![otx_start_witness(), witness],
+                input_count,
+                output_count,
+                cell_dep_count,
+                header_dep_count,
+            ),
+            CoreError::InvalidOtxLayout,
+        );
+    }
+}
+
+#[test]
+fn append_entity_counts_require_matching_permission_bits() {
+    for witness in [
+        otx_witness_with_append_counts(0, 1, 0, 0, 0),
+        otx_witness_with_append_counts(0, 0, 1, 0, 0),
+        otx_witness_with_append_counts(0, 0, 0, 1, 0),
+        otx_witness_with_append_counts(0, 0, 0, 0, 1),
+    ] {
+        assert_invalid(
+            build_layout(vec![otx_start_witness(), witness], 2, 1, 1, 1),
+            CoreError::InvalidOtxLayout,
+        );
+    }
+}
+
+#[test]
+fn base_masks_reject_wrong_lengths() {
+    for (witness, input_count, output_count, cell_dep_count, header_dep_count) in [
+        (otx_witness_with_base_input_mask(&[]), 1, 0, 0, 0),
+        (otx_witness_with_base_input_mask(&[0, 0]), 1, 0, 0, 0),
+        (otx_witness_with_base_output_mask(1, &[]), 1, 1, 0, 0),
+        (otx_witness_with_base_output_mask(1, &[0, 0]), 1, 1, 0, 0),
+        (otx_witness_with_base_cell_dep_mask(1, &[]), 1, 0, 1, 0),
+        (otx_witness_with_base_cell_dep_mask(1, &[0, 0]), 1, 0, 1, 0),
+        (otx_witness_with_base_header_dep_mask(1, &[]), 1, 0, 0, 1),
+        (
+            otx_witness_with_base_header_dep_mask(1, &[0, 0]),
+            1,
+            0,
+            0,
+            1,
+        ),
+    ] {
+        assert_invalid(
+            build_layout(
+                vec![otx_start_witness(), witness],
+                input_count,
+                output_count,
+                cell_dep_count,
+                header_dep_count,
+            ),
+            CoreError::InvalidOtxLayout,
+        );
+    }
+}
+
+#[test]
+fn base_masks_reject_nonzero_padding_bits() {
+    for (witness, input_count, output_count, cell_dep_count, header_dep_count) in [
+        (otx_witness_with_base_input_mask(&[0b0000_0100]), 1, 0, 0, 0),
+        (
+            otx_witness_with_base_output_mask(1, &[0b0001_0000]),
+            1,
+            1,
+            0,
+            0,
+        ),
+        (
+            otx_witness_with_base_cell_dep_mask(1, &[0b0000_0010]),
+            1,
+            0,
+            1,
+            0,
+        ),
+        (
+            otx_witness_with_base_header_dep_mask(1, &[0b0000_0010]),
+            1,
+            0,
+            0,
+            1,
+        ),
+    ] {
+        assert_invalid(
+            build_layout(
+                vec![otx_start_witness(), witness],
+                input_count,
+                output_count,
+                cell_dep_count,
+                header_dep_count,
+            ),
+            CoreError::InvalidOtxLayout,
+        );
+    }
+}
+
+#[test]
 fn otx_view_validation_rejects_invalid_counts_permissions_masks_and_seals() {
     for (witness, input_count, output_count, cell_dep_count, header_dep_count, error) in [
         (

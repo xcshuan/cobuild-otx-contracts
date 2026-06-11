@@ -89,6 +89,7 @@ pub fn cases() -> Vec<BuiltCobuildOtxLockCase> {
         signed_otx_invalid_seal_scope_case(),
         signed_otx_wrong_script_hash_seal_case(),
         signed_otx_invalid_action_target_case(),
+        malformed_otx_duplicate_start_case(),
         two_udt_transfer_otxs_case(false),
         two_udt_transfer_otxs_case(true),
         mixed_sighash_all_and_otx_case(),
@@ -378,6 +379,31 @@ fn malformed_otx_layout_case() -> BuiltCobuildOtxLockCase {
             include_outside_same_lock_without_tx_signature: false,
         },
     )
+}
+
+fn malformed_otx_duplicate_start_case() -> BuiltCobuildOtxLockCase {
+    let mut built = signed_otx_case(
+        "contract_rejects_duplicate_otx_start",
+        OtxCaseConfig {
+            include_sighash_all: false,
+            corrupt_append_seal: false,
+            malformed_permissions: false,
+            include_full_preimage: false,
+            seal_shape: OtxSealShape::Valid,
+            invalid_action_target: false,
+            include_outside_same_lock_without_tx_signature: false,
+        },
+    );
+    built
+        .built
+        .apply_protocol_mutation(ProtocolMutation::DuplicateOtxStart);
+    let base_input = built
+        .built
+        .inputs
+        .handle_at_tx_index(built.built.otx_ranges[0].base_inputs.start)
+        .expect("OTX base input handle");
+    built.expected = lock_exit(base_input, CobuildOtxLockError::MalformedOtxLayout);
+    built
 }
 
 fn malformed_cobuild_witness_case() -> BuiltCobuildOtxLockCase {

@@ -1084,6 +1084,37 @@ fn mutation_duplicate_sighash_all_inserts_two_sighash_witnesses() {
 }
 
 #[test]
+fn mutation_duplicate_otx_start_inserts_second_start_before_original() {
+    let mut shape = TxShape::new();
+    shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        ..Default::default()
+    });
+    let mut built = shape.build();
+
+    built.apply_protocol_mutation(ProtocolMutation::DuplicateOtxStart);
+
+    assert_eq!(built.tx.witnesses().len(), 3);
+    for index in 0..2 {
+        let witness = built
+            .tx
+            .witnesses()
+            .into_iter()
+            .nth(index)
+            .expect("OTX start witness");
+        match WitnessLayout::from_slice(witness.raw_data().as_ref())
+            .expect("parse OTX start witness")
+            .to_enum()
+        {
+            WitnessLayoutUnion::OtxStart(_) => {}
+            other => panic!("expected OtxStart witness, got {}", other.item_name()),
+        }
+    }
+    assert_eq!(built.witnesses.tx_index(WitnessHandle::from_raw(0)), 1);
+    assert_eq!(built.witnesses.tx_index(WitnessHandle::from_raw(1)), 2);
+}
+
+#[test]
 fn mutation_non_contiguous_otx_witness_inserts_gap_after_start() {
     let mut shape = TxShape::new();
     shape.push_otx(OtxSegment {

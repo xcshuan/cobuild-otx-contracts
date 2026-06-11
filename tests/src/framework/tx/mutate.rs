@@ -16,6 +16,7 @@ use super::{BuiltTxShape, InputHandle, OtxHandle, OutputHandle, WitnessHandle};
 #[derive(Clone, Debug)]
 pub enum ProtocolMutation {
     DuplicateSighashAll,
+    DuplicateOtxStart,
     NonContiguousOtxWitness,
     OtxBeforeOtxStart,
     OtxStartRaw(OtxStartSpec),
@@ -94,6 +95,17 @@ impl BuiltTxShape {
                 let bytes = Bytes::copy_from_slice(witness.as_slice());
                 self.insert_witness_bytes(0, bytes.clone());
                 self.insert_witness_bytes(1, bytes);
+            }
+            ProtocolMutation::DuplicateOtxStart => {
+                let start_index = self.witnesses.tx_index(self.otx_start_witness());
+                let witness = self
+                    .tx
+                    .witnesses()
+                    .into_iter()
+                    .nth(start_index)
+                    .expect("OTX start witness")
+                    .raw_data();
+                self.insert_witness_bytes(start_index, witness);
             }
             ProtocolMutation::NonContiguousOtxWitness => {
                 let witness = WitnessLayout::from(
