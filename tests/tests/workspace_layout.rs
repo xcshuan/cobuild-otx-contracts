@@ -12,6 +12,8 @@ fn workspace_declares_clean_cobuild_members() {
         "\"contracts/cobuild-otx-lock\"",
         "\"tests/contracts/test-nft\"",
         "\"tests/contracts/test-udt\"",
+        "\"tests/contracts/nft-minter-type\"",
+        "\"tests/contracts/minted-nft-type\"",
         "\"tests\"",
     ] {
         assert!(
@@ -28,7 +30,7 @@ fn workspace_declares_clean_cobuild_members() {
 #[test]
 fn test_asset_contracts_live_under_tests_directory() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    for contract in ["test-udt", "test-nft"] {
+    for contract in ["test-udt", "test-nft", "nft-minter-type", "minted-nft-type"] {
         let test_contract_dir = workspace_root.join("tests/contracts").join(contract);
         assert!(
             test_contract_dir.join("Cargo.toml").is_file(),
