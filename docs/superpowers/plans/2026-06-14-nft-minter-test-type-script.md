@@ -908,7 +908,8 @@ mod tests {
 Run:
 
 ```bash
-cargo test -p nft-minter-type --features library --offline entry::tests validation::tests -- --nocapture
+cargo test -p nft-minter-type --features library --offline entry::tests -- --nocapture
+cargo test -p nft-minter-type --features library --offline validation::tests -- --nocapture
 ```
 
 Expected: all PASS.
