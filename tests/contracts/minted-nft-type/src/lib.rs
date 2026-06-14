@@ -2,8 +2,12 @@
 
 extern crate alloc;
 
+pub mod create;
 pub mod entry;
 pub mod error;
+pub mod helpers;
+pub mod mode;
+pub mod transfer;
 pub mod types;
 
 pub fn program_entry() -> i8 {
