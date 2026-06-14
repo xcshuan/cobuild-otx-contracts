@@ -253,9 +253,9 @@ The minter must use checked arithmetic for `old_counter + i` and
 
 ## Minted Output Binding
 
-The minter validates minted NFT outputs against the sorted expected list. It
-scans transaction outputs in global output index order and selects outputs with
-`minted-nft-type` whose args match each expected `nft_id`.
+The minter validates that every `MintNft` action has a corresponding expected
+NFT output. For each expected mint it searches transaction outputs for an output
+whose type args equal the expected `nft_id`.
 
 For each expected mint at position `i`, the matched output must have:
 
@@ -267,10 +267,15 @@ data.rarity = expected_rarity
 data.attributes_hash = expected_attributes_hash
 ```
 
-The number of matched minted NFT outputs for the current minter must equal the
-number of `MintNft` actions. Missing outputs, extra outputs for the same minter,
-wrong output ordering, wrong args, wrong serial, wrong rarity, or wrong
-attributes hash fail.
+Missing expected outputs, duplicate matches for the same expected `nft_id`,
+wrong args, wrong serial, wrong rarity, or wrong attributes hash fail.
+
+The minter does not try to discover every possible minted NFT output in the
+transaction. This follows the Spore-style boundary: a real `minted-nft-type`
+cell must run its own creation checks, while a fake NFT type is outside this
+test protocol. The minter's job is to prove that each minter action materialized
+as the expected NFT output; the minted NFT's job is to prove that its own
+creation is backed by a matching minter transition.
 
 The minted NFT type performs the lightweight reverse check during mint
 creation. It loads its output data, verifies the derived `nft_id`, then checks
@@ -278,7 +283,7 @@ that the transaction contains a minter counter transition for
 `data.minter_type_hash` whose minted serial range includes this NFT's serial.
 It does not recalculate `attributes_hash` from action seeds. The minter type
 does that exact output binding and will reject a transaction where any minted
-NFT output for the minter is missing, extra, or mismatched.
+NFT output expected from an action is missing or mismatched.
 
 ## Tx-Level And OTX Scope
 
@@ -319,7 +324,7 @@ Cobuild Core is expected to reject:
 - `new_counter != old_counter + mint_action_count`;
 - `new_counter > supply_cap`;
 - unsupported or malformed action data;
-- missing, extra, or incorrectly ordered minted NFT outputs;
+- missing, duplicate, or mismatched expected minted NFT outputs;
 - minted NFT output args or data that do not match derived expectations.
 
 `minted-nft-type` rejects:
@@ -362,8 +367,7 @@ Negative tests:
 - supply cap overflow fails;
 - `supply_cap` mutation fails;
 - missing minted NFT output fails;
-- extra minted NFT output for the same minter fails;
-- wrong NFT output order fails;
+- duplicate expected minted NFT output fails;
 - wrong NFT args fails;
 - wrong rarity for serial `0`, `7`, `11`, or `77` fails;
 - wrong `attributes_hash` fails;
