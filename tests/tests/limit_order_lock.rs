@@ -1,4 +1,6 @@
-use tests::fixtures::limit_order::{failed_txs_count, lock_script_cases};
+use tests::fixtures::limit_order::{
+    assert_lock_coverage_manifest, failed_txs_count, lock_script_cases,
+};
 
 fn assert_no_expected_failure_dump(before: usize) {
     if std::env::var("COBUILD_TEST_DUMP_EXPECTED_FAILURES").as_deref() != Ok("1") {
@@ -9,19 +11,7 @@ fn assert_no_expected_failure_dump(before: usize) {
 #[test]
 fn limit_order_lock_script_cases_match_expected_outcomes() {
     let cases = lock_script_cases();
-    assert_eq!(cases.len(), 26, "limit order lock case coverage count");
-    assert!(
-        cases
-            .iter()
-            .any(|case| case.name == "lock_fill::TxLevelAndOtxFillOrder"),
-        "limit order lock coverage must include duplicate tx-level plus OTX fill"
-    );
-    assert!(
-        cases
-            .iter()
-            .any(|case| case.name == "lock_fill::TxLevelNoiseAndOtxFillOrder"),
-        "limit order lock coverage must include unrelated tx-level action noise plus OTX fill"
-    );
+    assert_lock_coverage_manifest(&cases);
 
     for case in cases {
         let before = failed_txs_count();

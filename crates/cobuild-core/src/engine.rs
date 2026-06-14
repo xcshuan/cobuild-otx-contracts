@@ -200,6 +200,9 @@ impl<'a> LockPlanBuilder<'a> {
 
         match &self.context.otx_layouts {
             OtxLayouts::None => Ok(true),
+            // Only the current lock group matters here. Other-lock inputs may be
+            // outside the aggregate OTX input range and are validated by their
+            // own lock scripts.
             OtxLayouts::Complete(layout) => self
                 .context
                 .script_context
@@ -318,6 +321,11 @@ impl<'a> LockPlanBuilder<'a> {
                 SignatureOrigin::OtxBase | SignatureOrigin::OtxAppend
             )
         });
+        // If this lock uses OTX-scoped signatures without a tx-level signature,
+        // every input in the current lock group must be covered by the aggregate
+        // OTX input range. This intentionally ignores inputs from other lock
+        // groups. In full contract execution, missing or malformed tx-level
+        // carrier witnesses can fail earlier with InvalidLockGroupWitness.
         if has_otx && !has_tx_level {
             if let OtxLayouts::Complete(layout) = &self.context.otx_layouts {
                 if !self

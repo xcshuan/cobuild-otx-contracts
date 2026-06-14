@@ -1,17 +1,12 @@
 use tests::{
-    fixtures::cobuild_otx_lock::{cases, two_udt_transfer_otxs_case},
+    fixtures::cobuild_otx_lock::{assert_coverage_manifest, cases, two_udt_transfer_otxs_case},
     framework::scenario::ExpectedOutcome,
 };
 
 #[test]
 fn cobuild_otx_lock_cases_match_expected_outcomes() {
     let cases = cases();
-    assert_eq!(cases.len(), 22, "cobuild otx lock case coverage count");
-    assert!(
-        cases.iter().any(|case| case.name
-            == "contract_accepts_other_lock_outside_otx_without_tx_level_signature"),
-        "cobuild otx lock coverage must include unrelated outside lock inputs"
-    );
+    assert_coverage_manifest(&cases);
 
     for case in cases {
         case.expected.assert(&case.fixture, &case.built);
