@@ -4,7 +4,7 @@ use ckb_testtool::{
     context::Context,
 };
 
-use crate::framework::contracts::{DeployedScript, deploy_loader_binary, deploy_script_bytes};
+use crate::framework::contracts::{deploy_loader_binary, deploy_script_bytes, DeployedScript};
 
 #[derive(Clone, Debug)]
 pub struct ContractCatalog {
@@ -45,6 +45,19 @@ pub fn deploy_test_udt(context: &mut Context, owner_lock_hash: [u8; 32]) -> Depl
 
 pub fn deploy_test_nft(context: &mut Context, args: [u8; 32]) -> DeployedScript {
     deploy_loader_binary(context, "test-nft", ScriptHashType::Data2, args.to_vec())
+}
+
+pub fn deploy_nft_minter_type(context: &mut Context, args: Vec<u8>) -> DeployedScript {
+    deploy_loader_binary(context, "nft-minter-type", ScriptHashType::Data2, args)
+}
+
+pub fn deploy_minted_nft_type(context: &mut Context, nft_id: [u8; 32]) -> DeployedScript {
+    deploy_loader_binary(
+        context,
+        "minted-nft-type",
+        ScriptHashType::Data2,
+        nft_id.to_vec(),
+    )
 }
 
 pub fn deploy_input_type_proxy_lock(
