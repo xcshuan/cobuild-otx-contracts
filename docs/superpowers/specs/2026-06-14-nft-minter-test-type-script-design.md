@@ -15,6 +15,7 @@ cell data.
 ## Goals
 
 - Validate stateful minting from a minter cell with a monotonic counter.
+- Verify `CreateMinter` actions targeting the minter `output_type`.
 - Verify `MintNft` actions targeting the minter `input_type`.
 - Prove that multiple mint actions consume the counter in a deterministic
   global action order.
@@ -80,8 +81,9 @@ Create minter rules:
 - script args must be exactly 32 bytes;
 - type-id validation must pass;
 - output data must be well formed;
+- exactly one related `CreateMinter` action must target this output minter type;
 - initial `mint_counter` must be `0`;
-- `supply_cap` may be any `u64`, including `0`.
+- output `supply_cap` must equal the action `supply_cap`.
 
 Mint update rules:
 
@@ -128,7 +130,7 @@ NFT operations are determined from the current type group:
 ```text
 0 group inputs, 1 group output  => mint creation
 1 group input, 1 group output   => transfer
-1 group input, 0 group outputs  => burn, rejected in MVP
+1 group input, 0 group outputs  => burn
 other shape                     => invalid
 ```
 
@@ -153,7 +155,12 @@ Transfer rules:
 - input and output data must be byte-for-byte identical;
 - args are naturally the same because the type group is the same.
 
-Burn is rejected in MVP.
+Burn rules:
+
+- no Cobuild action is required;
+- no minter state check is required;
+- no counter or supply value is changed;
+- the owner's lock authorization is enough to make destruction voluntary.
 
 ## Rarity
 
@@ -174,17 +181,34 @@ The test action schema should use a local Molecule-style union, following the
 Spore action pattern without importing Spore schemas:
 
 ```text
+table CreateMinter {
+    supply_cap: Uint64,
+}
+
 table MintNft {
     metadata_seed: Byte32,
 }
 
 union NftMinterAction {
+    CreateMinter,
     MintNft,
 }
 ```
 
-Only `MintNft` is accepted by these contracts. Unknown variants, malformed
-action bytes, and mismatched payload lengths fail closed.
+`nft-minter-type` accepts only `CreateMinter` during minter creation and only
+`MintNft` during mint updates. Unknown variants, malformed action bytes,
+mismatched payload lengths, or action variants that do not match the current
+operation fail closed.
+
+`CreateMinter` target:
+
+```text
+script_role = OutputType
+script_hash = new nft-minter-type hash
+```
+
+The action targets the newly created minter state because creation has no input
+state and the output type is the new collection identity.
 
 `MintNft` target:
 
@@ -202,7 +226,8 @@ Contracts must not rely on `TypeValidationPlan.related_actions` vector order.
 Current core collection adds OTX related actions before tx-level related
 actions, so the vector order is not a global witness order.
 
-Instead, the minter computes the canonical mint order from each action:
+Instead, the minter computes the canonical mint order from each `MintNft`
+action:
 
 ```text
 primary key:   origin.witness_index
@@ -274,8 +299,10 @@ Cobuild Core is expected to reject:
 
 - malformed Cobuild witness data;
 - invalid OTX layout;
+- `CreateMinter` target role other than `OutputType`;
 - `MintNft` target role other than `InputType`;
-- target hash that does not exist in transaction input types;
+- `CreateMinter` target hash that does not exist in transaction output types;
+- `MintNft` target hash that does not exist in transaction input types;
 - action target pointing at the wrong minter type.
 
 `nft-minter-type` rejects:
@@ -283,7 +310,9 @@ Cobuild Core is expected to reject:
 - invalid group shape;
 - invalid type-id on creation;
 - malformed minter data;
+- missing, duplicate, malformed, or mismatched `CreateMinter` action on create;
 - initial `mint_counter != 0`;
+- create output `supply_cap` not equal to action `supply_cap`;
 - burn;
 - `supply_cap` mutation;
 - counter overflow;
@@ -296,20 +325,20 @@ Cobuild Core is expected to reject:
 `minted-nft-type` rejects:
 
 - invalid group shape;
-- malformed NFT data;
+- malformed NFT data on creation or transfer;
 - args length other than 32 bytes;
 - `nft_id` not equal to `blake2b256(minter_type_hash || serial_le)`;
 - standalone forged mint creation without a matching minter transition;
 - mint creation whose serial is outside the matching minter counter increment
   range;
-- transfer that changes data;
-- burn.
+- transfer that changes data.
 
 ## Test Matrix
 
 Positive tests:
 
-- create minter with counter `0`;
+- create minter with a `CreateMinter` output-type action, counter `0`, and
+  matching `supply_cap`;
 - mint first NFT, producing serial `0` and rarity `3`;
 - mint from fixture counter `6`, producing serial `6` rarity `0`;
 - mint next from counter `7`, producing rarity `1`;
@@ -319,10 +348,15 @@ Positive tests:
 - mixed tx-level and OTX actions consume serials by `(witness_index,
   action.index)`;
 - supply cap passes exactly at the cap;
-- minted NFT transfer preserves data.
+- minted NFT transfer preserves data;
+- minted NFT burn succeeds without a minter action.
 
 Negative tests:
 
+- minter creation without `CreateMinter` action fails;
+- duplicate `CreateMinter` action fails;
+- `CreateMinter` action with wrong target role fails through Core;
+- `CreateMinter.supply_cap` mismatch fails;
 - minter creation with non-zero counter fails;
 - counter increment does not match mint action count;
 - supply cap overflow fails;
@@ -336,8 +370,9 @@ Negative tests:
 - standalone forged NFT creation without minter update fails;
 - NFT creation with a serial outside the minter increment range fails;
 - NFT transfer data mutation fails;
-- minter or NFT burn fails;
+- minter burn fails;
 - malformed `MintNft` action data fails;
+- malformed `CreateMinter` action data fails;
 - wrong action target role fails through Core.
 
 ## Implementation Notes
