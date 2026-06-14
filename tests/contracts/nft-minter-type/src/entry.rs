@@ -1,9 +1,3 @@
-#[cfg(not(feature = "type-id"))]
-use ckb_std::ckb_types::{bytes::Bytes, prelude::*};
-#[cfg(not(feature = "type-id"))]
-use ckb_std::high_level::load_script;
-#[cfg(feature = "type-id")]
-use ckb_std::type_id::check_type_id;
 use ckb_std::{
     ckb_constants::Source,
     high_level::{load_cell_data, load_script_hash, QueryIter},
@@ -41,21 +35,6 @@ pub fn main() -> Result<(), Error> {
         MinterMode::Mint => crate::validation::validate_mint(current_type_hash, &plan),
         MinterMode::Burn => Err(Error::InvalidShape),
     }
-}
-
-#[cfg(feature = "type-id")]
-pub(crate) fn validate_minter_type_id() -> Result<(), Error> {
-    check_type_id(0, 32).map_err(Error::from)
-}
-
-#[cfg(not(feature = "type-id"))]
-pub(crate) fn validate_minter_type_id() -> Result<(), Error> {
-    let script = load_script()?;
-    let args: Bytes = script.args().unpack();
-    if args.len() != 32 {
-        return Err(Error::InvalidArgs);
-    }
-    Ok(())
 }
 
 #[cfg(test)]

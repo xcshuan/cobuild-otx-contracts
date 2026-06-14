@@ -1,5 +1,11 @@
 use alloc::vec::Vec;
 
+#[cfg(not(feature = "type-id"))]
+use ckb_std::ckb_types::bytes::Bytes;
+#[cfg(not(feature = "type-id"))]
+use ckb_std::high_level::load_script;
+#[cfg(feature = "type-id")]
+use ckb_std::type_id::check_type_id;
 use ckb_std::{
     ckb_constants::Source,
     ckb_types::prelude::*,
@@ -17,10 +23,25 @@ use crate::{
 };
 
 pub fn validate_create(plan: &TypeValidationPlan) -> Result<(), Error> {
-    crate::entry::validate_minter_type_id()?;
+    validate_minter_type_id()?;
     let output = single_group_state(Source::GroupOutput)?;
     let action = single_action(plan)?;
     validate_create_state(output, action)
+}
+
+#[cfg(feature = "type-id")]
+fn validate_minter_type_id() -> Result<(), Error> {
+    check_type_id(0, 32).map_err(Error::from)
+}
+
+#[cfg(not(feature = "type-id"))]
+fn validate_minter_type_id() -> Result<(), Error> {
+    let script = load_script()?;
+    let args: Bytes = script.args().unpack();
+    if args.len() != 32 {
+        return Err(Error::InvalidArgs);
+    }
+    Ok(())
 }
 
 pub fn validate_create_state(output: MinterState, action: NftMinterAction) -> Result<(), Error> {
