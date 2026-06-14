@@ -2,7 +2,8 @@ use alloc::vec::Vec;
 
 use ckb_std::{
     ckb_constants::Source,
-    high_level::{load_cell_data, QueryIter},
+    ckb_types::prelude::*,
+    high_level::{load_cell_data, load_cell_type, QueryIter},
 };
 use cobuild_core::{
     plan::{ActionOrigin, TypeValidationPlan},
@@ -40,8 +41,7 @@ pub fn validate_mint(current_type_hash: [u8; 32], plan: &TypeValidationPlan) -> 
     let output = single_group_state(Source::GroupOutput)?;
     let actions = mint_actions(plan)?;
     validate_mint_state(input, output, actions.len())?;
-    let _ = current_type_hash;
-    Ok(())
+    validate_expected_outputs(current_type_hash, input.mint_counter, &actions)
 }
 
 pub fn validate_mint_state(
@@ -114,6 +114,48 @@ pub fn single_group_state(source: Source) -> Result<MinterState, Error> {
         return Err(Error::InvalidShape);
     }
     parse_minter_state(&data)
+}
+
+fn validate_expected_outputs(
+    current_type_hash: [u8; 32],
+    old_counter: u64,
+    actions: &[MintActionFact],
+) -> Result<(), Error> {
+    for (offset, action) in actions.iter().enumerate() {
+        let offset: u64 = offset.try_into().map_err(|_| Error::Counter)?;
+        let serial = old_counter.checked_add(offset).ok_or(Error::Counter)?;
+        let rarity = crate::types::rarity_for_serial(serial);
+        let expected_id = crate::types::nft_id(current_type_hash, serial);
+        let expected_attributes =
+            crate::types::attributes_hash(current_type_hash, serial, rarity, action.metadata_seed);
+        let mut matches = 0usize;
+
+        for (index, type_script) in QueryIter::new(load_cell_type, Source::Output).enumerate() {
+            let Some(type_script) = type_script else {
+                continue;
+            };
+            let args: Vec<u8> = type_script.args().unpack();
+            if args.as_slice() != expected_id.as_slice() {
+                continue;
+            }
+
+            let data = load_cell_data(index, Source::Output)?;
+            let nft = crate::types::parse_minted_nft_data(&data)?;
+            if nft.minter_type_hash != current_type_hash
+                || nft.serial != serial
+                || nft.rarity != rarity
+                || nft.attributes_hash != expected_attributes
+            {
+                return Err(Error::InvalidMintedNft);
+            }
+            matches += 1;
+        }
+
+        if matches != 1 {
+            return Err(Error::InvalidMintedNft);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
