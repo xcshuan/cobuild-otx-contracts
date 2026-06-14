@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+blake2b-ref = { version = "0.3.1", default-features = false }
 ckb-std = { version = "1.1", default-features = false, features = ["allocator", "calc-hash", "ckb-types", "dummy-atomic"] }
 cobuild-core = { path = "../../../crates/cobuild-core" }
 

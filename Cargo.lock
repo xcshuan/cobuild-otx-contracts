@@ -1214,6 +1214,7 @@ dependencies = [
 name = "minted-nft-type"
 version = "0.1.0"
 dependencies = [
+ "blake2b-ref",
  "ckb-std",
 ]
 
@@ -1249,6 +1250,7 @@ dependencies = [
 name = "nft-minter-type"
 version = "0.1.0"
 dependencies = [
+ "blake2b-ref",
  "ckb-std",
  "cobuild-core",
 ]
