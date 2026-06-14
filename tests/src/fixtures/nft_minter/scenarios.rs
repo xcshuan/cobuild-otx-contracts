@@ -458,6 +458,68 @@ pub fn mint_mixed_tx_and_otx_order_case() -> NftMinterCase {
     }
 }
 
+pub fn mint_otx_output_outside_append_range_case() -> NftMinterCase {
+    let mut fixture = CobuildTestFixture::new();
+    let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
+    let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
+    let minter_hash = script_hash(&minter_code.script);
+    let serial = 6;
+    let seed = [6u8; 32];
+    let nft_id = nft_id(minter_hash, serial);
+    let nft_code = deploy_minted_nft_type(fixture.context_mut(), nft_id);
+    let minter_cell = typed_output(
+        lock.script.clone(),
+        minter_code.script.clone(),
+        200_000_000_000,
+    );
+    let minter_input = live_resolved_facts(
+        fixture.context_mut(),
+        minter_cell.clone(),
+        minter_data(MinterState {
+            mint_counter: serial,
+            supply_cap: 100,
+        }),
+    );
+    let minter_output = TestCellOutput::new(
+        minter_cell,
+        minter_data(MinterState {
+            mint_counter: serial + 1,
+            supply_cap: 100,
+        }),
+    );
+
+    let mut shape = TxShape::new();
+    shape.push_prefix_cell_dep(lock.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
+    let otx = shape.push_otx(OtxSegment {
+        message: Some(
+            CobuildMessageBuilder::new()
+                .input_type_action(minter_hash)
+                .action_data(mint_nft_action_data(seed))
+                .build(),
+        ),
+        base_inputs: vec![minter_input],
+        base_outputs: vec![
+            minter_output,
+            minted_nft_output(&lock.script, &nft_code.script, minter_hash, serial, seed),
+        ],
+        ..Default::default()
+    });
+    let minter_input = shape.otx_base_input(otx, 0);
+    let mut built = shape.build();
+    built.tx = fixture.context_mut().complete_tx(built.tx);
+    NftMinterCase {
+        name: "mint_otx_output_outside_append_range",
+        fixture,
+        built,
+        expected: NftMinterExpected::MinterInputType {
+            input: minter_input,
+            error: NftMinterTypeError::InvalidMintedNft,
+        },
+    }
+}
+
 pub fn forged_nft_creation_case() -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
     let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());

@@ -92,6 +92,13 @@ pub struct MintActionFact {
     pub witness_index: usize,
     pub action_index: usize,
     pub metadata_seed: [u8; 32],
+    pub output_candidates: OutputCandidates,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OutputCandidates {
+    All,
+    Range { start: usize, end: usize },
 }
 
 pub fn mint_actions(plan: &TypeValidationPlan) -> Result<Vec<MintActionFact>, Error> {
@@ -104,14 +111,25 @@ pub fn mint_actions(plan: &TypeValidationPlan) -> Result<Vec<MintActionFact>, Er
         let NftMinterAction::MintNft { metadata_seed } = parse_action(&action_data)? else {
             return Err(Error::InvalidAction);
         };
-        let witness_index = match related.action.origin {
-            ActionOrigin::TxLevel { witness_index } => witness_index,
-            ActionOrigin::Otx { witness_index, .. } => witness_index,
+        let (witness_index, output_candidates) = match related.action.origin {
+            ActionOrigin::TxLevel { witness_index } => (witness_index, OutputCandidates::All),
+            ActionOrigin::Otx {
+                witness_index,
+                layout,
+                ..
+            } => (
+                witness_index,
+                OutputCandidates::Range {
+                    start: layout.append_outputs.start,
+                    end: layout.append_outputs.end(),
+                },
+            ),
         };
         facts.push(MintActionFact {
             witness_index,
             action_index: related.action.action.index,
             metadata_seed,
+            output_candidates,
         });
     }
     facts.sort_by_key(|fact| (fact.witness_index, fact.action_index));
@@ -151,25 +169,36 @@ fn validate_expected_outputs(
             crate::types::attributes_hash(current_type_hash, serial, rarity, action.metadata_seed);
         let mut matches = 0usize;
 
-        for (index, type_script) in QueryIter::new(load_cell_type, Source::Output).enumerate() {
-            let Some(type_script) = type_script else {
-                continue;
-            };
-            let args: Vec<u8> = type_script.args().unpack();
-            if args.as_slice() != expected_id.as_slice() {
-                continue;
+        match action.output_candidates {
+            OutputCandidates::All => {
+                for (index, type_script) in
+                    QueryIter::new(load_cell_type, Source::Output).enumerate()
+                {
+                    matches += validate_expected_output_at(
+                        index,
+                        type_script,
+                        current_type_hash,
+                        &expected_id,
+                        serial,
+                        rarity,
+                        expected_attributes,
+                    )?;
+                }
             }
-
-            let data = load_cell_data(index, Source::Output)?;
-            let nft = crate::types::parse_minted_nft_data(&data)?;
-            if nft.minter_type_hash != current_type_hash
-                || nft.serial != serial
-                || nft.rarity != rarity
-                || nft.attributes_hash != expected_attributes
-            {
-                return Err(Error::InvalidMintedNft);
+            OutputCandidates::Range { start, end } => {
+                for index in start..end {
+                    let type_script = load_cell_type(index, Source::Output)?;
+                    matches += validate_expected_output_at(
+                        index,
+                        type_script,
+                        current_type_hash,
+                        &expected_id,
+                        serial,
+                        rarity,
+                        expected_attributes,
+                    )?;
+                }
             }
-            matches += 1;
         }
 
         if matches != 1 {
@@ -177,6 +206,35 @@ fn validate_expected_outputs(
         }
     }
     Ok(())
+}
+
+fn validate_expected_output_at(
+    index: usize,
+    type_script: Option<ckb_std::ckb_types::packed::Script>,
+    current_type_hash: [u8; 32],
+    expected_id: &[u8; 32],
+    serial: u64,
+    rarity: u8,
+    expected_attributes: [u8; 32],
+) -> Result<usize, Error> {
+    let Some(type_script) = type_script else {
+        return Ok(0);
+    };
+    let args: Vec<u8> = type_script.args().unpack();
+    if args.as_slice() != expected_id.as_slice() {
+        return Ok(0);
+    }
+
+    let data = load_cell_data(index, Source::Output)?;
+    let nft = crate::types::parse_minted_nft_data(&data)?;
+    if nft.minter_type_hash != current_type_hash
+        || nft.serial != serial
+        || nft.rarity != rarity
+        || nft.attributes_hash != expected_attributes
+    {
+        return Err(Error::InvalidMintedNft);
+    }
+    Ok(1)
 }
 
 #[cfg(test)]
@@ -373,16 +431,19 @@ mod tests {
                     witness_index: 3,
                     action_index: 0,
                     metadata_seed: seed_c,
+                    output_candidates: OutputCandidates::All,
                 },
                 MintActionFact {
                     witness_index: 3,
                     action_index: 1,
                     metadata_seed: seed_a,
+                    output_candidates: OutputCandidates::Range { start: 1, end: 1 },
                 },
                 MintActionFact {
                     witness_index: 5,
                     action_index: 2,
                     metadata_seed: seed_b,
+                    output_candidates: OutputCandidates::All,
                 },
             ])
         );

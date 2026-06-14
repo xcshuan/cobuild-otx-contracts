@@ -254,8 +254,18 @@ The minter must use checked arithmetic for `old_counter + i` and
 ## Minted Output Binding
 
 The minter validates that every `MintNft` action has a corresponding expected
-NFT output. For each expected mint it searches transaction outputs for an output
-whose type args equal the expected `nft_id`.
+NFT output. Candidate outputs are scoped by the action origin:
+
+- tx-level `MintNft` actions search transaction outputs for an output whose
+  type args equal the expected `nft_id`;
+- OTX `MintNft` actions search only the same OTX's `append_outputs` range.
+
+OTX minted NFTs must not be placed in `base_outputs`: the OTX signer cannot
+know the final minted NFT data before the minter consumes the counter and
+assigns the action's serial. Binding an OTX mint action to the same OTX's
+`append_outputs` proves that the action and the produced NFT belong to the same
+user-extension part of the OTX, and it lets the minter avoid scanning unrelated
+transaction outputs for OTX-origin actions.
 
 For each expected mint at position `i`, the matched output must have:
 
@@ -267,8 +277,10 @@ data.rarity = expected_rarity
 data.attributes_hash = expected_attributes_hash
 ```
 
-Missing expected outputs, duplicate matches for the same expected `nft_id`,
-wrong args, wrong serial, wrong rarity, or wrong attributes hash fail.
+Missing expected outputs, duplicate matches for the same expected `nft_id`
+inside the action's candidate range, wrong args, wrong serial, wrong rarity,
+wrong attributes hash, or an OTX expected output outside the action's
+`append_outputs` range fail.
 
 The minter does not try to discover every possible minted NFT output in the
 transaction. This follows the Spore-style boundary: a real `minted-nft-type`
@@ -291,8 +303,9 @@ The MVP accepts both tx-level and OTX-level `MintNft` actions.
 
 Ordering across both origins is defined by `(witness_index, action.index)`.
 This makes mixed tx-level and OTX minting deterministic. OTX layout and
-signature semantics are still handled by Cobuild Core; the minter only consumes
-the related actions and validates output cells.
+signature semantics are still handled by Cobuild Core; the minter consumes the
+related actions, uses each OTX action's `ActionOrigin::Otx.layout`, and
+validates output cells only in the action's allowed output range.
 
 The minter does not count unrelated actions. Actions targeting other script
 hashes or roles are ignored by the minter plan and should not affect the

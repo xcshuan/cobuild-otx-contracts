@@ -1714,6 +1714,19 @@ fn validate_expected_outputs(
 }
 ```
 
+Follow-up correction for OTX-origin mint actions:
+
+- extend `MintActionFact` so it keeps enough origin information to derive the
+  candidate output range;
+- tx-level mint actions may search all transaction outputs, preserving the
+  original happy paths;
+- OTX mint actions must search only `ActionOrigin::Otx.layout.append_outputs`;
+- an NFT output for an OTX mint action in `base_outputs`, remainder outputs, or
+  another OTX must be treated as missing and rejected with
+  `Error::InvalidMintedNft`;
+- keep the existing exact-data check and duplicate-match rejection within the
+  candidate range.
+
 Remove duplicate imports introduced by the snippet.
 
 - [ ] **Step 5: Run happy path integration**
@@ -1948,6 +1961,18 @@ Add `mint_mixed_tx_and_otx_order_case()`:
 Use `TxShape::push_otx(OtxSegment { ... })` with the minter input in the OTX base input and the second NFT output in the OTX append output. Keep the tx-level action witness before `OtxStart`; the canonical order remains `(witness_index, action.index)`.
 
 Expected: PASS for the supported mixed-origin shape.
+
+Add a negative OTX binding case:
+
+```rust
+mint_otx_output_outside_append_range_case()
+```
+
+Build an OTX `MintNft(seed=[6;32])` whose matching NFT output is placed in the
+same OTX's `base_outputs` instead of `append_outputs`. The minter must reject
+with `NftMinterTypeError::InvalidMintedNft` at the minter input. This proves the
+minter validates the action-to-output OTX scope rather than relying on a
+whole-transaction scan.
 
 - [ ] **Step 5: Implement NFT burn case**
 
