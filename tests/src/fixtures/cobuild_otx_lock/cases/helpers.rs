@@ -57,6 +57,24 @@ pub(super) fn sign_and_fill_sighash_all(
     facts
 }
 
+pub(super) fn sign_and_fill_tx_level_lock_group(
+    built: &mut BuiltTxShape,
+    input: InputHandle,
+    secret_key: &SecretKey,
+    script_hash: [u8; 32],
+    signer: SignerId,
+) -> SigningFacts {
+    let input_tx_index = built.inputs.tx_index(input);
+    let witnesses = insert_leading_witness_placeholders(built, built.resolved_inputs.len());
+    sign_and_fill_sighash_all(
+        built,
+        secret_key,
+        script_hash,
+        witnesses[input_tx_index],
+        signer,
+    )
+}
+
 pub(super) fn fill_otx_seals(built: &mut BuiltTxShape, otx: OtxHandle, facts: &[SigningFacts]) {
     let seals = facts
         .iter()

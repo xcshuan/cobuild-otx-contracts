@@ -20,16 +20,15 @@ pub(super) fn signed_sighash_all_case() -> BuiltCobuildOtxLockCase {
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(code.cell_dep);
-    shape.push_prefix_input(lock_input);
+    let input = shape.push_prefix_input(lock_input);
     shape.push_remainder_output(output);
     let mut built = shape.build();
-    let witness = insert_leading_witness_placeholders(&mut built, 1)[0];
 
-    let facts = sign_and_fill_sighash_all(
+    let facts = sign_and_fill_tx_level_lock_group(
         &mut built,
+        input,
         &secret_key,
         contract.script_hash,
-        witness,
         SignerId("owner"),
     );
 
@@ -71,16 +70,15 @@ pub(super) fn signed_sighash_all_offset_lock_case() -> BuiltCobuildOtxLockCase {
     shape.push_prefix_cell_dep(code.cell_dep);
     shape.push_prefix_cell_dep(other.cell_dep);
     shape.push_prefix_input(other_input);
-    shape.push_prefix_input(lock_input);
+    let input = shape.push_prefix_input(lock_input);
     shape.push_remainder_output(output);
     let mut built = shape.build();
-    let witnesses = insert_leading_witness_placeholders(&mut built, 2);
 
-    let facts = sign_and_fill_sighash_all(
+    let facts = sign_and_fill_tx_level_lock_group(
         &mut built,
+        input,
         &secret_key,
         contract.script_hash,
-        witnesses[1],
         SignerId("owner"),
     );
 

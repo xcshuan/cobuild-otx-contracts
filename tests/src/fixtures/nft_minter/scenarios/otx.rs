@@ -38,14 +38,14 @@ pub fn mint_mixed_tx_and_otx_order_case() -> NftMinterCase {
     shape.tx_level_message(
         CobuildMessageBuilder::new()
             .input_type_action(minter_hash)
-            .action_data(mint_nft_action_data([6u8; 32]))
+            .action_data(mint_nft_action_data([6u8; 32], script_hash(&lock.script)))
             .build(),
     );
     shape.push_otx(OtxSegment {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
-                .action_data(mint_nft_action_data([7u8; 32]))
+                .action_data(mint_nft_action_data([7u8; 32], script_hash(&lock.script)))
                 .build(),
         ),
         base_inputs: vec![minter_input],
@@ -114,7 +114,7 @@ pub fn mint_otx_output_outside_append_range_case() -> NftMinterCase {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
-                .action_data(mint_nft_action_data(seed))
+                .action_data(mint_nft_action_data(seed, script_hash(&lock.script)))
                 .build(),
         ),
         base_inputs: vec![minter_input],
@@ -175,7 +175,7 @@ pub fn mint_otx_output_in_remainder_case() -> NftMinterCase {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
-                .action_data(mint_nft_action_data(seed))
+                .action_data(mint_nft_action_data(seed, script_hash(&lock.script)))
                 .build(),
         ),
         base_inputs: vec![minter_input],
@@ -245,7 +245,7 @@ pub fn mint_otx_output_in_other_otx_append_range_case() -> NftMinterCase {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
-                .action_data(mint_nft_action_data(seed))
+                .action_data(mint_nft_action_data(seed, script_hash(&lock.script)))
                 .build(),
         ),
         base_inputs: vec![minter_input],
@@ -288,6 +288,13 @@ pub fn mint_real_otx_lock_tampered_base_output_case() -> NftMinterCase {
     )
 }
 
+pub fn mint_real_otx_lock_tampered_append_nft_output_signed_base_case() -> NftMinterCase {
+    real_otx_lock_mint_case(
+        "mint_real_otx_lock_tampered_append_nft_output_signed_base",
+        RealOtxLockMintMode::TamperAppendNftOutputSignedBase,
+    )
+}
+
 pub fn mint_real_otx_lock_missing_base_seal_case() -> NftMinterCase {
     real_otx_lock_mint_case(
         "mint_real_otx_lock_missing_base_seal",
@@ -302,7 +309,7 @@ pub fn mint_real_otx_lock_bad_base_seal_case() -> NftMinterCase {
     )
 }
 
-pub fn mint_three_real_otx_lock_signed_base_case() -> NftMinterCase {
+pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> NftMinterCase {
     let secret_key_a = fixed_secret_key(51);
     let secret_key_b = fixed_secret_key(52);
     let secret_key_c = fixed_secret_key(53);
@@ -372,7 +379,10 @@ pub fn mint_three_real_otx_lock_signed_base_case() -> NftMinterCase {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
-                .action_data(mint_nft_action_data([6u8; 32]))
+                .action_data(mint_nft_action_data(
+                    [6u8; 32],
+                    script_hash(&user_lock_a.script),
+                ))
                 .build(),
         ),
         base_inputs: vec![minter_input],
@@ -390,7 +400,10 @@ pub fn mint_three_real_otx_lock_signed_base_case() -> NftMinterCase {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
-                .action_data(mint_nft_action_data([7u8; 32]))
+                .action_data(mint_nft_action_data(
+                    [7u8; 32],
+                    script_hash(&user_lock_b.script),
+                ))
                 .build(),
         ),
         base_inputs: vec![user_b_input],
@@ -407,7 +420,10 @@ pub fn mint_three_real_otx_lock_signed_base_case() -> NftMinterCase {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
-                .action_data(mint_nft_action_data([8u8; 32]))
+                .action_data(mint_nft_action_data(
+                    [8u8; 32],
+                    script_hash(&user_lock_c.script),
+                ))
                 .build(),
         ),
         base_inputs: vec![user_c_input],
@@ -423,6 +439,8 @@ pub fn mint_three_real_otx_lock_signed_base_case() -> NftMinterCase {
     let mut built = shape.build();
     built.tx = fixture.context_mut().complete_tx(built.tx);
 
+    // One minter transition advances 6 -> 9 while three OTX messages provide
+    // the three mint actions. OTX B/C are action and append-output carriers.
     let oracle = TestSigningHashOracle;
     for (otx, script_hash, signer, secret_key) in [
         (
@@ -462,7 +480,7 @@ pub fn mint_three_real_otx_lock_signed_base_case() -> NftMinterCase {
     }
 
     NftMinterCase {
-        name: "mint_three_real_otx_lock_signed_base",
+        name: "mint_three_otx_actions_single_minter_transition_signed_base",
         fixture,
         built,
         expected: NftMinterExpected::Pass,
@@ -473,6 +491,7 @@ pub fn mint_three_real_otx_lock_signed_base_case() -> NftMinterCase {
 enum RealOtxLockMintMode {
     Valid,
     TamperBaseOutput,
+    TamperAppendNftOutputSignedBase,
     MissingBaseSeal,
     BadBaseSeal,
 }
@@ -528,7 +547,7 @@ fn real_otx_lock_mint_case(name: &'static str, mode: RealOtxLockMintMode) -> Nft
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
-                .action_data(mint_nft_action_data(seed))
+                .action_data(mint_nft_action_data(seed, script_hash(&user_lock.script)))
                 .build(),
         ),
         base_inputs: vec![minter_input],
@@ -538,6 +557,7 @@ fn real_otx_lock_mint_case(name: &'static str, mode: RealOtxLockMintMode) -> Nft
     });
     let minter_input = shape.otx_base_input(otx, 0);
     let minter_base_output = shape.otx_base_output(otx, 0);
+    let minted_append_output = shape.otx_append_output(otx, 0);
     let mut built = shape.build();
     built.tx = fixture.context_mut().complete_tx(built.tx);
 
@@ -579,9 +599,29 @@ fn real_otx_lock_mint_case(name: &'static str, mode: RealOtxLockMintMode) -> Nft
             ),
         });
     }
+    if mode == RealOtxLockMintMode::TamperAppendNftOutputSignedBase {
+        let replacement_lock =
+            deploy_always_success(fixture.context_mut(), b"append-owner".to_vec());
+        built.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
+            output: minted_append_output,
+            replacement: minted_nft_output(
+                &replacement_lock.script,
+                &nft_code.script,
+                minter_hash,
+                serial,
+                seed,
+            ),
+        });
+    }
 
     let expected = match mode {
         RealOtxLockMintMode::Valid => NftMinterExpected::Pass,
+        RealOtxLockMintMode::TamperAppendNftOutputSignedBase => {
+            NftMinterExpected::MinterInputType {
+                input: minter_input,
+                error: NftMinterTypeError::InvalidMintedNft,
+            }
+        }
         RealOtxLockMintMode::TamperBaseOutput | RealOtxLockMintMode::BadBaseSeal => {
             NftMinterExpected::OtxLockInput {
                 input: minter_input,

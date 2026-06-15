@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use ckb_std::{
     ckb_constants::Source,
     ckb_types::prelude::*,
-    high_level::{QueryIter, load_cell_data, load_cell_type},
+    high_level::{QueryIter, load_cell_data, load_cell_lock_hash, load_cell_type},
 };
 use cobuild_core::{
     plan::{ActionOrigin, TypeValidationPlan},
@@ -52,6 +52,7 @@ pub struct MintActionFact {
     pub witness_index: usize,
     pub action_index: usize,
     pub metadata_seed: [u8; 32],
+    pub mint_to_lock_hash: [u8; 32],
     pub output_candidates: OutputCandidates,
 }
 
@@ -68,7 +69,11 @@ pub fn mint_actions(plan: &TypeValidationPlan) -> Result<Vec<MintActionFact>, Er
             return Err(Error::InvalidAction);
         }
         let action_data = cursor_bytes(&related.action.action.data)?;
-        let NftMinterAction::MintNft { metadata_seed } = parse_action(&action_data)? else {
+        let NftMinterAction::MintNft {
+            metadata_seed,
+            mint_to_lock_hash,
+        } = parse_action(&action_data)?
+        else {
             return Err(Error::InvalidAction);
         };
         let (witness_index, output_candidates) = match related.action.origin {
@@ -89,6 +94,7 @@ pub fn mint_actions(plan: &TypeValidationPlan) -> Result<Vec<MintActionFact>, Er
             witness_index,
             action_index: related.action.action.index,
             metadata_seed,
+            mint_to_lock_hash,
             output_candidates,
         });
     }
@@ -123,6 +129,7 @@ fn validate_expected_outputs(
                         serial,
                         rarity,
                         expected_attributes,
+                        action.mint_to_lock_hash,
                     )?;
                 }
             }
@@ -137,6 +144,7 @@ fn validate_expected_outputs(
                         serial,
                         rarity,
                         expected_attributes,
+                        action.mint_to_lock_hash,
                     )?;
                 }
             }
@@ -157,6 +165,7 @@ fn validate_expected_output_at(
     serial: u64,
     rarity: u8,
     expected_attributes: [u8; 32],
+    expected_lock_hash: [u8; 32],
 ) -> Result<usize, Error> {
     let Some(type_script) = type_script else {
         return Ok(0);
@@ -173,6 +182,10 @@ fn validate_expected_output_at(
         || nft.rarity != rarity
         || nft.attributes_hash != expected_attributes
     {
+        return Err(Error::InvalidMintedNft);
+    }
+    let lock_hash = load_cell_lock_hash(index, Source::Output)?;
+    if lock_hash != expected_lock_hash {
         return Err(Error::InvalidMintedNft);
     }
     Ok(1)
@@ -300,9 +313,12 @@ mod tests {
         let seed_a = [1; 32];
         let seed_b = [2; 32];
         let seed_c = [3; 32];
-        let action_a = mint_nft_action_data(seed_a);
-        let action_b = mint_nft_action_data(seed_b);
-        let action_c = mint_nft_action_data(seed_c);
+        let mint_to_a = [11; 32];
+        let mint_to_b = [12; 32];
+        let mint_to_c = [13; 32];
+        let action_a = mint_nft_action_data(seed_a, mint_to_a);
+        let action_b = mint_nft_action_data(seed_b, mint_to_b);
+        let action_c = mint_nft_action_data(seed_c, mint_to_c);
         let plan = plan(vec![
             related_action(
                 ActionOrigin::TxLevel { witness_index: 5 },
@@ -335,18 +351,21 @@ mod tests {
                     witness_index: 3,
                     action_index: 0,
                     metadata_seed: seed_c,
+                    mint_to_lock_hash: mint_to_c,
                     output_candidates: OutputCandidates::All,
                 },
                 MintActionFact {
                     witness_index: 3,
                     action_index: 1,
                     metadata_seed: seed_a,
+                    mint_to_lock_hash: mint_to_a,
                     output_candidates: OutputCandidates::Range { start: 1, end: 1 },
                 },
                 MintActionFact {
                     witness_index: 5,
                     action_index: 2,
                     metadata_seed: seed_b,
+                    mint_to_lock_hash: mint_to_b,
                     output_candidates: OutputCandidates::All,
                 },
             ])
@@ -368,7 +387,7 @@ mod tests {
 
     #[test]
     fn mint_actions_rejects_output_type_mint_action() {
-        let action = mint_nft_action_data([4; 32]);
+        let action = mint_nft_action_data([4; 32], [5; 32]);
         let plan = plan(vec![related_action(
             ActionOrigin::TxLevel { witness_index: 0 },
             0,

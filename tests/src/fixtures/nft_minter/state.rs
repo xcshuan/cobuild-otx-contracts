@@ -9,7 +9,7 @@ pub const U64_LEN: usize = size_of::<u64>();
 pub const MINTER_DATA_LEN: usize = U64_LEN + U64_LEN;
 pub const NFT_DATA_LEN: usize = HASH_LEN + U64_LEN + TAG_LEN + HASH_LEN;
 pub const CREATE_ACTION_LEN: usize = TAG_LEN + U64_LEN;
-pub const MINT_ACTION_LEN: usize = TAG_LEN + HASH_LEN;
+pub const MINT_ACTION_LEN: usize = TAG_LEN + HASH_LEN + HASH_LEN;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MinterState {
@@ -56,10 +56,11 @@ pub fn create_minter_action_data(supply_cap: u64) -> Vec<u8> {
     out
 }
 
-pub fn mint_nft_action_data(metadata_seed: [u8; 32]) -> Vec<u8> {
+pub fn mint_nft_action_data(metadata_seed: [u8; 32], mint_to_lock_hash: [u8; 32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(MINT_ACTION_LEN);
     out.push(MINT_NFT_TAG);
     out.extend_from_slice(&metadata_seed);
+    out.extend_from_slice(&mint_to_lock_hash);
     out
 }
 

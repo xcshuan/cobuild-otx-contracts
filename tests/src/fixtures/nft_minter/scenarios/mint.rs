@@ -162,7 +162,7 @@ pub fn mint_duplicate_nft_output_case() -> NftMinterCase {
     shape.tx_level_message(
         CobuildMessageBuilder::new()
             .input_type_action(minter_hash)
-            .action_data(mint_nft_action_data(seed))
+            .action_data(mint_nft_action_data(seed, script_hash(&lock.script)))
             .build(),
     );
     let mut built = shape.build();
@@ -281,7 +281,7 @@ fn mint_wrong_nft_data_case(name: &'static str, override_data: MintedNftData) ->
     shape.tx_level_message(
         CobuildMessageBuilder::new()
             .input_type_action(minter_hash)
-            .action_data(mint_nft_action_data(seed))
+            .action_data(mint_nft_action_data(seed, script_hash(&lock.script)))
             .build(),
     );
     let mut built = shape.build();
@@ -319,7 +319,13 @@ fn mint_from_counter_case_with(
     let serial = old_counter;
     let rarity = rarity_for_serial(serial);
     let nft_id = nft_id(minter_hash, serial);
-    let nft_code = nft_seed.map(|_| deploy_minted_nft_type(fixture.context_mut(), nft_id));
+    let nft_code = nft_seed.map(|_| {
+        if expected == MintExpected::Pass {
+            deploy_minted_nft_type(fixture.context_mut(), nft_id)
+        } else {
+            deploy_always_success(fixture.context_mut(), nft_id.to_vec())
+        }
+    });
     let minter_cell = typed_output(
         lock.script.clone(),
         minter_code.script.clone(),
@@ -368,7 +374,7 @@ fn mint_from_counter_case_with(
     shape.tx_level_message(
         CobuildMessageBuilder::new()
             .input_type_action(minter_hash)
-            .action_data(mint_nft_action_data(seed))
+            .action_data(mint_nft_action_data(seed, script_hash(&lock.script)))
             .build(),
     );
     let mut built = shape.build();
@@ -444,12 +450,12 @@ pub fn mint_two_actions_tx_level_case() -> NftMinterCase {
             .push_action(
                 ActionRole::InputType.into(),
                 minter_hash,
-                mint_nft_action_data([6u8; 32]),
+                mint_nft_action_data([6u8; 32], script_hash(&lock.script)),
             )
             .push_action(
                 ActionRole::InputType.into(),
                 minter_hash,
-                mint_nft_action_data([7u8; 32]),
+                mint_nft_action_data([7u8; 32], script_hash(&lock.script)),
             )
             .build(),
     );

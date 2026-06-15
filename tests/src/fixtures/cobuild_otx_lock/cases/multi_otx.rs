@@ -33,13 +33,13 @@ pub fn two_udt_transfer_otxs_case(include_fee_input: bool) -> BuiltCobuildOtxLoc
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock_code.cell_dep);
     shape.push_prefix_cell_dep(udt.cell_dep);
-    if include_fee_input {
+    let fee_input = include_fee_input.then(|| {
         shape.push_prefix_input(live_resolved_facts(
             fixture.context_mut(),
             normal_output(fee_lock.script, 100_000_000_000),
             Bytes::new(),
-        ));
-    }
+        ))
+    });
 
     let otx_a = shape.push_otx(OtxSegment {
         base_inputs: vec![live_resolved_facts(
@@ -96,12 +96,11 @@ pub fn two_udt_transfer_otxs_case(include_fee_input: bool) -> BuiltCobuildOtxLoc
     let mut signing_facts = vec![otx_a_facts, otx_b_facts];
 
     if include_fee_input {
-        let witness = insert_leading_witness_placeholders(&mut built, 1)[0];
-        let fee_facts = sign_and_fill_sighash_all(
+        let fee_facts = sign_and_fill_tx_level_lock_group(
             &mut built,
+            fee_input.expect("fee input"),
             &fee_secret_key,
             fee_lock_hash,
-            witness,
             SignerId("fee-payer"),
         );
         signing_facts.push(fee_facts);

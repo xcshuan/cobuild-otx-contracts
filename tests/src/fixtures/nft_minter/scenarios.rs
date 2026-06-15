@@ -59,8 +59,10 @@ pub use otx::{
     mint_mixed_tx_and_otx_order_case, mint_otx_output_in_other_otx_append_range_case,
     mint_otx_output_in_remainder_case, mint_otx_output_outside_append_range_case,
     mint_real_otx_lock_bad_base_seal_case, mint_real_otx_lock_missing_base_seal_case,
-    mint_real_otx_lock_signed_base_case, mint_real_otx_lock_tampered_base_output_case,
-    mint_three_real_otx_lock_signed_base_case,
+    mint_real_otx_lock_signed_base_case,
+    mint_real_otx_lock_tampered_append_nft_output_signed_base_case,
+    mint_real_otx_lock_tampered_base_output_case,
+    mint_three_otx_actions_single_minter_transition_signed_base_case,
 };
 
 pub struct NftMinterCase {

@@ -108,10 +108,11 @@ pub fn type_script_fill_cases() -> Vec<BuiltLimitOrderCase> {
 fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
     let mut fixture = CobuildTestFixture::new();
     let limit_order = fixture.deploy_limit_order();
-    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
-    let owner_lock = always_success.script.clone();
-    let buyer_lock = always_success.script.clone();
-    let issuer_lock_hash = script_hash(&always_success.script);
+    let owner_success = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
+    let buyer_success = deploy_always_success(fixture.context_mut(), b"buyer".to_vec());
+    let owner_lock = owner_success.script.clone();
+    let buyer_lock = buyer_success.script.clone();
+    let issuer_lock_hash = script_hash(&owner_success.script);
     let wrong_owner_lock = deploy_wrong_owner_lock(fixture.context_mut()).script;
     let wrong_buyer_lock = deploy_wrong_owner_lock(fixture.context_mut()).script;
     let proxy_lock = deploy_input_type_proxy_lock(fixture.context_mut(), limit_order.script_hash);
@@ -171,7 +172,7 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
     );
     let nft_output = match scenario.action_case {
         Some(FillActionCase::MissingBuyerNftOutput) => TestCellOutput::new(
-            normal_output(always_success.script.clone(), 90_000_000_000),
+            normal_output(owner_success.script.clone(), 90_000_000_000),
             Vec::new(),
         ),
         Some(FillActionCase::BuyerNftWrongLock) => TestCellOutput::new(
@@ -217,7 +218,8 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
         &mut shape,
         [
             &limit_order,
-            &always_success,
+            &owner_success,
+            &buyer_success,
             &proxy_lock,
             &nft,
             &wrong_nft,
@@ -239,7 +241,7 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
     let other_payment = if let Some(output) = other_otx_payment_output {
         let dummy_input = live_resolved_facts(
             fixture.context_mut(),
-            normal_output(always_success.script.clone(), 100_000_000_000),
+            normal_output(owner_success.script.clone(), 100_000_000_000),
             Vec::new(),
         );
         let other_otx = shape.push_otx(OtxSegment {
@@ -267,6 +269,9 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
     let payment = match scenario.action_case {
         Some(FillActionCase::PaymentInAnotherOtx) => other_payment.expect("other OTX payment"),
         Some(FillActionCase::PaymentOutputOutOfRange) => {
+            remainder_payment.expect("remainder payment")
+        }
+        None if scenario.payment_case == NftForUdtPaymentCase::TxLevelRemainderOnly => {
             remainder_payment.expect("remainder payment")
         }
         _ => current_payment,
@@ -312,17 +317,23 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
         replace_otx_message(&mut built, otx, message);
     }
 
-    let expected = match scenario.payment_case {
-        NftForUdtPaymentCase::Valid => match scenario.action_case {
-            None => LimitOrderExpectedOutcome::Pass,
-            Some(FillActionCase::TxLevelNoiseAndOtxFillOrder) => LimitOrderExpectedOutcome::Pass,
-            Some(FillActionCase::PaymentOutputWrongUdt)
-            | Some(FillActionCase::PaymentOutputWrongOwner)
-            | Some(FillActionCase::PaymentOutputInsufficient) => {
-                input_type_error(order, LimitOrderTypeError::InvalidPayment)
-            }
-            Some(_) => input_type_error(order, LimitOrderTypeError::InvalidAction),
-        },
+    let expected = match (scenario.payment_case, scenario.action_case) {
+        (NftForUdtPaymentCase::Valid, None) => LimitOrderExpectedOutcome::Pass,
+        (NftForUdtPaymentCase::Valid, Some(FillActionCase::TxLevelNoiseAndOtxFillOrder)) => {
+            LimitOrderExpectedOutcome::Pass
+        }
+        (
+            NftForUdtPaymentCase::Valid,
+            Some(
+                FillActionCase::PaymentOutputWrongUdt
+                | FillActionCase::PaymentOutputWrongOwner
+                | FillActionCase::PaymentOutputInsufficient,
+            ),
+        ) => input_type_error(order, LimitOrderTypeError::InvalidPayment),
+        (NftForUdtPaymentCase::Valid, Some(_))
+        | (NftForUdtPaymentCase::TxLevelRemainderOnly, None) => {
+            input_type_error(order, LimitOrderTypeError::InvalidAction)
+        }
         _ => input_type_error(order, LimitOrderTypeError::InvalidPayment),
     };
 
@@ -338,10 +349,11 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
 fn two_type_orders_case(case: FillActionCase) -> BuiltLimitOrderCase {
     let mut fixture = CobuildTestFixture::new();
     let limit_order_code = fixture.deploy_limit_order();
-    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
-    let owner_lock = always_success.script.clone();
-    let buyer_lock = always_success.script.clone();
-    let issuer_lock_hash = script_hash(&always_success.script);
+    let owner_success = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
+    let buyer_success = deploy_always_success(fixture.context_mut(), b"buyer".to_vec());
+    let owner_lock = owner_success.script.clone();
+    let buyer_lock = buyer_success.script.clone();
+    let issuer_lock_hash = script_hash(&owner_success.script);
     let nft_a = deploy_test_nft(fixture.context_mut(), [0x51; 32]);
     let nft_b = deploy_test_nft(fixture.context_mut(), [0x52; 32]);
     let udt = deploy_test_udt(fixture.context_mut(), issuer_lock_hash);
@@ -429,7 +441,8 @@ fn two_type_orders_case(case: FillActionCase) -> BuiltLimitOrderCase {
         &mut shape,
         [
             &limit_order_code,
-            &always_success,
+            &owner_success,
+            &buyer_success,
             &proxy_lock_a,
             &proxy_lock_b,
             &nft_a,

@@ -40,10 +40,11 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
         0,
         &public_key_hash20(&secret_key),
     );
-    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
-    let owner_lock = always_success.script.clone();
-    let buyer_lock = always_success.script.clone();
-    let issuer_lock_hash = script_hash(&always_success.script);
+    let owner_success = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
+    let buyer_success = deploy_always_success(fixture.context_mut(), b"buyer".to_vec());
+    let owner_lock = owner_success.script.clone();
+    let buyer_lock = buyer_success.script.clone();
+    let issuer_lock_hash = script_hash(&owner_success.script);
     let nft = deploy_test_nft(fixture.context_mut(), NFT_TYPE_ARGS);
     let udt = deploy_test_udt(fixture.context_mut(), issuer_lock_hash);
 
@@ -91,7 +92,8 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
         [
             &limit_order_lock_code,
             &otx_lock_code,
-            &always_success,
+            &owner_success,
+            &buyer_success,
             &nft,
             &udt,
         ],

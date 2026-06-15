@@ -453,14 +453,12 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
     }
     let mut signing_facts = vec![base_facts, append_facts.clone()];
 
-    if let Some(_input) = tx_input {
-        let input_count = built.resolved_inputs.len();
-        let witnesses = insert_leading_witness_placeholders(&mut built, input_count);
-        let tx_facts = sign_and_fill_sighash_all(
+    if let Some(input) = tx_input {
+        let tx_facts = sign_and_fill_tx_level_lock_group(
             &mut built,
+            input,
             &secret_key,
             contract.script_hash,
-            witnesses[0],
             SignerId("owner"),
         );
         signing_facts.push(tx_facts);

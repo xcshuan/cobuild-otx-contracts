@@ -5,7 +5,7 @@ pub const NFT_DATA_LEN: usize = 73;
 pub const CREATE_MINTER_TAG: u8 = 1;
 pub const MINT_NFT_TAG: u8 = 2;
 pub const CREATE_ACTION_LEN: usize = 1 + 8;
-pub const MINT_ACTION_LEN: usize = 1 + 32;
+pub const MINT_ACTION_LEN: usize = 1 + 32 + 32;
 
 fn blake2b_256(data: impl AsRef<[u8]>) -> [u8; 32] {
     let mut out = [0u8; 32];
@@ -31,8 +31,13 @@ pub struct MintedNftData {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NftMinterAction {
-    CreateMinter { supply_cap: u64 },
-    MintNft { metadata_seed: [u8; 32] },
+    CreateMinter {
+        supply_cap: u64,
+    },
+    MintNft {
+        metadata_seed: [u8; 32],
+        mint_to_lock_hash: [u8; 32],
+    },
 }
 
 pub fn parse_minter_state(data: &[u8]) -> Result<MinterState, Error> {
@@ -96,7 +101,12 @@ pub fn parse_action(data: &[u8]) -> Result<NftMinterAction, Error> {
         Some(MINT_NFT_TAG) if data.len() == MINT_ACTION_LEN => {
             let mut metadata_seed = [0u8; 32];
             metadata_seed.copy_from_slice(&data[1..33]);
-            Ok(NftMinterAction::MintNft { metadata_seed })
+            let mut mint_to_lock_hash = [0u8; 32];
+            mint_to_lock_hash.copy_from_slice(&data[33..65]);
+            Ok(NftMinterAction::MintNft {
+                metadata_seed,
+                mint_to_lock_hash,
+            })
         }
         _ => Err(Error::InvalidAction),
     }
@@ -109,10 +119,14 @@ pub fn create_minter_action_data(supply_cap: u64) -> [u8; CREATE_ACTION_LEN] {
     out
 }
 
-pub fn mint_nft_action_data(metadata_seed: [u8; 32]) -> [u8; MINT_ACTION_LEN] {
+pub fn mint_nft_action_data(
+    metadata_seed: [u8; 32],
+    mint_to_lock_hash: [u8; 32],
+) -> [u8; MINT_ACTION_LEN] {
     let mut out = [0u8; MINT_ACTION_LEN];
     out[0] = MINT_NFT_TAG;
     out[1..33].copy_from_slice(&metadata_seed);
+    out[33..65].copy_from_slice(&mint_to_lock_hash);
     out
 }
 
@@ -178,9 +192,10 @@ mod tests {
             Ok(NftMinterAction::CreateMinter { supply_cap: 10 })
         );
         assert_eq!(
-            parse_action(&mint_nft_action_data([7; 32])),
+            parse_action(&mint_nft_action_data([7; 32], [8; 32])),
             Ok(NftMinterAction::MintNft {
-                metadata_seed: [7; 32]
+                metadata_seed: [7; 32],
+                mint_to_lock_hash: [8; 32],
             })
         );
     }

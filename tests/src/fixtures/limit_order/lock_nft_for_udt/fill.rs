@@ -363,10 +363,11 @@ fn base_output_mutation(name: &'static str, mutation: BusinessMutation) -> LockS
 fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
     let mut fixture = CobuildTestFixture::new();
     let limit_order_lock_code = deploy_limit_order_lock(fixture.context_mut());
-    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
-    let owner_lock = always_success.script.clone();
-    let buyer_lock = always_success.script.clone();
-    let issuer_lock_hash = script_hash(&always_success.script);
+    let owner_success = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
+    let buyer_success = deploy_always_success(fixture.context_mut(), b"buyer".to_vec());
+    let owner_lock = owner_success.script.clone();
+    let buyer_lock = buyer_success.script.clone();
+    let issuer_lock_hash = script_hash(&owner_success.script);
     let wrong_owner = deploy_wrong_owner_lock(fixture.context_mut());
     let wrong_owner_lock = wrong_owner.script.clone();
     let wrong_buyer_lock = deploy_wrong_owner_lock(fixture.context_mut()).script;
@@ -428,7 +429,7 @@ fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
     );
     let nft_output = match scenario.nft_output {
         NftOutputKind::Missing => TestCellOutput::new(
-            normal_output(always_success.script.clone(), 90_000_000_000),
+            normal_output(owner_success.script.clone(), 90_000_000_000),
             Vec::new(),
         ),
         NftOutputKind::WrongLock => TestCellOutput::new(
@@ -453,7 +454,7 @@ fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
     .then(|| {
         live_resolved_facts(
             fixture.context_mut(),
-            normal_output(always_success.script.clone(), 100_000_000_000),
+            normal_output(owner_success.script.clone(), 100_000_000_000),
             Vec::new(),
         )
     });
@@ -475,7 +476,8 @@ fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
         &mut shape,
         [
             &limit_order_lock_code,
-            &always_success,
+            &owner_success,
+            &buyer_success,
             &wrong_owner,
             &nft,
             &wrong_nft,
