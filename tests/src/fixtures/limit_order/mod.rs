@@ -41,7 +41,7 @@ impl LimitOrderFixtureExt for CobuildTestFixture {
 }
 
 pub fn assert_type_coverage_manifest(cases: &[BuiltLimitOrderCase]) {
-    assert_eq!(cases.len(), 29, "limit order type case coverage count");
+    assert_eq!(cases.len(), 33, "limit order type case coverage count");
     assert!(
         cases
             .iter()
@@ -54,10 +54,16 @@ pub fn assert_type_coverage_manifest(cases: &[BuiltLimitOrderCase]) {
             .any(|case| case.name == "fill::NftForUdtScenario { payment_case: Valid, action_case: Some(TxLevelNoiseAndOtxFillOrder), sighash_all: false }"),
         "limit order type coverage must include unrelated tx-level action noise plus OTX fill"
     );
+    assert!(
+        cases
+            .iter()
+            .any(|case| case.name == "real_otx_lock::SignedBase"),
+        "limit order type coverage must include real OTX lock signed base path"
+    );
 }
 
 pub fn assert_lock_coverage_manifest(cases: &[BuiltLimitOrderCase]) {
-    assert_eq!(cases.len(), 26, "limit order lock case coverage count");
+    assert_eq!(cases.len(), 30, "limit order lock case coverage count");
     assert!(
         cases
             .iter()
@@ -69,5 +75,11 @@ pub fn assert_lock_coverage_manifest(cases: &[BuiltLimitOrderCase]) {
             .iter()
             .any(|case| case.name == "lock_fill::TxLevelNoiseAndOtxFillOrder"),
         "limit order lock coverage must include unrelated tx-level action noise plus OTX fill"
+    );
+    assert!(
+        cases
+            .iter()
+            .any(|case| case.name == "real_otx_lock::SignedBase"),
+        "limit order lock coverage must include real OTX lock signed base path"
     );
 }
