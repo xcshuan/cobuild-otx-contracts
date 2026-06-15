@@ -64,11 +64,11 @@ pub fn mint_nft_action_data(metadata_seed: [u8; 32]) -> Vec<u8> {
 }
 
 pub fn rarity_for_serial(serial: u64) -> u8 {
-    if serial % 77 == 0 {
+    if serial.is_multiple_of(77) {
         3
-    } else if serial % 11 == 0 {
+    } else if serial.is_multiple_of(11) {
         2
-    } else if serial % 7 == 0 {
+    } else if serial.is_multiple_of(7) {
         1
     } else {
         0

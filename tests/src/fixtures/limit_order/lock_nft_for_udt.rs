@@ -612,7 +612,7 @@ fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
             AssetChoice::Expected => target,
             AssetChoice::Wrong => [8; 32],
         };
-        let tx_level_message = fill_message(&fixture, tx_level_target, action.clone(), &built);
+        let tx_level_message = fill_message(&fixture, tx_level_target, action, &built);
         replace_tx_level_message(&mut built, tx_level_message);
         replace_otx_message(&mut built, otx, message);
     } else {

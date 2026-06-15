@@ -1,10 +1,11 @@
 #[cfg(not(feature = "type-id"))]
+use ckb_std::ckb_types::{bytes::Bytes, prelude::*};
+#[cfg(not(feature = "type-id"))]
 use ckb_std::high_level::load_script;
 #[cfg(feature = "type-id")]
 use ckb_std::type_id::check_type_id;
 use ckb_std::{
     ckb_constants::Source,
-    ckb_types::{bytes::Bytes, prelude::*},
     high_level::{QueryIter, load_cell_data, load_script_hash},
 };
 use cobuild_core::{context::CurrentScript, engine::CobuildContext};

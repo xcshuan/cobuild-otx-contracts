@@ -7,3 +7,7 @@ mod main;
 pub use main::program_entry;
 
 extern crate alloc;
+extern crate self as test_udt;
+
+pub mod entry;
+pub mod error;

@@ -578,7 +578,7 @@ impl OtxSealMutation for Otx {
             .into_iter()
             .map(|existing| {
                 if existing.script_hash().raw_data().as_ref() == script_hash
-                    && existing.scope().as_slice() == &[scope]
+                    && existing.scope().as_slice() == [scope]
                     && !replaced
                 {
                     replaced = true;

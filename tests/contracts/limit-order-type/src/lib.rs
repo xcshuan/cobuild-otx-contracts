@@ -7,6 +7,7 @@ mod main;
 pub use main::program_entry;
 
 extern crate alloc;
+extern crate self as limit_order_type;
 
 pub mod entry;
 pub mod error;

@@ -717,9 +717,7 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         lock_exit(base_input_handle, CobuildOtxLockError::DuplicateSealPair)
     } else if config.seal_shape == OtxSealShape::InvalidScope {
         lock_exit(base_input_handle, CobuildOtxLockError::InvalidSealScope)
-    } else if config.corrupt_append_seal {
-        lock_exit(base_input_handle, CobuildOtxLockError::BadSeal)
-    } else if config.mutate_signed_append_output {
+    } else if config.corrupt_append_seal || config.mutate_signed_append_output {
         lock_exit(base_input_handle, CobuildOtxLockError::BadSeal)
     } else if config.malformed_permissions {
         lock_exit(base_input_handle, CobuildOtxLockError::MalformedOtxLayout)

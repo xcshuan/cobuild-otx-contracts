@@ -31,7 +31,8 @@ impl From<SysError> for Error {
             | SysError::InvalidFd
             | SysError::OtherEndClosed
             | SysError::MaxVmsSpawned
-            | SysError::MaxFdsCreated => Self::UnexpectedSyscall,
+            | SysError::MaxFdsCreated
+            | SysError::TypeIDError => Self::UnexpectedSyscall,
         }
     }
 }
