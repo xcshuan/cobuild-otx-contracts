@@ -4,7 +4,10 @@ use ckb_testtool::{
     context::Context,
 };
 
-use crate::framework::contracts::{DeployedScript, deploy_loader_binary, deploy_script_bytes};
+use crate::framework::{
+    contracts::{DeployedScript, deploy_loader_binary, deploy_script_bytes},
+    scripts::script_hash,
+};
 
 #[derive(Clone, Debug)]
 pub struct ContractCatalog {
@@ -18,7 +21,7 @@ impl ContractCatalog {
     pub fn deploy(context: &mut Context) -> Self {
         Self {
             always_success: deploy_always_success(context, Vec::new()),
-            cobuild_otx_lock_code: deploy_cobuild_otx_lock_code(context, Vec::new()),
+            cobuild_otx_lock_code: deploy_cobuild_otx_lock_code(context),
             limit_order_type_code: deploy_limit_order_type(context),
             limit_order_lock_code: deploy_limit_order_lock(context),
         }
@@ -76,18 +79,32 @@ pub fn deploy_wrong_owner_lock(context: &mut Context) -> DeployedScript {
     deploy_always_success(context, b"wrong-owner".to_vec())
 }
 
-pub fn deploy_cobuild_otx_lock_code(context: &mut Context, args: Vec<u8>) -> DeployedScript {
-    deploy_loader_binary(context, "cobuild-otx-lock", ScriptHashType::Data2, args)
+pub fn deploy_cobuild_otx_lock_code(context: &mut Context) -> DeployedScript {
+    deploy_loader_binary(
+        context,
+        "cobuild-otx-lock",
+        ScriptHashType::Data2,
+        Vec::new(),
+    )
 }
 
-pub fn deploy_cobuild_otx_lock(
+pub fn build_cobuild_otx_lock(
     context: &mut Context,
+    code: &DeployedScript,
     auth_algorithm_id: u8,
     public_key_hash: &[u8],
 ) -> DeployedScript {
+    rebuild_data2_deployed_script(
+        context,
+        code,
+        cobuild_otx_lock_args(auth_algorithm_id, public_key_hash),
+    )
+}
+
+fn cobuild_otx_lock_args(auth_algorithm_id: u8, public_key_hash: &[u8]) -> Vec<u8> {
     let mut args = vec![auth_algorithm_id];
     args.extend_from_slice(public_key_hash);
-    deploy_cobuild_otx_lock_code(context, args)
+    args
 }
 
 pub fn deploy_limit_order_type(context: &mut Context) -> DeployedScript {
@@ -116,4 +133,18 @@ pub fn rebuild_data2_script(
     context
         .build_script_with_hash_type(&deployed.out_point, ScriptHashType::Data2, args.into())
         .expect("build deployed Data2 script")
+}
+
+pub fn rebuild_data2_deployed_script(
+    context: &mut Context,
+    deployed: &DeployedScript,
+    args: Vec<u8>,
+) -> DeployedScript {
+    let script = rebuild_data2_script(context, deployed, args);
+    DeployedScript {
+        out_point: deployed.out_point.clone(),
+        script_hash: script_hash(&script),
+        script,
+        cell_dep: deployed.cell_dep.clone(),
+    }
 }

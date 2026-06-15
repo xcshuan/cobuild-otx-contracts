@@ -74,7 +74,13 @@ fn create_minter_real_sighash_all_case(
 ) -> NftMinterCase {
     let secret_key = fixed_secret_key(43);
     let mut fixture = CobuildTestFixture::new();
-    let lock = deploy_cobuild_otx_lock(fixture.context_mut(), 0, &public_key_hash20(&secret_key));
+    let lock_code = deploy_cobuild_otx_lock_code(fixture.context_mut());
+    let lock = build_cobuild_otx_lock(
+        fixture.context_mut(),
+        &lock_code,
+        0,
+        &public_key_hash20(&secret_key),
+    );
     let minter_code = deploy_nft_minter_type(fixture.context_mut(), Vec::new());
     let funding_input = live_resolved_facts(
         fixture.context_mut(),
@@ -100,7 +106,7 @@ fn create_minter_real_sighash_all_case(
         .build();
 
     let mut shape = TxShape::new();
-    shape.push_prefix_cell_dep(lock.cell_dep.clone());
+    shape.push_prefix_cell_dep(lock_code.cell_dep.clone());
     shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
     let funding_input = shape.push_prefix_input(funding_input);
     let minter_output = shape.push_remainder_output(output);

@@ -217,6 +217,80 @@ fn cobuild_protocol_builders_cover_and_uncover_output_mask_bits() {
 }
 
 #[test]
+fn cobuild_protocol_builders_create_full_base_masks() {
+    assert_eq!(
+        crate::framework::cobuild::full_base_input_masks(1),
+        vec![0b0011]
+    );
+    assert_eq!(
+        crate::framework::cobuild::full_base_input_masks(5),
+        vec![0xff, 0b0011]
+    );
+    assert_eq!(
+        crate::framework::cobuild::full_base_output_masks(1),
+        vec![0b1111]
+    );
+    assert_eq!(
+        crate::framework::cobuild::full_base_output_masks(3),
+        vec![0xff, 0b1111]
+    );
+    assert_eq!(
+        crate::framework::cobuild::full_base_cell_dep_masks(1),
+        vec![0b0001]
+    );
+    assert_eq!(
+        crate::framework::cobuild::full_base_cell_dep_masks(9),
+        vec![0xff, 0b0001]
+    );
+    assert_eq!(
+        crate::framework::cobuild::full_base_header_dep_masks(1),
+        vec![0b0001]
+    );
+    assert_eq!(
+        crate::framework::cobuild::full_base_header_dep_masks(9),
+        vec![0xff, 0b0001]
+    );
+}
+
+#[test]
+fn cobuild_protocol_builders_create_partial_base_masks() {
+    use crate::framework::cobuild::{
+        BaseInputMaskField, BaseOutputMaskField, base_cell_dep_masks, base_header_dep_masks,
+        base_input_masks, base_output_masks,
+    };
+
+    assert_eq!(
+        base_input_masks(2, &[(0, BaseInputMaskField::PreviousOutput)]),
+        vec![0b0010]
+    );
+    assert_eq!(
+        base_input_masks(
+            2,
+            &[
+                (0, BaseInputMaskField::Since),
+                (1, BaseInputMaskField::PreviousOutput),
+            ],
+        ),
+        vec![0b1001]
+    );
+    assert_eq!(
+        base_output_masks(
+            2,
+            &[
+                (0, BaseOutputMaskField::Lock),
+                (1, BaseOutputMaskField::Data),
+            ],
+        ),
+        vec![0b1000_0010]
+    );
+    assert_eq!(base_cell_dep_masks(3, &[0, 2]), vec![0b0101]);
+    assert_eq!(
+        base_header_dep_masks(9, &[0, 8]),
+        vec![0b0000_0001, 0b0000_0001]
+    );
+}
+
+#[test]
 fn cobuild_protocol_builders_encode_custom_otx_start_spec() {
     let witness = crate::framework::cobuild::OtxStartSpec {
         start_input_cell: 1,

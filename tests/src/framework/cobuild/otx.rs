@@ -35,6 +35,20 @@ pub struct BuiltOtxSpec {
     pub append_header_deps: u32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BaseInputMaskField {
+    Since,
+    PreviousOutput,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BaseOutputMaskField {
+    Capacity,
+    Lock,
+    Type,
+    Data,
+}
+
 impl OtxBuilder {
     pub fn new() -> Self {
         Self {
@@ -279,15 +293,86 @@ impl Default for OtxBuilder {
     }
 }
 
-fn full_base_output_masks(output_count: usize) -> Vec<u8> {
-    let bits = output_count * 4;
+pub fn full_base_input_masks(input_count: usize) -> Vec<u8> {
+    full_masks(input_count * 2, "input")
+}
+
+pub fn full_base_output_masks(output_count: usize) -> Vec<u8> {
+    full_masks(output_count * 4, "output")
+}
+
+pub fn full_base_cell_dep_masks(cell_dep_count: usize) -> Vec<u8> {
+    full_masks(cell_dep_count, "cell dep")
+}
+
+pub fn full_base_header_dep_masks(header_dep_count: usize) -> Vec<u8> {
+    full_masks(header_dep_count, "header dep")
+}
+
+pub fn base_input_masks(input_count: usize, fields: &[(usize, BaseInputMaskField)]) -> Vec<u8> {
+    let mut masks = zero_masks(input_count * 2);
+    for &(local_input, field) in fields {
+        assert!(
+            local_input < input_count,
+            "input mask index {local_input} outside input count {input_count}"
+        );
+        let field_offset = match field {
+            BaseInputMaskField::Since => 0,
+            BaseInputMaskField::PreviousOutput => 1,
+        };
+        set_mask_bit(&mut masks, local_input * 2 + field_offset, true);
+    }
+    masks
+}
+
+pub fn base_output_masks(output_count: usize, fields: &[(usize, BaseOutputMaskField)]) -> Vec<u8> {
+    let mut masks = zero_masks(output_count * 4);
+    for &(local_output, field) in fields {
+        assert!(
+            local_output < output_count,
+            "output mask index {local_output} outside output count {output_count}"
+        );
+        let field_offset = match field {
+            BaseOutputMaskField::Capacity => 0,
+            BaseOutputMaskField::Lock => 1,
+            BaseOutputMaskField::Type => 2,
+            BaseOutputMaskField::Data => 3,
+        };
+        set_mask_bit(&mut masks, local_output * 4 + field_offset, true);
+    }
+    masks
+}
+
+pub fn base_cell_dep_masks(cell_dep_count: usize, covered_indexes: &[usize]) -> Vec<u8> {
+    indexed_masks(cell_dep_count, covered_indexes, "cell dep")
+}
+
+pub fn base_header_dep_masks(header_dep_count: usize, covered_indexes: &[usize]) -> Vec<u8> {
+    indexed_masks(header_dep_count, covered_indexes, "header dep")
+}
+
+fn full_masks(bits: usize, name: &str) -> Vec<u8> {
     let bytes = bits.div_ceil(8);
     let mut masks = vec![0xff; bytes];
     let extra_bits = bytes * 8 - bits;
     if extra_bits > 0 {
         let keep_bits = 8 - extra_bits;
-        let last = masks.last_mut().expect("non-empty output mask");
+        let last = masks
+            .last_mut()
+            .unwrap_or_else(|| panic!("non-empty {name} mask"));
         *last = (1u8 << keep_bits) - 1;
+    }
+    masks
+}
+
+fn indexed_masks(count: usize, covered_indexes: &[usize], name: &str) -> Vec<u8> {
+    let mut masks = zero_masks(count);
+    for &index in covered_indexes {
+        assert!(
+            index < count,
+            "{name} mask index {index} outside {name} count {count}"
+        );
+        set_mask_bit(&mut masks, index, true);
     }
     masks
 }

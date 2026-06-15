@@ -6,8 +6,8 @@ use crate::{
     fixtures::{
         cobuild_otx_lock::CobuildOtxLockError,
         common::contracts::{
-            deploy_always_success, deploy_cobuild_otx_lock, deploy_minted_nft_type,
-            deploy_nft_minter_type, rebuild_data2_script,
+            build_cobuild_otx_lock, deploy_always_success, deploy_cobuild_otx_lock_code,
+            deploy_minted_nft_type, deploy_nft_minter_type, rebuild_data2_script,
         },
         nft_minter::{
             MintedNftData, MintedNftTypeError, MinterState, NftMinterExpected, NftMinterTypeError,
@@ -60,6 +60,7 @@ pub use otx::{
     mint_otx_output_in_remainder_case, mint_otx_output_outside_append_range_case,
     mint_real_otx_lock_bad_base_seal_case, mint_real_otx_lock_missing_base_seal_case,
     mint_real_otx_lock_signed_base_case, mint_real_otx_lock_tampered_base_output_case,
+    mint_three_real_otx_lock_signed_base_case,
 };
 
 pub struct NftMinterCase {

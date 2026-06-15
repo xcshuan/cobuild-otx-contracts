@@ -1,7 +1,10 @@
 use super::*;
 
 use crate::{
-    fixtures::{cobuild_otx_lock::CobuildOtxLockError, common::contracts::deploy_cobuild_otx_lock},
+    fixtures::{
+        cobuild_otx_lock::CobuildOtxLockError,
+        common::contracts::{build_cobuild_otx_lock, deploy_cobuild_otx_lock_code},
+    },
     framework::{
         scenario::{ExpectedOutcome, ScriptLocation},
         signing::{fixed_secret_key, public_key_hash20, sign_scope},
@@ -30,8 +33,13 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
     let secret_key = fixed_secret_key(77);
     let mut fixture = CobuildTestFixture::new();
     let limit_order_lock_code = deploy_limit_order_lock(fixture.context_mut());
-    let otx_lock =
-        deploy_cobuild_otx_lock(fixture.context_mut(), 0, &public_key_hash20(&secret_key));
+    let otx_lock_code = deploy_cobuild_otx_lock_code(fixture.context_mut());
+    let otx_lock = build_cobuild_otx_lock(
+        fixture.context_mut(),
+        &otx_lock_code,
+        0,
+        &public_key_hash20(&secret_key),
+    );
     let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
     let owner_lock = always_success.script.clone();
     let buyer_lock = always_success.script.clone();
@@ -82,7 +90,7 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
         &mut shape,
         [
             &limit_order_lock_code,
-            &otx_lock,
+            &otx_lock_code,
             &always_success,
             &nft,
             &udt,
