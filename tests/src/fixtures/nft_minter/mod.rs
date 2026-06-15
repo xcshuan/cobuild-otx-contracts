@@ -10,6 +10,8 @@ pub use scenarios::{
     mint_from_counter_six_case, mint_missing_nft_output_case, mint_mixed_tx_and_otx_order_case,
     mint_otx_output_in_other_otx_append_range_case, mint_otx_output_in_remainder_case,
     mint_otx_output_outside_append_range_case, mint_reaches_supply_cap_case,
+    mint_real_otx_lock_bad_base_seal_case, mint_real_otx_lock_missing_base_seal_case,
+    mint_real_otx_lock_signed_base_case, mint_real_otx_lock_tampered_base_output_case,
     mint_serial_eleven_case, mint_serial_seven_case, mint_serial_seventy_seven_case,
     mint_supply_cap_changes_case, mint_supply_cap_overrun_case, mint_two_actions_tx_level_case,
     mint_wrong_attributes_case, mint_wrong_counter_case, mint_wrong_minter_hash_case,

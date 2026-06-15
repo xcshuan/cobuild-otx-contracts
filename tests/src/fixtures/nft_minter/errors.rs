@@ -4,6 +4,8 @@ use crate::framework::{
     tx::{BuiltTxShape, InputHandle, OutputHandle},
 };
 
+use super::super::cobuild_otx_lock::CobuildOtxLockError;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NftMinterTypeError {
     Syscall,
@@ -75,6 +77,10 @@ pub enum NftMinterExpected {
         output: OutputHandle,
         error: MintedNftTypeError,
     },
+    OtxLockInput {
+        input: InputHandle,
+        error: CobuildOtxLockError,
+    },
 }
 
 impl NftMinterExpected {
@@ -99,6 +105,10 @@ impl NftMinterExpected {
             },
             Self::MintedNftOutputType { output, error } => ExpectedOutcome::ScriptExit {
                 location: ScriptLocation::OutputType(*output),
+                code: error.code(),
+            },
+            Self::OtxLockInput { input, error } => ExpectedOutcome::ScriptExit {
+                location: ScriptLocation::InputLock(*input),
                 code: error.code(),
             },
         }
