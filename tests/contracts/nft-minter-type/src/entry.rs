@@ -1,6 +1,6 @@
 use ckb_std::{
     ckb_constants::Source,
-    high_level::{load_cell_data, load_script_hash, QueryIter},
+    high_level::{QueryIter, load_cell_data, load_script_hash},
 };
 use cobuild_core::{context::CurrentScript, engine::CobuildContext};
 

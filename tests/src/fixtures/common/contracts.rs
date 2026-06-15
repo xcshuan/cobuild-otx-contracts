@@ -4,7 +4,7 @@ use ckb_testtool::{
     context::Context,
 };
 
-use crate::framework::contracts::{deploy_loader_binary, deploy_script_bytes, DeployedScript};
+use crate::framework::contracts::{DeployedScript, deploy_loader_binary, deploy_script_bytes};
 
 #[derive(Clone, Debug)]
 pub struct ContractCatalog {
