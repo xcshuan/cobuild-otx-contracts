@@ -89,7 +89,9 @@ impl From<SysError> for Error {
             SysError::OtherEndClosed => Self::SysOtherEndClosed,
             SysError::MaxVmsSpawned => Self::SysMaxVmsSpawned,
             SysError::MaxFdsCreated => Self::SysMaxFdsCreated,
-            SysError::TypeIDError | SysError::Unknown(_) => Self::SyscallUnknown,
+            #[cfg(feature = "type-id")]
+            SysError::TypeIDError => Self::SyscallUnknown,
+            SysError::Unknown(_) => Self::SyscallUnknown,
         }
     }
 }

@@ -10,3 +10,4 @@ cobuild-core = { path = "../../../crates/cobuild-core" }
 [features]
 library = []
 native-simulator = ["library", "ckb-std/native-simulator"]
+type-id = ["ckb-std/type-id"]

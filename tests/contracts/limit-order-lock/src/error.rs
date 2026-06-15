@@ -31,8 +31,9 @@ impl From<SysError> for Error {
             | SysError::InvalidFd
             | SysError::OtherEndClosed
             | SysError::MaxVmsSpawned
-            | SysError::MaxFdsCreated
-            | SysError::TypeIDError => Self::UnexpectedSyscall,
+            | SysError::MaxFdsCreated => Self::UnexpectedSyscall,
+            #[cfg(feature = "type-id")]
+            SysError::TypeIDError => Self::UnexpectedSyscall,
         }
     }
 }
