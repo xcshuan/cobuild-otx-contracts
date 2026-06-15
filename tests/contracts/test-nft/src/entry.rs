@@ -110,6 +110,8 @@ fn verify_transfer(input_payload: &[u8], output_payload: &[u8]) -> Result<(), Er
 
 #[cfg(test)]
 mod tests {
+    use alloc::vec::Vec;
+
     use super::*;
 
     fn nft_data(name: &[u8], attributes: [u8; 4], created_at: u64) -> Vec<u8> {
