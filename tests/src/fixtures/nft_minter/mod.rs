@@ -5,8 +5,9 @@ mod state;
 pub use errors::{MintedNftTypeError, NftMinterExpected, NftMinterTypeError};
 pub use scenarios::{
     create_minter_case, create_minter_missing_action_case, create_minter_non_zero_counter_case,
-    create_minter_supply_cap_mismatch_case, forged_nft_creation_case,
-    mint_duplicate_nft_output_case, mint_first_nft_case,
+    create_minter_real_sighash_all_bad_seal_case, create_minter_real_sighash_all_signed_case,
+    create_minter_real_sighash_all_tampered_output_case, create_minter_supply_cap_mismatch_case,
+    forged_nft_creation_case, mint_duplicate_nft_output_case, mint_first_nft_case,
     mint_from_counter_six_case, mint_missing_nft_output_case, mint_mixed_tx_and_otx_order_case,
     mint_otx_output_in_other_otx_append_range_case, mint_otx_output_in_remainder_case,
     mint_otx_output_outside_append_range_case, mint_reaches_supply_cap_case,

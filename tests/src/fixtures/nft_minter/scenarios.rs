@@ -1,5 +1,6 @@
 use ckb_hash::new_blake2b;
 use ckb_testtool::ckb_types::{bytes::Bytes, packed::CellInput, prelude::*};
+use cobuild_types::entity::{core::SighashAll, witness::WitnessLayout};
 
 use crate::{
     fixtures::{
@@ -20,8 +21,8 @@ use crate::{
         fixture::CobuildTestFixture,
         scripts::script_hash,
         signing::{
-            SignatureScope, SignerId, TestSigningHashOracle, fixed_secret_key, public_key_hash20,
-            sign_scope,
+            SignatureScope, SignerId, SigningHashOracle, TestSigningHashOracle, fixed_secret_key,
+            public_key_hash20, sign_recoverable, sign_scope,
         },
         tx::{BuiltTxShape, OtxSegment, ProtocolMutation, TxShape, TxShapeMutation},
     },
@@ -35,7 +36,8 @@ mod otx;
 
 pub use create::{
     create_minter_case, create_minter_missing_action_case, create_minter_non_zero_counter_case,
-    create_minter_supply_cap_mismatch_case,
+    create_minter_real_sighash_all_bad_seal_case, create_minter_real_sighash_all_signed_case,
+    create_minter_real_sighash_all_tampered_output_case, create_minter_supply_cap_mismatch_case,
 };
 pub use mint::{
     mint_duplicate_nft_output_case, mint_first_nft_case, mint_from_counter_six_case,

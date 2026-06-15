@@ -1,8 +1,9 @@
 use tests::fixtures::nft_minter::{
     create_minter_case, create_minter_missing_action_case, create_minter_non_zero_counter_case,
-    create_minter_supply_cap_mismatch_case, forged_nft_creation_case,
-    mint_duplicate_nft_output_case, mint_first_nft_case, mint_from_counter_six_case,
-    mint_missing_nft_output_case, mint_mixed_tx_and_otx_order_case,
+    create_minter_real_sighash_all_bad_seal_case, create_minter_real_sighash_all_signed_case,
+    create_minter_real_sighash_all_tampered_output_case, create_minter_supply_cap_mismatch_case,
+    forged_nft_creation_case, mint_duplicate_nft_output_case, mint_first_nft_case,
+    mint_from_counter_six_case, mint_missing_nft_output_case, mint_mixed_tx_and_otx_order_case,
     mint_otx_output_in_other_otx_append_range_case, mint_otx_output_in_remainder_case,
     mint_otx_output_outside_append_range_case, mint_reaches_supply_cap_case,
     mint_real_otx_lock_bad_base_seal_case, mint_real_otx_lock_missing_base_seal_case,
@@ -21,6 +22,9 @@ use tests::fixtures::nft_minter::{
 fn nft_minter_cases_match_expected_outcomes() {
     for case in [
         create_minter_case(),
+        create_minter_real_sighash_all_signed_case(),
+        create_minter_real_sighash_all_bad_seal_case(),
+        create_minter_real_sighash_all_tampered_output_case(),
         mint_first_nft_case(),
         mint_from_counter_six_case(),
         mint_serial_seven_case(),
