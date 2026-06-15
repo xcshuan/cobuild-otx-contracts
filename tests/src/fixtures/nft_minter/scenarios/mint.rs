@@ -181,11 +181,10 @@ pub fn mint_duplicate_nft_output_case() -> NftMinterCase {
 pub fn mint_wrong_serial_case() -> NftMinterCase {
     mint_wrong_nft_data_case(
         "mint_wrong_serial",
-        MintedNftData {
-            minter_type_hash: [0; 32],
-            serial: 7,
-            rarity: rarity_for_serial(6),
-            attributes_hash: [0; 32],
+        MintedNftDataOverride {
+            serial: Some(7),
+            rarity: Some(rarity_for_serial(6)),
+            ..Default::default()
         },
     )
 }
@@ -193,11 +192,10 @@ pub fn mint_wrong_serial_case() -> NftMinterCase {
 pub fn mint_wrong_rarity_case() -> NftMinterCase {
     mint_wrong_nft_data_case(
         "mint_wrong_rarity",
-        MintedNftData {
-            minter_type_hash: [0; 32],
-            serial: 6,
-            rarity: 2,
-            attributes_hash: [0; 32],
+        MintedNftDataOverride {
+            serial: Some(6),
+            rarity: Some(2),
+            ..Default::default()
         },
     )
 }
@@ -205,16 +203,27 @@ pub fn mint_wrong_rarity_case() -> NftMinterCase {
 pub fn mint_wrong_minter_hash_case() -> NftMinterCase {
     mint_wrong_nft_data_case(
         "mint_wrong_minter_hash",
-        MintedNftData {
-            minter_type_hash: [9; 32],
-            serial: 6,
-            rarity: rarity_for_serial(6),
-            attributes_hash: [0; 32],
+        MintedNftDataOverride {
+            minter_type_hash: Some([9; 32]),
+            serial: Some(6),
+            rarity: Some(rarity_for_serial(6)),
+            ..Default::default()
         },
     )
 }
 
-fn mint_wrong_nft_data_case(name: &'static str, override_data: MintedNftData) -> NftMinterCase {
+#[derive(Clone, Copy, Debug, Default)]
+struct MintedNftDataOverride {
+    minter_type_hash: Option<[u8; 32]>,
+    serial: Option<u64>,
+    rarity: Option<u8>,
+    attributes_hash: Option<[u8; 32]>,
+}
+
+fn mint_wrong_nft_data_case(
+    name: &'static str,
+    override_data: MintedNftDataOverride,
+) -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
     let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
     let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
@@ -243,21 +252,14 @@ fn mint_wrong_nft_data_case(name: &'static str, override_data: MintedNftData) ->
             supply_cap: 100,
         }),
     );
-    let rarity = if override_data.rarity == 0 {
-        rarity_for_serial(serial)
-    } else {
-        override_data.rarity
-    };
-    let data_minter_hash = if override_data.minter_type_hash == [0; 32] {
-        minter_hash
-    } else {
-        override_data.minter_type_hash
-    };
-    let attributes_hash = if override_data.attributes_hash == [0; 32] {
-        attributes_hash(data_minter_hash, override_data.serial, rarity, seed)
-    } else {
-        override_data.attributes_hash
-    };
+    let data_serial = override_data.serial.unwrap_or(serial);
+    let rarity = override_data
+        .rarity
+        .unwrap_or_else(|| rarity_for_serial(data_serial));
+    let data_minter_hash = override_data.minter_type_hash.unwrap_or(minter_hash);
+    let attributes_hash = override_data
+        .attributes_hash
+        .unwrap_or_else(|| attributes_hash(data_minter_hash, data_serial, rarity, seed));
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
@@ -273,7 +275,7 @@ fn mint_wrong_nft_data_case(name: &'static str, override_data: MintedNftData) ->
         ),
         minted_nft_data(MintedNftData {
             minter_type_hash: data_minter_hash,
-            serial: override_data.serial,
+            serial: data_serial,
             rarity,
             attributes_hash,
         }),

@@ -35,6 +35,11 @@ pub struct BuiltOtxSpec {
     pub append_header_deps: u32,
 }
 
+#[derive(Clone, Debug)]
+pub struct RawOtxBuilder {
+    inner: OtxBuilder,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BaseInputMaskField {
     Since,
@@ -47,6 +52,25 @@ pub enum BaseOutputMaskField {
     Lock,
     Type,
     Data,
+}
+
+#[derive(Clone, Debug)]
+pub struct BaseInputMaskDsl {
+    input_count: usize,
+    masks: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BaseOutputMaskDsl {
+    output_count: usize,
+    masks: Vec<u8>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ItemMaskDsl {
+    count: usize,
+    name: &'static str,
+    masks: Vec<u8>,
 }
 
 impl OtxBuilder {
@@ -75,38 +99,23 @@ impl OtxBuilder {
         self
     }
 
-    pub fn append_permissions_raw(mut self, value: u8) -> Self {
-        self.append_permissions = value;
-        self
-    }
-
-    pub fn base_input_masks_raw(mut self, masks: Vec<u8>) -> Self {
+    pub(crate) fn base_input_mask_bytes(mut self, masks: Vec<u8>) -> Self {
         self.base_input_masks = masks;
         self
     }
 
-    pub fn base_output_masks_raw(mut self, masks: Vec<u8>) -> Self {
+    pub(crate) fn base_output_mask_bytes(mut self, masks: Vec<u8>) -> Self {
         self.base_output_masks = masks;
         self
     }
 
-    pub fn base_cell_dep_masks_raw(mut self, masks: Vec<u8>) -> Self {
+    pub(crate) fn base_cell_dep_mask_bytes(mut self, masks: Vec<u8>) -> Self {
         self.base_cell_dep_masks = masks;
         self
     }
 
-    pub fn base_header_dep_masks_raw(mut self, masks: Vec<u8>) -> Self {
+    pub(crate) fn base_header_dep_mask_bytes(mut self, masks: Vec<u8>) -> Self {
         self.base_header_dep_masks = masks;
-        self
-    }
-
-    pub fn raw_base_input_cells(mut self, value: u32) -> Self {
-        self.base_input_cells = value;
-        self
-    }
-
-    pub fn raw_append_output_cells(mut self, value: u32) -> Self {
-        self.append_output_cells = value;
         self
     }
 
@@ -293,6 +302,123 @@ impl Default for OtxBuilder {
     }
 }
 
+impl RawOtxBuilder {
+    pub fn new() -> Self {
+        Self {
+            inner: OtxBuilder::new(),
+        }
+    }
+
+    pub fn message(mut self, message: CobuildMessage) -> Self {
+        self.inner = self.inner.message(message);
+        self
+    }
+
+    pub fn append_permissions(mut self, value: u8) -> Self {
+        self.inner.append_permissions = value;
+        self
+    }
+
+    pub fn base_input_cells(mut self, value: u32) -> Self {
+        self.inner.base_input_cells = value;
+        self
+    }
+
+    pub fn base_input_masks(mut self, masks: Vec<u8>) -> Self {
+        self.inner.base_input_masks = masks;
+        self
+    }
+
+    pub fn base_output_cells(mut self, value: u32) -> Self {
+        self.inner.base_output_cells = value;
+        self
+    }
+
+    pub fn base_output_masks(mut self, masks: Vec<u8>) -> Self {
+        self.inner.base_output_masks = masks;
+        self
+    }
+
+    pub fn base_cell_deps(mut self, value: u32) -> Self {
+        self.inner.base_cell_deps = value;
+        self
+    }
+
+    pub fn base_cell_dep_masks(mut self, masks: Vec<u8>) -> Self {
+        self.inner.base_cell_dep_masks = masks;
+        self
+    }
+
+    pub fn base_header_deps(mut self, value: u32) -> Self {
+        self.inner.base_header_deps = value;
+        self
+    }
+
+    pub fn base_header_dep_masks(mut self, masks: Vec<u8>) -> Self {
+        self.inner.base_header_dep_masks = masks;
+        self
+    }
+
+    pub fn append_input_cells(mut self, value: u32) -> Self {
+        self.inner.append_input_cells = value;
+        self
+    }
+
+    pub fn append_output_cells(mut self, value: u32) -> Self {
+        self.inner.append_output_cells = value;
+        self
+    }
+
+    pub fn append_cell_deps(mut self, value: u32) -> Self {
+        self.inner.append_cell_deps = value;
+        self
+    }
+
+    pub fn append_header_deps(mut self, value: u32) -> Self {
+        self.inner.append_header_deps = value;
+        self
+    }
+
+    pub fn seals(mut self, seals: Vec<SealPair>) -> Self {
+        self.inner = self.inner.seals(seals);
+        self
+    }
+
+    pub fn allow_append_inputs(mut self) -> Self {
+        self.inner = self.inner.allow_append_inputs();
+        self
+    }
+
+    pub fn allow_append_outputs(mut self) -> Self {
+        self.inner = self.inner.allow_append_outputs();
+        self
+    }
+
+    pub fn allow_append_cell_deps(mut self) -> Self {
+        self.inner = self.inner.allow_append_cell_deps();
+        self
+    }
+
+    pub fn allow_append_header_deps(mut self) -> Self {
+        self.inner = self.inner.allow_append_header_deps();
+        self
+    }
+
+    pub fn build(self) -> Otx {
+        self.inner.build()
+    }
+
+    pub fn build_with_layout(self) -> BuiltOtxSpec {
+        self.inner.build_with_layout()
+    }
+}
+
+impl Default for RawOtxBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 pub fn full_base_input_masks(input_count: usize) -> Vec<u8> {
     full_masks(input_count * 2, "input")
 }
@@ -310,27 +436,85 @@ pub fn full_base_header_dep_masks(header_dep_count: usize) -> Vec<u8> {
 }
 
 pub fn base_input_masks(input_count: usize, fields: &[(usize, BaseInputMaskField)]) -> Vec<u8> {
-    let mut masks = zero_masks(input_count * 2);
+    let mut builder = base_input_mask(input_count);
     for &(local_input, field) in fields {
+        builder = builder.cover_field(local_input, field);
+    }
+    builder.bytes()
+}
+
+pub fn base_output_masks(output_count: usize, fields: &[(usize, BaseOutputMaskField)]) -> Vec<u8> {
+    let mut builder = base_output_mask(output_count);
+    for &(local_output, field) in fields {
+        builder = builder.cover_field(local_output, field);
+    }
+    builder.bytes()
+}
+
+pub fn base_cell_dep_masks(cell_dep_count: usize, covered_indexes: &[usize]) -> Vec<u8> {
+    let mut builder = base_cell_dep_item_mask(cell_dep_count);
+    for &index in covered_indexes {
+        builder = builder.cover_item(index);
+    }
+    builder.bytes()
+}
+
+pub fn base_header_dep_masks(header_dep_count: usize, covered_indexes: &[usize]) -> Vec<u8> {
+    let mut builder = base_header_dep_item_mask(header_dep_count);
+    for &index in covered_indexes {
+        builder = builder.cover_item(index);
+    }
+    builder.bytes()
+}
+
+pub fn base_input_mask(input_count: usize) -> BaseInputMaskDsl {
+    BaseInputMaskDsl {
+        input_count,
+        masks: zero_masks(input_count * 2),
+    }
+}
+
+pub fn base_output_mask(output_count: usize) -> BaseOutputMaskDsl {
+    BaseOutputMaskDsl {
+        output_count,
+        masks: zero_masks(output_count * 4),
+    }
+}
+
+pub fn base_cell_dep_item_mask(cell_dep_count: usize) -> ItemMaskDsl {
+    item_mask(cell_dep_count, "cell dep")
+}
+
+pub fn base_header_dep_item_mask(header_dep_count: usize) -> ItemMaskDsl {
+    item_mask(header_dep_count, "header dep")
+}
+
+impl BaseInputMaskDsl {
+    pub fn cover_field(mut self, local_input: usize, field: BaseInputMaskField) -> Self {
         assert!(
-            local_input < input_count,
-            "input mask index {local_input} outside input count {input_count}"
+            local_input < self.input_count,
+            "input mask index {local_input} outside input count {}",
+            self.input_count
         );
         let field_offset = match field {
             BaseInputMaskField::Since => 0,
             BaseInputMaskField::PreviousOutput => 1,
         };
-        set_mask_bit(&mut masks, local_input * 2 + field_offset, true);
+        set_mask_bit(&mut self.masks, local_input * 2 + field_offset, true);
+        self
     }
-    masks
+
+    pub fn bytes(self) -> Vec<u8> {
+        self.masks
+    }
 }
 
-pub fn base_output_masks(output_count: usize, fields: &[(usize, BaseOutputMaskField)]) -> Vec<u8> {
-    let mut masks = zero_masks(output_count * 4);
-    for &(local_output, field) in fields {
+impl BaseOutputMaskDsl {
+    pub fn cover_field(mut self, local_output: usize, field: BaseOutputMaskField) -> Self {
         assert!(
-            local_output < output_count,
-            "output mask index {local_output} outside output count {output_count}"
+            local_output < self.output_count,
+            "output mask index {local_output} outside output count {}",
+            self.output_count
         );
         let field_offset = match field {
             BaseOutputMaskField::Capacity => 0,
@@ -338,17 +522,31 @@ pub fn base_output_masks(output_count: usize, fields: &[(usize, BaseOutputMaskFi
             BaseOutputMaskField::Type => 2,
             BaseOutputMaskField::Data => 3,
         };
-        set_mask_bit(&mut masks, local_output * 4 + field_offset, true);
+        set_mask_bit(&mut self.masks, local_output * 4 + field_offset, true);
+        self
     }
-    masks
+
+    pub fn bytes(self) -> Vec<u8> {
+        self.masks
+    }
 }
 
-pub fn base_cell_dep_masks(cell_dep_count: usize, covered_indexes: &[usize]) -> Vec<u8> {
-    indexed_masks(cell_dep_count, covered_indexes, "cell dep")
-}
+impl ItemMaskDsl {
+    pub fn cover_item(mut self, index: usize) -> Self {
+        assert!(
+            index < self.count,
+            "{} mask index {index} outside {} count {}",
+            self.name,
+            self.name,
+            self.count
+        );
+        set_mask_bit(&mut self.masks, index, true);
+        self
+    }
 
-pub fn base_header_dep_masks(header_dep_count: usize, covered_indexes: &[usize]) -> Vec<u8> {
-    indexed_masks(header_dep_count, covered_indexes, "header dep")
+    pub fn bytes(self) -> Vec<u8> {
+        self.masks
+    }
 }
 
 fn full_masks(bits: usize, name: &str) -> Vec<u8> {
@@ -365,16 +563,12 @@ fn full_masks(bits: usize, name: &str) -> Vec<u8> {
     masks
 }
 
-fn indexed_masks(count: usize, covered_indexes: &[usize], name: &str) -> Vec<u8> {
-    let mut masks = zero_masks(count);
-    for &index in covered_indexes {
-        assert!(
-            index < count,
-            "{name} mask index {index} outside {name} count {count}"
-        );
-        set_mask_bit(&mut masks, index, true);
+fn item_mask(count: usize, name: &'static str) -> ItemMaskDsl {
+    ItemMaskDsl {
+        count,
+        name,
+        masks: zero_masks(count),
     }
-    masks
 }
 
 fn zero_masks(bits: usize) -> Vec<u8> {

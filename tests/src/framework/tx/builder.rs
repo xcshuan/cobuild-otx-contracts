@@ -393,16 +393,16 @@ impl TxShape {
                 builder_for_otx = builder_for_otx.allow_append_header_deps();
             }
             if let Some(masks) = &otx.segment.base_input_masks {
-                builder_for_otx = builder_for_otx.base_input_masks_raw(masks.clone());
+                builder_for_otx = builder_for_otx.base_input_mask_bytes(masks.clone());
             }
             if let Some(masks) = &otx.segment.base_output_masks {
-                builder_for_otx = builder_for_otx.base_output_masks_raw(masks.clone());
+                builder_for_otx = builder_for_otx.base_output_mask_bytes(masks.clone());
             }
             if let Some(masks) = &otx.segment.base_cell_dep_masks {
-                builder_for_otx = builder_for_otx.base_cell_dep_masks_raw(masks.clone());
+                builder_for_otx = builder_for_otx.base_cell_dep_mask_bytes(masks.clone());
             }
             if let Some(masks) = &otx.segment.base_header_dep_masks {
-                builder_for_otx = builder_for_otx.base_header_dep_masks_raw(masks.clone());
+                builder_for_otx = builder_for_otx.base_header_dep_mask_bytes(masks.clone());
             }
             if let Some(message) = &otx.segment.message {
                 builder_for_otx = builder_for_otx.message(message.clone());

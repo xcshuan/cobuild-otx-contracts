@@ -44,7 +44,7 @@ pub fn two_udt_transfer_otxs_case(include_fee_input: bool) -> BuiltCobuildOtxLoc
     let otx_a = shape.push_otx(OtxSegment {
         base_inputs: vec![live_resolved_facts(
             fixture.context_mut(),
-            typed_udt_cell(otx_a_lock.script.clone(), udt.script.clone(), 100),
+            typed_udt_cell(otx_a_lock.script.clone(), udt.script.clone()),
             udt_amount_data(100),
         )],
         base_outputs: vec![
@@ -58,7 +58,7 @@ pub fn two_udt_transfer_otxs_case(include_fee_input: bool) -> BuiltCobuildOtxLoc
     let otx_b = shape.push_otx(OtxSegment {
         base_inputs: vec![live_resolved_facts(
             fixture.context_mut(),
-            typed_udt_cell(otx_b_lock.script.clone(), udt.script.clone(), 300),
+            typed_udt_cell(otx_b_lock.script.clone(), udt.script.clone()),
             udt_amount_data(300),
         )],
         base_outputs: vec![
@@ -170,7 +170,7 @@ pub(super) fn nft_for_udt_swap_otxs_case() -> BuiltCobuildOtxLockCase {
     let otx_b = shape.push_otx(OtxSegment {
         base_inputs: vec![live_resolved_facts(
             fixture.context_mut(),
-            typed_udt_cell(otx_b_lock.script.clone(), udt.script.clone(), 1000),
+            typed_udt_cell(otx_b_lock.script.clone(), udt.script.clone()),
             udt_amount_data(1000),
         )],
         base_outputs: vec![TestCellOutput::new(

@@ -5,7 +5,9 @@ pub(super) fn input_mask_accepts_uncovered_previous_output_mutation_case() -> Bu
     partial_mask_case(
         "contract_accepts_partial_input_mask_when_uncovered_previous_output_changes",
         PartialMaskConfig {
-            base_input_masks: base_input_masks(1, &[(0, BaseInputMaskField::Since)]),
+            base_input_masks: base_input_mask(1)
+                .cover_field(0, BaseInputMaskField::Since)
+                .bytes(),
             mutation: PartialMaskMutation::PreviousOutput,
             expected: PartialMaskExpected::Pass,
             ..Default::default()
@@ -18,7 +20,9 @@ pub(super) fn input_mask_rejects_covered_previous_output_mutation_case() -> Buil
     partial_mask_case(
         "contract_rejects_partial_input_mask_when_covered_previous_output_changes",
         PartialMaskConfig {
-            base_input_masks: base_input_masks(1, &[(0, BaseInputMaskField::PreviousOutput)]),
+            base_input_masks: base_input_mask(1)
+                .cover_field(0, BaseInputMaskField::PreviousOutput)
+                .bytes(),
             mutation: PartialMaskMutation::PreviousOutput,
             expected: PartialMaskExpected::BadSeal,
             ..Default::default()
@@ -30,7 +34,9 @@ pub(super) fn output_mask_accepts_uncovered_lock_mutation_case() -> BuiltCobuild
     partial_mask_case(
         "contract_accepts_partial_output_mask_when_uncovered_lock_changes",
         PartialMaskConfig {
-            base_output_masks: base_output_masks(1, &[(0, BaseOutputMaskField::Capacity)]),
+            base_output_masks: base_output_mask(1)
+                .cover_field(0, BaseOutputMaskField::Capacity)
+                .bytes(),
             mutation: PartialMaskMutation::OutputLock,
             expected: PartialMaskExpected::Pass,
             ..Default::default()
@@ -42,7 +48,9 @@ pub(super) fn output_mask_rejects_covered_lock_mutation_case() -> BuiltCobuildOt
     partial_mask_case(
         "contract_rejects_partial_output_mask_when_covered_lock_changes",
         PartialMaskConfig {
-            base_output_masks: base_output_masks(1, &[(0, BaseOutputMaskField::Lock)]),
+            base_output_masks: base_output_mask(1)
+                .cover_field(0, BaseOutputMaskField::Lock)
+                .bytes(),
             mutation: PartialMaskMutation::OutputLock,
             expected: PartialMaskExpected::BadSeal,
             ..Default::default()
@@ -54,7 +62,7 @@ pub(super) fn cell_dep_mask_accepts_uncovered_cell_dep_mutation_case() -> BuiltC
     partial_mask_case(
         "contract_accepts_partial_cell_dep_mask_when_uncovered_cell_dep_changes",
         PartialMaskConfig {
-            base_cell_dep_masks: base_cell_dep_masks(1, &[]),
+            base_cell_dep_masks: base_cell_dep_item_mask(1).bytes(),
             mutation: PartialMaskMutation::CellDep,
             expected: PartialMaskExpected::Pass,
             ..Default::default()
@@ -66,7 +74,7 @@ pub(super) fn cell_dep_mask_rejects_covered_cell_dep_mutation_case() -> BuiltCob
     partial_mask_case(
         "contract_rejects_partial_cell_dep_mask_when_covered_cell_dep_changes",
         PartialMaskConfig {
-            base_cell_dep_masks: base_cell_dep_masks(1, &[0]),
+            base_cell_dep_masks: base_cell_dep_item_mask(1).cover_item(0).bytes(),
             mutation: PartialMaskMutation::CellDep,
             expected: PartialMaskExpected::BadSeal,
             ..Default::default()
@@ -79,7 +87,7 @@ pub(super) fn header_dep_mask_accepts_uncovered_header_dep_mutation_case() -> Bu
     partial_mask_case(
         "contract_accepts_partial_header_dep_mask_when_uncovered_header_dep_changes",
         PartialMaskConfig {
-            base_header_dep_masks: base_header_dep_masks(1, &[]),
+            base_header_dep_masks: base_header_dep_item_mask(1).bytes(),
             mutation: PartialMaskMutation::HeaderDep,
             expected: PartialMaskExpected::Pass,
             ..Default::default()
@@ -92,7 +100,7 @@ pub(super) fn header_dep_mask_rejects_covered_header_dep_mutation_case() -> Buil
     partial_mask_case(
         "contract_rejects_partial_header_dep_mask_when_covered_header_dep_changes",
         PartialMaskConfig {
-            base_header_dep_masks: base_header_dep_masks(1, &[0]),
+            base_header_dep_masks: base_header_dep_item_mask(1).cover_item(0).bytes(),
             mutation: PartialMaskMutation::HeaderDep,
             expected: PartialMaskExpected::BadSeal,
             ..Default::default()

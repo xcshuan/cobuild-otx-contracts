@@ -76,32 +76,24 @@ pub(super) fn sign_and_fill_tx_level_lock_group(
 }
 
 pub(super) fn fill_otx_seals(built: &mut BuiltTxShape, otx: OtxHandle, facts: &[SigningFacts]) {
+    fill_otx_seals_with(built, otx, facts, None);
+}
+
+pub(super) fn fill_otx_seals_with(
+    built: &mut BuiltTxShape,
+    otx: OtxHandle,
+    facts: &[SigningFacts],
+    script_hash_override: Option<[u8; 32]>,
+) {
     let seals = facts
         .iter()
         .map(|facts| {
             seal_pair(
-                facts.script_hash,
+                script_hash_override.unwrap_or(facts.script_hash),
                 seal_scope(facts.scope),
                 facts.seal.clone(),
             )
         })
-        .collect::<Vec<_>>();
-    let updated = current_otx_witness(built, otx)
-        .as_builder()
-        .seals(SealPairVec::new_builder().extend(seals).build())
-        .build();
-    replace_otx_witness(built, otx, updated);
-}
-
-pub(super) fn fill_otx_seals_with_script_hash(
-    built: &mut BuiltTxShape,
-    otx: OtxHandle,
-    script_hash: [u8; 32],
-    facts: &[SigningFacts],
-) {
-    let seals = facts
-        .iter()
-        .map(|facts| seal_pair(script_hash, seal_scope(facts.scope), facts.seal.clone()))
         .collect::<Vec<_>>();
     let updated = current_otx_witness(built, otx)
         .as_builder()
@@ -212,7 +204,7 @@ pub(super) fn deploy_dummy_dep(
         .build()
 }
 
-pub(super) fn typed_udt_cell(lock: Script, type_script: Script, _amount: u128) -> CellOutput {
+pub(super) fn typed_udt_cell(lock: Script, type_script: Script) -> CellOutput {
     CellOutput::new_builder()
         .capacity(100_000_000_000u64)
         .lock(lock)

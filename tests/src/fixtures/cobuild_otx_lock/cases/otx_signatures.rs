@@ -2,15 +2,92 @@ use super::*;
 
 #[derive(Clone, Copy, Debug)]
 struct OtxCaseConfig {
-    include_sighash_all: bool,
-    corrupt_append_seal: bool,
-    malformed_permissions: bool,
-    include_full_preimage: bool,
+    tx_level_shape: OtxTxLevelShape,
+    preimage_shape: OtxPreimageShape,
     seal_shape: OtxSealShape,
-    invalid_action_target: bool,
-    include_outside_same_lock_without_tx_signature: bool,
-    include_outside_other_lock_without_tx_signature: bool,
-    mutate_signed_append_output: bool,
+    tamper: OtxTamper,
+}
+
+impl Default for OtxCaseConfig {
+    fn default() -> Self {
+        Self {
+            tx_level_shape: OtxTxLevelShape::None,
+            preimage_shape: OtxPreimageShape::Minimal,
+            seal_shape: OtxSealShape::Valid,
+            tamper: OtxTamper::None,
+        }
+    }
+}
+
+impl OtxCaseConfig {
+    fn with_sighash_all(mut self) -> Self {
+        self.tx_level_shape = OtxTxLevelShape::SignedSameLock;
+        self
+    }
+
+    fn with_full_preimage(mut self) -> Self {
+        self.preimage_shape = OtxPreimageShape::Full;
+        self
+    }
+
+    fn with_seal_shape(mut self, seal_shape: OtxSealShape) -> Self {
+        self.seal_shape = seal_shape;
+        self
+    }
+
+    fn with_corrupt_append_seal(mut self) -> Self {
+        self.tamper = OtxTamper::CorruptAppendSeal;
+        self
+    }
+
+    fn with_malformed_permissions(mut self) -> Self {
+        self.tamper = OtxTamper::MalformedPermissions;
+        self
+    }
+
+    fn with_invalid_action_target(mut self) -> Self {
+        self.tamper = OtxTamper::InvalidActionTarget;
+        self
+    }
+
+    fn with_outside_same_lock_without_tx_signature(mut self) -> Self {
+        self.tx_level_shape = OtxTxLevelShape::UnsignedOutsideSameLock;
+        self
+    }
+
+    fn with_outside_other_lock_without_tx_signature(mut self) -> Self {
+        self.tx_level_shape = OtxTxLevelShape::UnsignedOutsideOtherLock;
+        self
+    }
+
+    fn with_signed_append_output_mutation(mut self) -> Self {
+        self.preimage_shape = OtxPreimageShape::FullWithSignedAppendOutputMutation;
+        self
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OtxTxLevelShape {
+    None,
+    SignedSameLock,
+    UnsignedOutsideSameLock,
+    UnsignedOutsideOtherLock,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OtxPreimageShape {
+    Minimal,
+    Full,
+    FullWithSignedAppendOutputMutation,
+}
+
+impl OtxPreimageShape {
+    fn includes_full_preimage(self) -> bool {
+        matches!(
+            self,
+            OtxPreimageShape::Full | OtxPreimageShape::FullWithSignedAppendOutputMutation
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,54 +100,32 @@ enum OtxSealShape {
     WrongScriptHash,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum OtxTamper {
+    None,
+    CorruptAppendSeal,
+    MalformedPermissions,
+    InvalidActionTarget,
+}
+
 pub(super) fn signed_otx_dual_scope_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_accepts_otx_base_and_append_signatures",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default(),
     )
 }
 
 pub(super) fn signed_otx_full_preimage_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_accepts_otx_signatures_covering_full_preimage_shape",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: true,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_full_preimage(),
     )
 }
 
 pub(super) fn signed_otx_append_output_mutated_after_signing_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_signed_append_output_mutation",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: true,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: true,
-        },
+        OtxCaseConfig::default().with_signed_append_output_mutation(),
     )
 }
 
@@ -78,17 +133,7 @@ pub(super) fn otx_and_outside_same_lock_without_tx_level_signature_case() -> Bui
 {
     signed_otx_case(
         "contract_rejects_otx_and_outside_same_lock_without_tx_level_signature",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: true,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_outside_same_lock_without_tx_signature(),
     )
 }
 
@@ -96,187 +141,77 @@ pub(super) fn otx_and_outside_other_lock_without_tx_level_signature_case() -> Bu
 {
     signed_otx_case(
         "contract_accepts_other_lock_outside_otx_without_tx_level_signature",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: true,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_outside_other_lock_without_tx_signature(),
     )
 }
 
 pub(super) fn signed_otx_missing_base_seal_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_otx_missing_base_seal",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::MissingBase,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_seal_shape(OtxSealShape::MissingBase),
     )
 }
 
 pub(super) fn signed_otx_missing_append_seal_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_otx_missing_append_seal",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::MissingAppend,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_seal_shape(OtxSealShape::MissingAppend),
     )
 }
 
 pub(super) fn signed_otx_duplicate_base_seal_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_otx_duplicate_base_seal",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::DuplicateBase,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_seal_shape(OtxSealShape::DuplicateBase),
     )
 }
 
 pub(super) fn signed_otx_invalid_seal_scope_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_otx_invalid_seal_scope",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::InvalidScope,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_seal_shape(OtxSealShape::InvalidScope),
     )
 }
 
 pub(super) fn signed_otx_wrong_script_hash_seal_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_otx_wrong_script_hash_seal",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::WrongScriptHash,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_seal_shape(OtxSealShape::WrongScriptHash),
     )
 }
 
 pub(super) fn signed_otx_invalid_action_target_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_otx_action_target_missing",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: true,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_invalid_action_target(),
     )
 }
 
 pub(super) fn mixed_sighash_all_and_otx_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_accepts_mixed_sighash_all_and_otx_signature_requests",
-        OtxCaseConfig {
-            include_sighash_all: true,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_sighash_all(),
     )
 }
 
 pub(super) fn bad_seal_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_bad_seal",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: true,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_corrupt_append_seal(),
     )
 }
 
 pub(super) fn malformed_otx_layout_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_malformed_otx_layout",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: true,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default().with_malformed_permissions(),
     )
 }
 
 pub(super) fn malformed_otx_duplicate_start_case() -> BuiltCobuildOtxLockCase {
     let mut built = signed_otx_case(
         "contract_rejects_duplicate_otx_start",
-        OtxCaseConfig {
-            include_sighash_all: false,
-            corrupt_append_seal: false,
-            malformed_permissions: false,
-            include_full_preimage: false,
-            seal_shape: OtxSealShape::Valid,
-            invalid_action_target: false,
-            include_outside_same_lock_without_tx_signature: false,
-            include_outside_other_lock_without_tx_signature: false,
-            mutate_signed_append_output: false,
-        },
+        OtxCaseConfig::default(),
     );
     built
         .built
@@ -305,16 +240,14 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
     shape.push_prefix_cell_dep(code.cell_dep.clone());
 
     let outside_same_lock_input =
-        config
-            .include_outside_same_lock_without_tx_signature
-            .then(|| {
-                shape.push_prefix_input(live_resolved_facts(
-                    fixture.context_mut(),
-                    lock_output.clone(),
-                    Bytes::new(),
-                ))
-            });
-    if config.include_outside_other_lock_without_tx_signature {
+        (config.tx_level_shape == OtxTxLevelShape::UnsignedOutsideSameLock).then(|| {
+            shape.push_prefix_input(live_resolved_facts(
+                fixture.context_mut(),
+                lock_output.clone(),
+                Bytes::new(),
+            ))
+        });
+    if config.tx_level_shape == OtxTxLevelShape::UnsignedOutsideOtherLock {
         let other = deploy_always_success(fixture.context_mut(), Vec::new());
         shape.push_prefix_cell_dep(other.cell_dep);
         shape.push_prefix_input(live_resolved_facts(
@@ -324,7 +257,7 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         ));
     }
 
-    let tx_input = config.include_sighash_all.then(|| {
+    let tx_input = (config.tx_level_shape == OtxTxLevelShape::SignedSameLock).then(|| {
         shape.push_prefix_input(live_resolved_facts(
             fixture.context_mut(),
             lock_output.clone(),
@@ -341,7 +274,7 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         append_cell_deps,
         base_header_deps,
         append_header_deps,
-    ) = if config.include_full_preimage {
+    ) = if config.preimage_shape.includes_full_preimage() {
         let base_dep = deploy_dummy_dep(fixture.context_mut(), 0x51);
         let append_dep = deploy_dummy_dep(fixture.context_mut(), 0x52);
         (
@@ -372,8 +305,7 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
     };
 
     let otx = shape.push_otx(OtxSegment {
-        message: config
-            .invalid_action_target
+        message: (config.tamper == OtxTamper::InvalidActionTarget)
             .then(invalid_action_target_message),
         base_inputs: vec![base_input],
         append_inputs: vec![append_input],
@@ -385,16 +317,18 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         append_header_deps,
         base_input_masks: Some(full_base_input_masks(1)),
         base_cell_dep_masks: config
-            .include_full_preimage
+            .preimage_shape
+            .includes_full_preimage()
             .then_some(full_base_cell_dep_masks(1)),
         base_header_dep_masks: config
-            .include_full_preimage
+            .preimage_shape
+            .includes_full_preimage()
             .then_some(full_base_header_dep_masks(1)),
         ..Default::default()
     });
     let base_input_handle = shape.otx_base_input(otx, 0);
-    let signed_append_output = config
-        .mutate_signed_append_output
+    let signed_append_output = (config.preimage_shape
+        == OtxPreimageShape::FullWithSignedAppendOutputMutation)
         .then(|| shape.otx_append_output(otx, 0));
     let mut built = shape.build();
 
@@ -443,11 +377,11 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
             });
         }
         OtxSealShape::WrongScriptHash => {
-            fill_otx_seals_with_script_hash(
+            fill_otx_seals_with(
                 &mut built,
                 otx,
-                [0x5au8; 32],
                 &[base_facts.clone(), append_facts.clone()],
+                Some([0x5au8; 32]),
             );
         }
     }
@@ -464,7 +398,7 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         signing_facts.push(tx_facts);
     }
 
-    if config.corrupt_append_seal {
+    if config.tamper == OtxTamper::CorruptAppendSeal {
         let mut bad_seal = append_facts.seal.clone();
         bad_seal[0] ^= 0x01;
         built.apply_protocol_mutation(ProtocolMutation::SealRaw {
@@ -474,7 +408,7 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
             seal: bad_seal,
         });
     }
-    if config.malformed_permissions {
+    if config.tamper == OtxTamper::MalformedPermissions {
         built.apply_protocol_mutation(ProtocolMutation::OtxRawPermission {
             otx,
             permissions: 0x10,
@@ -491,12 +425,12 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         });
     }
 
-    let expected = if config.include_outside_same_lock_without_tx_signature {
+    let expected = if config.tx_level_shape == OtxTxLevelShape::UnsignedOutsideSameLock {
         lock_exit(
             outside_same_lock_input.expect("outside same-lock input handle"),
             CobuildOtxLockError::InvalidLockGroupWitness,
         )
-    } else if config.invalid_action_target {
+    } else if config.tamper == OtxTamper::InvalidActionTarget {
         lock_exit(base_input_handle, CobuildOtxLockError::InvalidMessageTarget)
     } else if matches!(
         config.seal_shape,
@@ -507,9 +441,11 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         lock_exit(base_input_handle, CobuildOtxLockError::DuplicateSealPair)
     } else if config.seal_shape == OtxSealShape::InvalidScope {
         lock_exit(base_input_handle, CobuildOtxLockError::InvalidSealScope)
-    } else if config.corrupt_append_seal || config.mutate_signed_append_output {
+    } else if config.tamper == OtxTamper::CorruptAppendSeal
+        || config.preimage_shape == OtxPreimageShape::FullWithSignedAppendOutputMutation
+    {
         lock_exit(base_input_handle, CobuildOtxLockError::BadSeal)
-    } else if config.malformed_permissions {
+    } else if config.tamper == OtxTamper::MalformedPermissions {
         lock_exit(base_input_handle, CobuildOtxLockError::MalformedOtxLayout)
     } else {
         ExpectedOutcome::Pass
