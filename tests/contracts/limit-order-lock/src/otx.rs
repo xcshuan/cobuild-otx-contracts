@@ -2,8 +2,7 @@ use alloc::vec::Vec;
 
 use cobuild_core::{
     engine::CobuildContext,
-    layout::Range,
-    plan::{ActionOrigin, OtxMessageLayout},
+    plan::{ActionOrigin, OtxMessageLayout, OtxPart, RelatedAction},
     protocol::ScriptRole,
     reader::cursor_bytes,
     view::ActionView,
@@ -47,19 +46,15 @@ pub fn otx_fill_layout(
     origin: &ActionOrigin,
     input_index: usize,
 ) -> Result<(usize, OtxMessageLayout), Error> {
-    let ActionOrigin::Otx {
-        otx_index, layout, ..
-    } = origin
-    else {
-        return Err(Error::InvalidCobuild);
-    };
-    if !range_contains(layout.base_inputs(), input_index)? {
+    let otx_index = origin.otx_index().ok_or(Error::InvalidCobuild)?;
+    let layout = origin.otx_layout().ok_or(Error::InvalidCobuild)?;
+    if !matches!(layout.classify_input(input_index), Some((OtxPart::Base, _))) {
         return Err(Error::InvalidCobuild);
     }
-    Ok((*otx_index, *layout))
+    Ok((otx_index, layout))
 }
 
-fn ensure_no_reused_payment_outputs_in_otx(actions: &[ActionView]) -> Result<(), Error> {
+fn ensure_no_reused_payment_outputs_in_otx(actions: &[RelatedAction]) -> Result<(), Error> {
     let fills = collect_limit_order_fill_actions(actions)?;
     let mut indexes = Vec::<u32>::new();
     for fill in fills {
@@ -72,11 +67,11 @@ fn ensure_no_reused_payment_outputs_in_otx(actions: &[ActionView]) -> Result<(),
 }
 
 fn collect_limit_order_fill_actions(
-    actions: &[ActionView],
+    actions: &[RelatedAction],
 ) -> Result<Vec<LimitOrderFillAction>, Error> {
     let mut fills = Vec::<LimitOrderFillAction>::new();
     for action in actions {
-        let Some(fill) = parse_limit_order_fill(action)? else {
+        let Some(fill) = parse_limit_order_fill(&action.action)? else {
             continue;
         };
         fills.push(fill);
@@ -98,14 +93,6 @@ fn parse_limit_order_fill(action: &ActionView) -> Result<Option<LimitOrderFillAc
     }))
 }
 
-fn range_contains(range: Range, index: usize) -> Result<bool, Error> {
-    let end = range
-        .start
-        .checked_add(range.count)
-        .ok_or(Error::InvalidCobuild)?;
-    Ok(index >= range.start && index < end)
-}
-
 fn is_limit_order_role(role: ScriptRole) -> bool {
     matches!(
         role,
@@ -118,7 +105,7 @@ mod tests {
     use alloc::{vec, vec::Vec};
 
     use super::*;
-    use cobuild_core::reader::cursor_from_slice;
+    use cobuild_core::{layout::Range, reader::cursor_from_slice};
 
     fn layout() -> OtxMessageLayout {
         OtxMessageLayout {
@@ -167,31 +154,10 @@ mod tests {
     }
 
     #[test]
-    fn range_contains_accepts_start_and_last_index() {
-        assert_eq!(range_contains(Range { start: 3, count: 2 }, 3), Ok(true));
-        assert_eq!(range_contains(Range { start: 3, count: 2 }, 4), Ok(true));
-        assert_eq!(range_contains(Range { start: 3, count: 2 }, 5), Ok(false));
-    }
-
-    #[test]
-    fn range_contains_rejects_overflowing_range() {
-        assert_eq!(
-            range_contains(
-                Range {
-                    start: usize::MAX,
-                    count: 1,
-                },
-                usize::MAX
-            ),
-            Err(Error::InvalidCobuild)
-        );
-    }
-
-    #[test]
     fn otx_payment_reuse_check_accepts_unique_indexes() {
         let actions = vec![
-            test_action(ScriptRole::InputLock, [7; 32], fill_data(1)),
-            test_action(ScriptRole::InputLock, [7; 32], fill_data(2)),
+            related_test_action(ScriptRole::InputLock, [7; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputLock, [7; 32], fill_data(2)),
         ];
 
         assert_eq!(ensure_no_reused_payment_outputs_in_otx(&actions), Ok(()));
@@ -200,8 +166,8 @@ mod tests {
     #[test]
     fn otx_payment_reuse_check_rejects_duplicate_indexes() {
         let actions = vec![
-            test_action(ScriptRole::InputLock, [7; 32], fill_data(1)),
-            test_action(ScriptRole::InputLock, [7; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputLock, [7; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputLock, [7; 32], fill_data(1)),
         ];
 
         assert_eq!(
@@ -213,8 +179,8 @@ mod tests {
     #[test]
     fn otx_payment_reuse_check_rejects_mixed_type_lock_duplicate() {
         let actions = vec![
-            test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
-            test_action(ScriptRole::InputLock, [8; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputLock, [8; 32], fill_data(1)),
         ];
 
         assert_eq!(
@@ -227,7 +193,11 @@ mod tests {
     fn collect_limit_order_fill_actions_rejects_malformed_tag_two_in_selected_role() {
         let mut malformed_fill = fill_data(1);
         malformed_fill.pop();
-        let actions = vec![test_action(ScriptRole::InputType, [8; 32], malformed_fill)];
+        let actions = vec![related_test_action(
+            ScriptRole::InputType,
+            [8; 32],
+            malformed_fill,
+        )];
 
         assert_eq!(
             collect_limit_order_fill_actions(&actions).map(|actions| actions.len()),
@@ -237,7 +207,11 @@ mod tests {
 
     #[test]
     fn collect_limit_order_fill_actions_ignores_unrelated_non_fill_actions() {
-        let actions = vec![test_action(ScriptRole::InputType, [8; 32], vec![1, 2, 3])];
+        let actions = vec![related_test_action(
+            ScriptRole::InputType,
+            [8; 32],
+            vec![1, 2, 3],
+        )];
 
         assert_eq!(
             collect_limit_order_fill_actions(&actions).map(|actions| actions.len()),
@@ -251,6 +225,17 @@ mod tests {
         data.extend_from_slice(&payment_output_index.to_le_bytes());
         data.extend_from_slice(&[9; 32]);
         data
+    }
+
+    fn related_test_action(
+        script_role: ScriptRole,
+        script_hash: [u8; 32],
+        data: Vec<u8>,
+    ) -> RelatedAction {
+        RelatedAction {
+            origin: ActionOrigin::TxLevel { witness_index: 0 },
+            action: test_action(script_role, script_hash, data),
+        }
     }
 
     fn test_action(script_role: ScriptRole, script_hash: [u8; 32], data: Vec<u8>) -> ActionView {

@@ -58,16 +58,54 @@ impl CobuildContext {
         TypePlanBuilder::new(self)?.build()
     }
 
-    pub fn otx_actions(&self, otx_index: usize) -> Result<Vec<ActionView>, CoreError> {
+    pub fn otx_actions(&self, otx_index: usize) -> Result<Vec<RelatedAction>, CoreError> {
+        let otx = self.otx_entry(otx_index)?;
+        self.script_context
+            .validate_message_targets(&otx.witness.message)?;
+        MessageView::new(otx.witness.message.clone())
+            .actions()?
+            .into_iter()
+            .map(|action| Ok(related_otx_action(otx_index, otx, action)))
+            .collect()
+    }
+
+    pub fn tx_level_actions(&self) -> Result<Option<Vec<RelatedAction>>, CoreError> {
+        let Some((witness_index, message)) =
+            self.witnesses.unique_sighash_all_message_with_index()?
+        else {
+            return Ok(None);
+        };
+
+        self.script_context.validate_message_targets(&message)?;
+        MessageView::new(message)
+            .actions()?
+            .into_iter()
+            .map(|action| Ok(related_tx_action(witness_index, action)))
+            .collect::<Result<Vec<_>, CoreError>>()
+            .map(Some)
+    }
+
+    pub fn all_actions(&self) -> Result<Vec<RelatedAction>, CoreError> {
+        let mut actions = Vec::new();
+        if let Some(tx_level_actions) = self.tx_level_actions()? {
+            actions.extend(tx_level_actions);
+        }
+        if let OtxLayouts::Complete(layout) = &self.otx_layouts {
+            for otx_index in 0..layout.otx_entries.len() {
+                actions.extend(self.otx_actions(otx_index)?);
+            }
+        }
+        Ok(actions)
+    }
+
+    fn otx_entry(&self, otx_index: usize) -> Result<&crate::layout::OtxLayoutEntry, CoreError> {
         let OtxLayouts::Complete(layout) = &self.otx_layouts else {
             return Err(CoreError::InvalidOtxLayout);
         };
-        let otx = layout
+        layout
             .otx_entries
             .get(otx_index)
-            .ok_or(CoreError::InvalidOtxLayout)?;
-
-        MessageView::new(otx.witness.message.clone()).actions()
+            .ok_or(CoreError::InvalidOtxLayout)
     }
 }
 
@@ -248,7 +286,7 @@ impl<'a> LockPlanBuilder<'a> {
         self.context
             .script_context
             .validate_message_targets(&otx.witness.message)?;
-        self.add_otx_related_actions(otx_index, otx, actions);
+        self.push_otx_actions(otx_index, otx, actions);
         if needs_signature {
             self.add_otx_signatures(otx, base_signature, append_signature)?;
         }
@@ -256,7 +294,7 @@ impl<'a> LockPlanBuilder<'a> {
         Ok(())
     }
 
-    fn add_otx_related_actions(
+    fn push_otx_actions(
         &mut self,
         otx_index: usize,
         otx: &crate::layout::OtxLayoutEntry,
@@ -389,7 +427,7 @@ impl<'a> TypePlanBuilder<'a> {
     }
 
     fn build(mut self) -> Result<TypeValidationPlan, CoreError> {
-        self.add_otx_related_actions()?;
+        self.add_otx_actions()?;
         self.add_tx_level_actions()?;
         Ok(TypeValidationPlan {
             type_script_hash: self.type_script_hash,
@@ -397,19 +435,19 @@ impl<'a> TypePlanBuilder<'a> {
         })
     }
 
-    fn add_otx_related_actions(&mut self) -> Result<(), CoreError> {
+    fn add_otx_actions(&mut self) -> Result<(), CoreError> {
         let OtxLayouts::Complete(layout) = &self.context.otx_layouts else {
             return Ok(());
         };
 
         for (otx_index, otx) in layout.otx_entries.iter().enumerate() {
-            self.add_otx_related_action(otx_index, otx)?;
+            self.add_otx_action(otx_index, otx)?;
         }
 
         Ok(())
     }
 
-    fn add_otx_related_action(
+    fn add_otx_action(
         &mut self,
         otx_index: usize,
         otx: &crate::layout::OtxLayoutEntry,
@@ -425,11 +463,11 @@ impl<'a> TypePlanBuilder<'a> {
         self.context
             .script_context
             .validate_message_targets(&otx.witness.message)?;
-        self.push_otx_related_actions(otx_index, otx, actions, type_action_otx_scope(relation));
+        self.push_otx_actions(otx_index, otx, actions, type_action_otx_scope(relation));
         Ok(())
     }
 
-    fn push_otx_related_actions(
+    fn push_otx_actions(
         &mut self,
         otx_index: usize,
         otx: &crate::layout::OtxLayoutEntry,
@@ -607,6 +645,56 @@ mod tests {
         }
     }
 
+    fn lock_context_with_otx_entries(
+        current_lock_hash: [u8; 32],
+        input_locks: Vec<[u8; 32]>,
+        otx_entries: Vec<crate::layout::OtxLayoutEntry>,
+    ) -> CobuildContext {
+        CobuildContext {
+            tx: crate::syscalls::SyscallTxReader::from_cached_parts_for_tests(
+                crate::syscalls::TxCounts::default(),
+                crate::reader::cursor_from_slice(&empty_transaction()),
+                [0u8; 32],
+            ),
+            script_context: crate::context::CurrentScriptContext::input_lock_for_tests(
+                current_lock_hash,
+                input_locks,
+            ),
+            witnesses: crate::witness::WitnessScan::with_capacity(0),
+            otx_layouts: crate::layout::OtxLayouts::Complete(crate::layout::BuiltLayout {
+                input_range: crate::layout::Range { start: 0, count: 0 },
+                output_range: crate::layout::Range { start: 0, count: 0 },
+                otx_entries,
+            }),
+        }
+    }
+
+    fn lock_context_with_tx_message_and_otx_entries(
+        current_lock_hash: [u8; 32],
+        input_locks: Vec<[u8; 32]>,
+        tx_message: &[u8],
+        otx_entries: Vec<crate::layout::OtxLayoutEntry>,
+    ) -> CobuildContext {
+        let tx_witness = sighash_all_witness_bytes(&[0x99], tx_message);
+        CobuildContext {
+            tx: crate::syscalls::SyscallTxReader::from_cached_parts_for_tests(
+                crate::syscalls::TxCounts::default(),
+                crate::reader::cursor_from_slice(&empty_transaction()),
+                [0u8; 32],
+            ),
+            script_context: crate::context::CurrentScriptContext::input_lock_for_tests(
+                current_lock_hash,
+                input_locks,
+            ),
+            witnesses: scan_tx_level_witnesses(&[tx_witness]),
+            otx_layouts: crate::layout::OtxLayouts::Complete(crate::layout::BuiltLayout {
+                input_range: crate::layout::Range { start: 0, count: 0 },
+                output_range: crate::layout::Range { start: 0, count: 0 },
+                otx_entries,
+            }),
+        }
+    }
+
     fn lock_context_with_input_range(
         current_lock_hash: [u8; 32],
         input_locks: Vec<[u8; 32]>,
@@ -631,6 +719,27 @@ mod tests {
         }
     }
 
+    fn lock_context_with_tx_message(
+        current_lock_hash: [u8; 32],
+        input_locks: Vec<[u8; 32]>,
+        tx_message: &[u8],
+    ) -> CobuildContext {
+        let tx_witness = sighash_all_witness_bytes(&[0x99], tx_message);
+        CobuildContext {
+            tx: crate::syscalls::SyscallTxReader::from_cached_parts_for_tests(
+                crate::syscalls::TxCounts::default(),
+                crate::reader::cursor_from_slice(&empty_transaction()),
+                [0u8; 32],
+            ),
+            script_context: crate::context::CurrentScriptContext::input_lock_for_tests(
+                current_lock_hash,
+                input_locks,
+            ),
+            witnesses: scan_tx_level_witnesses(&[tx_witness]),
+            otx_layouts: crate::layout::OtxLayouts::None,
+        }
+    }
+
     fn test_context_without_otx_layouts() -> CobuildContext {
         CobuildContext {
             tx: crate::syscalls::SyscallTxReader::from_cached_parts_for_tests(
@@ -644,6 +753,16 @@ mod tests {
             witnesses: crate::witness::WitnessScan::with_capacity(0),
             otx_layouts: crate::layout::OtxLayouts::None,
         }
+    }
+
+    fn scan_tx_level_witnesses(witnesses: &[Vec<u8>]) -> crate::witness::WitnessScan {
+        let mut scanner = CobuildWitnessScanner::with_capacity(witnesses.len());
+        for witness in witnesses {
+            scanner
+                .push_witness(crate::reader::cursor_from_slice(witness))
+                .unwrap();
+        }
+        scanner.finish(0, 0, 0, 0).unwrap().tx_level
     }
 
     fn empty_transaction() -> Vec<u8> {
@@ -675,6 +794,14 @@ mod tests {
             script_hash.to_vec(),
             molecule_bytes(data),
         ])
+    }
+
+    fn sighash_all_witness_bytes(seal: &[u8], message: &[u8]) -> Vec<u8> {
+        let item = table_bytes(&[molecule_bytes(seal), message.to_vec()]);
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&0xff00_0001u32.to_le_bytes());
+        bytes.extend_from_slice(&item);
+        bytes
     }
 
     fn dynvec_bytes(items: &[Vec<u8>]) -> Vec<u8> {
@@ -801,30 +928,44 @@ mod tests {
     }
 
     #[test]
-    fn otx_actions_returns_all_actions_from_requested_otx() {
-        let first_message = message_with_actions(&[action_bytes(0, [0x44; 32], &[0x10])]);
+    fn otx_actions_returns_related_actions_from_requested_otx() {
+        let lock_hash = [0x44; 32];
+        let other_lock_hash = [0x55; 32];
+        let first_message = message_with_actions(&[action_bytes(0, lock_hash, &[0x10])]);
         let second_message = message_with_actions(&[
-            action_bytes(1, [0x55; 32], &[0x20]),
-            action_bytes(2, [0x66; 32], &[0x30]),
+            action_bytes(0, lock_hash, &[0x20]),
+            action_bytes(0, other_lock_hash, &[0x30]),
         ]);
-        let context = test_context_with_otx_entries(vec![
-            test_otx(&first_message, 0, 1),
-            test_otx(&second_message, 1, 2),
-        ]);
+        let context = lock_context_with_otx_entries(
+            lock_hash,
+            vec![lock_hash, other_lock_hash],
+            vec![
+                test_otx(&first_message, 0, 1),
+                test_otx(&second_message, 1, 2),
+            ],
+        );
 
         let actions = context.otx_actions(1).unwrap();
 
         assert_eq!(actions.len(), 2);
-        assert_eq!(actions[0].index, 0);
-        assert_eq!(actions[0].script_role, ScriptRole::InputType);
+        assert_eq!(actions[0].action.index, 0);
+        assert_eq!(actions[0].action.script_role, ScriptRole::InputLock);
         assert_eq!(
-            crate::reader::cursor_bytes(&actions[0].data).unwrap(),
+            actions[0].action_ref(),
+            crate::plan::ActionRef::Otx {
+                witness_index: 7,
+                otx_index: 1,
+                action_index: 0,
+            }
+        );
+        assert_eq!(
+            crate::reader::cursor_bytes(&actions[0].action.data).unwrap(),
             vec![0x20]
         );
-        assert_eq!(actions[1].index, 1);
-        assert_eq!(actions[1].script_role, ScriptRole::OutputType);
+        assert_eq!(actions[1].action.index, 1);
+        assert_eq!(actions[1].action.script_role, ScriptRole::InputLock);
         assert_eq!(
-            crate::reader::cursor_bytes(&actions[1].data).unwrap(),
+            crate::reader::cursor_bytes(&actions[1].action.data).unwrap(),
             vec![0x30]
         );
     }
@@ -840,6 +981,164 @@ mod tests {
                 .otx_actions(0)
                 .err(),
             Some(CoreError::InvalidOtxLayout)
+        );
+    }
+
+    #[test]
+    fn otx_actions_rejects_unknown_targets() {
+        let lock_hash = [0x44; 32];
+        let missing_lock_hash = [0x55; 32];
+        let message = message_with_actions(&[action_bytes(0, missing_lock_hash, &[0x10])]);
+        let context = lock_context_with_otx_entries(
+            lock_hash,
+            vec![lock_hash],
+            vec![test_otx(&message, 0, 1)],
+        );
+
+        assert_eq!(
+            context.otx_actions(0).err(),
+            Some(CoreError::InvalidMessageTarget)
+        );
+    }
+
+    #[test]
+    fn otx_actions_return_all_actions_with_otx_origins() {
+        let lock_hash = [0x44; 32];
+        let other_lock_hash = [0x55; 32];
+        let message = message_with_actions(&[
+            action_bytes(0, lock_hash, &[0x10]),
+            action_bytes(0, other_lock_hash, &[0x20]),
+        ]);
+        let context = lock_context_with_otx_entries(
+            lock_hash,
+            vec![lock_hash, other_lock_hash],
+            vec![test_otx(&message, 0, 1)],
+        );
+
+        let actions = context.otx_actions(0).unwrap();
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(
+            actions[0].action_ref(),
+            crate::plan::ActionRef::Otx {
+                witness_index: 7,
+                otx_index: 0,
+                action_index: 0,
+            }
+        );
+        assert_eq!(
+            actions[1].action_ref(),
+            crate::plan::ActionRef::Otx {
+                witness_index: 7,
+                otx_index: 0,
+                action_index: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn tx_level_actions_return_unique_message_actions_with_tx_origins() {
+        let lock_hash = [0x44; 32];
+        let other_lock_hash = [0x55; 32];
+        let message = message_with_actions(&[
+            action_bytes(0, lock_hash, &[0x10]),
+            action_bytes(0, other_lock_hash, &[0x20]),
+        ]);
+        let context =
+            lock_context_with_tx_message(lock_hash, vec![lock_hash, other_lock_hash], &message);
+
+        let actions = context.tx_level_actions().unwrap().unwrap();
+
+        assert_eq!(actions.len(), 2);
+        assert_eq!(
+            actions[0].action_ref(),
+            crate::plan::ActionRef::TxLevel {
+                witness_index: 0,
+                action_index: 0,
+            }
+        );
+        assert_eq!(
+            actions[1].action_ref(),
+            crate::plan::ActionRef::TxLevel {
+                witness_index: 0,
+                action_index: 1,
+            }
+        );
+    }
+
+    #[test]
+    fn tx_level_actions_rejects_unknown_targets() {
+        let lock_hash = [0x44; 32];
+        let missing_lock_hash = [0x55; 32];
+        let message = message_with_actions(&[action_bytes(0, missing_lock_hash, &[0x10])]);
+        let context = lock_context_with_tx_message(lock_hash, vec![lock_hash], &message);
+
+        assert_eq!(
+            context.tx_level_actions().err(),
+            Some(CoreError::InvalidMessageTarget)
+        );
+    }
+
+    #[test]
+    fn all_actions_return_tx_level_actions_then_otx_actions() {
+        let lock_hash = [0x44; 32];
+        let tx_message = message_with_actions(&[action_bytes(0, lock_hash, &[0x10])]);
+        let first_otx_message = message_with_actions(&[action_bytes(0, lock_hash, &[0x20])]);
+        let second_otx_message = message_with_actions(&[action_bytes(0, lock_hash, &[0x30])]);
+        let context = lock_context_with_tx_message_and_otx_entries(
+            lock_hash,
+            vec![lock_hash],
+            &tx_message,
+            vec![
+                test_otx(&first_otx_message, 0, 1),
+                test_otx(&second_otx_message, 1, 2),
+            ],
+        );
+
+        let actions = context.all_actions().unwrap();
+
+        assert_eq!(actions.len(), 3);
+        assert_eq!(
+            actions[0].action_ref(),
+            crate::plan::ActionRef::TxLevel {
+                witness_index: 0,
+                action_index: 0,
+            }
+        );
+        assert_eq!(
+            actions[1].action_ref(),
+            crate::plan::ActionRef::Otx {
+                witness_index: 7,
+                otx_index: 0,
+                action_index: 0,
+            }
+        );
+        assert_eq!(
+            actions[2].action_ref(),
+            crate::plan::ActionRef::Otx {
+                witness_index: 7,
+                otx_index: 1,
+                action_index: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn all_actions_rejects_unknown_otx_targets() {
+        let lock_hash = [0x44; 32];
+        let missing_lock_hash = [0x55; 32];
+        let tx_message = message_with_actions(&[action_bytes(0, lock_hash, &[0x10])]);
+        let otx_message = message_with_actions(&[action_bytes(0, missing_lock_hash, &[0x20])]);
+        let context = lock_context_with_tx_message_and_otx_entries(
+            lock_hash,
+            vec![lock_hash],
+            &tx_message,
+            vec![test_otx(&otx_message, 0, 1)],
+        );
+
+        assert_eq!(
+            context.all_actions().err(),
+            Some(CoreError::InvalidMessageTarget)
         );
     }
 

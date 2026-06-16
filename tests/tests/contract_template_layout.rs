@@ -852,7 +852,7 @@ fn cobuild_core_lock_plan_exposes_related_actions() {
         engine_rs.contains("related_tx_action")
             && engine_rs.contains("add_tx_related_actions")
             && engine_rs.contains("add_otx_requirement")
-            && engine_rs.contains("add_otx_related_actions")
+            && engine_rs.contains("push_otx_actions")
             && engine_rs.contains("add_otx_signatures")
             && engine_rs.contains("input_range_contains_current_lock(otx.layout.base_inputs)")
             && engine_rs.contains("input_range_contains_current_lock(otx.layout.append_inputs)")
@@ -868,7 +868,7 @@ fn cobuild_core_type_plan_names_otx_scope_relevance_and_action_delivery() {
     let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs");
 
     assert!(
-        engine_rs.contains("fn add_otx_related_action("),
+        engine_rs.contains("fn add_otx_action("),
         "TypePlanBuilder should handle one OTX entry in a named helper"
     );
     assert!(
@@ -876,7 +876,7 @@ fn cobuild_core_type_plan_names_otx_scope_relevance_and_action_delivery() {
         "TypePlanBuilder should name whether the current type is in the OTX scope"
     );
     assert!(
-        engine_rs.contains("fn push_otx_related_actions("),
+        engine_rs.contains("fn push_otx_actions("),
         "TypePlanBuilder should separate action delivery from OTX scope relevance"
     );
 }

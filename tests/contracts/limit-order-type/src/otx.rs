@@ -2,10 +2,9 @@ use alloc::vec::Vec;
 
 use cobuild_core::{
     engine::CobuildContext,
-    plan::{ActionOrigin, OtxMessageLayout, OtxTypeRelation, TypeValidationPlan},
+    plan::{ActionOrigin, OtxMessageLayout, OtxTypeRelation, RelatedAction, TypeValidationPlan},
     protocol::ScriptRole,
     reader::cursor_bytes,
-    view::ActionView,
 };
 
 use crate::{
@@ -49,28 +48,23 @@ pub fn otx_fill_layout(
     origin: &ActionOrigin,
     relation: Option<OtxTypeRelation>,
 ) -> Result<(usize, OtxMessageLayout), Error> {
-    let ActionOrigin::Otx {
-        otx_index, layout, ..
-    } = origin
-    else {
-        return Err(Error::InvalidCobuild);
-    };
-    let Some(relation) = relation else {
-        return Err(Error::InvalidCobuild);
-    };
-    if !relation.input_type_in_base {
+    let otx_index = origin.otx_index().ok_or(Error::InvalidCobuild)?;
+    let layout = origin.otx_layout().ok_or(Error::InvalidCobuild)?;
+    let relation = relation.ok_or(Error::InvalidCobuild)?;
+    if !relation.input_type_in_base() {
         return Err(Error::InvalidCobuild);
     }
 
-    Ok((*otx_index, *layout))
+    Ok((otx_index, layout))
 }
 
 pub fn ensure_unique_payment_output_indexes(
-    actions: &[ActionView],
+    actions: &[RelatedAction],
     limit_order_targets: &[[u8; 32]],
 ) -> Result<(), Error> {
     let mut indexes = Vec::<u32>::new();
-    for action in actions {
+    for related in actions {
+        let action = &related.action;
         if !is_limit_order_role(action.script_role) {
             continue;
         }
@@ -93,12 +87,13 @@ pub fn ensure_unique_payment_output_indexes(
 }
 
 fn limit_order_target_hashes(
-    actions: &[ActionView],
+    actions: &[RelatedAction],
     current_target: [u8; 32],
 ) -> Result<Vec<[u8; 32]>, Error> {
     let mut targets = Vec::<[u8; 32]>::new();
     targets.push(current_target);
-    for action in actions {
+    for related in actions {
+        let action = &related.action;
         if !is_limit_order_role(action.script_role) {
             continue;
         }
@@ -135,6 +130,7 @@ mod tests {
         layout::Range,
         plan::{ActionOrigin, OtxTypeRelation},
         reader::cursor_from_slice,
+        view::ActionView,
     };
 
     fn layout() -> OtxMessageLayout {
@@ -218,8 +214,8 @@ mod tests {
     #[test]
     fn duplicate_payment_output_index_accepts_unique_indexes() {
         let actions = vec![
-            test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
-            test_action(ScriptRole::InputType, [7; 32], fill_data(2)),
+            related_test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputType, [7; 32], fill_data(2)),
         ];
 
         assert_eq!(
@@ -231,8 +227,8 @@ mod tests {
     #[test]
     fn duplicate_payment_output_index_rejects_duplicate_indexes() {
         let actions = vec![
-            test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
-            test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
         ];
 
         assert_eq!(
@@ -244,8 +240,8 @@ mod tests {
     #[test]
     fn duplicate_payment_output_index_rejects_mixed_type_lock_duplicate() {
         let actions = vec![
-            test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
-            test_action(ScriptRole::InputLock, [8; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputType, [7; 32], fill_data(1)),
+            related_test_action(ScriptRole::InputLock, [8; 32], fill_data(1)),
         ];
 
         assert_eq!(
@@ -258,7 +254,11 @@ mod tests {
     fn limit_order_target_hashes_rejects_malformed_tag_two_in_selected_role() {
         let mut malformed_fill = fill_data(1);
         malformed_fill.pop();
-        let actions = vec![test_action(ScriptRole::InputLock, [8; 32], malformed_fill)];
+        let actions = vec![related_test_action(
+            ScriptRole::InputLock,
+            [8; 32],
+            malformed_fill,
+        )];
 
         assert_eq!(
             limit_order_target_hashes(&actions, [7; 32]),
@@ -268,7 +268,11 @@ mod tests {
 
     #[test]
     fn limit_order_target_hashes_ignores_unrelated_non_fill_actions() {
-        let actions = vec![test_action(ScriptRole::InputLock, [8; 32], vec![1, 2, 3])];
+        let actions = vec![related_test_action(
+            ScriptRole::InputLock,
+            [8; 32],
+            vec![1, 2, 3],
+        )];
 
         assert_eq!(
             limit_order_target_hashes(&actions, [7; 32]),
@@ -282,6 +286,17 @@ mod tests {
         data.extend_from_slice(&payment_output_index.to_le_bytes());
         data.extend_from_slice(&[9; 32]);
         data
+    }
+
+    fn related_test_action(
+        script_role: ScriptRole,
+        script_hash: [u8; 32],
+        data: Vec<u8>,
+    ) -> RelatedAction {
+        RelatedAction {
+            origin: ActionOrigin::TxLevel { witness_index: 0 },
+            action: test_action(script_role, script_hash, data),
+        }
     }
 
     fn test_action(script_role: ScriptRole, script_hash: [u8; 32], data: Vec<u8>) -> ActionView {

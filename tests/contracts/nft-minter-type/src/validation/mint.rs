@@ -6,7 +6,7 @@ use ckb_std::{
     high_level::{QueryIter, load_cell_data, load_cell_lock_hash, load_cell_type},
 };
 use cobuild_core::{
-    plan::{ActionOrigin, TypeValidationPlan},
+    plan::{ActionOrigin, ActionRef, TypeValidationPlan},
     protocol::ScriptRole,
     reader::cursor_bytes,
 };
@@ -49,8 +49,7 @@ pub fn validate_mint_state(
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MintActionFact {
-    pub witness_index: usize,
-    pub action_index: usize,
+    pub action_ref: ActionRef,
     pub metadata_seed: [u8; 32],
     pub mint_to_lock_hash: [u8; 32],
     pub output_candidates: OutputCandidates,
@@ -76,29 +75,21 @@ pub fn mint_actions(plan: &TypeValidationPlan) -> Result<Vec<MintActionFact>, Er
         else {
             return Err(Error::InvalidAction);
         };
-        let (witness_index, output_candidates) = match related.action.origin {
-            ActionOrigin::TxLevel { witness_index } => (witness_index, OutputCandidates::All),
-            ActionOrigin::Otx {
-                witness_index,
-                layout,
-                ..
-            } => (
-                witness_index,
-                OutputCandidates::Range {
-                    start: layout.append_outputs.start,
-                    end: layout.append_outputs.end(),
-                },
-            ),
+        let output_candidates = match related.action.origin {
+            ActionOrigin::TxLevel { .. } => OutputCandidates::All,
+            ActionOrigin::Otx { layout, .. } => OutputCandidates::Range {
+                start: layout.append_outputs.start,
+                end: layout.append_outputs.end(),
+            },
         };
         facts.push(MintActionFact {
-            witness_index,
-            action_index: related.action.action.index,
+            action_ref: related.action.action_ref(),
             metadata_seed,
             mint_to_lock_hash,
             output_candidates,
         });
     }
-    facts.sort_by_key(|fact| (fact.witness_index, fact.action_index));
+    facts.sort_by_key(|fact| fact.action_ref);
     Ok(facts)
 }
 
@@ -198,8 +189,8 @@ mod tests {
     use cobuild_core::{
         layout::Range,
         plan::{
-            ActionOrigin, OtxMessageLayout, RelatedAction, TypeActionOtxScope, TypeRelatedAction,
-            TypeValidationPlan,
+            ActionOrigin, ActionRef, OtxMessageLayout, RelatedAction, TypeActionOtxScope,
+            TypeRelatedAction, TypeValidationPlan,
         },
         protocol::ScriptRole,
         reader::cursor_from_slice,
@@ -348,22 +339,29 @@ mod tests {
             mint_actions(&plan),
             Ok(vec![
                 MintActionFact {
-                    witness_index: 3,
-                    action_index: 0,
+                    action_ref: ActionRef::TxLevel {
+                        witness_index: 3,
+                        action_index: 0,
+                    },
                     metadata_seed: seed_c,
                     mint_to_lock_hash: mint_to_c,
                     output_candidates: OutputCandidates::All,
                 },
                 MintActionFact {
-                    witness_index: 3,
-                    action_index: 1,
+                    action_ref: ActionRef::Otx {
+                        witness_index: 3,
+                        otx_index: 0,
+                        action_index: 1,
+                    },
                     metadata_seed: seed_a,
                     mint_to_lock_hash: mint_to_a,
                     output_candidates: OutputCandidates::Range { start: 1, end: 1 },
                 },
                 MintActionFact {
-                    witness_index: 5,
-                    action_index: 2,
+                    action_ref: ActionRef::TxLevel {
+                        witness_index: 5,
+                        action_index: 2,
+                    },
                     metadata_seed: seed_b,
                     mint_to_lock_hash: mint_to_b,
                     output_candidates: OutputCandidates::All,

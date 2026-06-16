@@ -19,6 +19,25 @@ impl Range {
             .expect("valid cobuild layout range")
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.count == 0
+    }
+
+    pub fn contains(&self, index: usize) -> bool {
+        let Some(end) = self.start.checked_add(self.count) else {
+            return false;
+        };
+        index >= self.start && index < end
+    }
+
+    pub fn local_index(&self, index: usize) -> Option<usize> {
+        if self.contains(index) {
+            Some(index - self.start)
+        } else {
+            None
+        }
+    }
+
     pub fn indexes(&self) -> IndexRange {
         IndexRange {
             start: self.start,

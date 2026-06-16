@@ -1,6 +1,8 @@
 use alloc::vec::Vec;
+use core::cmp::Ordering;
 
 use crate::{
+    error::CoreError,
     layout::{IndexRange, Range},
     view::ActionView,
 };
@@ -10,6 +12,12 @@ pub struct LockValidationPlan {
     pub lock_script_hash: [u8; 32],
     pub required_signatures: Vec<SigningRequirement>,
     pub related_actions: Vec<RelatedAction>,
+}
+
+impl LockValidationPlan {
+    pub fn unique_related_action(&self) -> Result<Option<&RelatedAction>, CoreError> {
+        unique_slice_item(&self.related_actions)
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,10 +41,22 @@ pub struct TypeValidationPlan {
     pub related_actions: Vec<TypeRelatedAction>,
 }
 
+impl TypeValidationPlan {
+    pub fn unique_related_action(&self) -> Result<Option<&TypeRelatedAction>, CoreError> {
+        unique_slice_item(&self.related_actions)
+    }
+}
+
 #[derive(Clone)]
 pub struct TypeRelatedAction {
     pub action: RelatedAction,
     pub otx_type_scope: TypeActionOtxScope,
+}
+
+impl TypeRelatedAction {
+    pub fn action_ref(&self) -> ActionRef {
+        self.action.action_ref()
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -60,6 +80,53 @@ pub struct RelatedAction {
     pub action: ActionView,
 }
 
+impl RelatedAction {
+    pub fn action_ref(&self) -> ActionRef {
+        self.origin.action_ref(self.action.index)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionRef {
+    TxLevel {
+        witness_index: usize,
+        action_index: usize,
+    },
+    Otx {
+        witness_index: usize,
+        otx_index: usize,
+        action_index: usize,
+    },
+}
+
+impl ActionRef {
+    fn sort_key(self) -> (usize, u8, usize, usize) {
+        match self {
+            Self::TxLevel {
+                witness_index,
+                action_index,
+            } => (witness_index, 0, 0, action_index),
+            Self::Otx {
+                witness_index,
+                otx_index,
+                action_index,
+            } => (witness_index, 1, otx_index, action_index),
+        }
+    }
+}
+
+impl Ord for ActionRef {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.sort_key().cmp(&other.sort_key())
+    }
+}
+
+impl PartialOrd for ActionRef {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ActionOrigin {
     TxLevel {
@@ -70,6 +137,60 @@ pub enum ActionOrigin {
         otx_index: usize,
         layout: OtxMessageLayout,
     },
+}
+
+impl ActionOrigin {
+    pub fn witness_index(self) -> usize {
+        match self {
+            Self::TxLevel { witness_index } | Self::Otx { witness_index, .. } => witness_index,
+        }
+    }
+
+    pub fn otx_index(self) -> Option<usize> {
+        match self {
+            Self::TxLevel { .. } => None,
+            Self::Otx { otx_index, .. } => Some(otx_index),
+        }
+    }
+
+    pub fn otx_layout(self) -> Option<OtxMessageLayout> {
+        match self {
+            Self::TxLevel { .. } => None,
+            Self::Otx { layout, .. } => Some(layout),
+        }
+    }
+
+    pub fn is_tx_level(self) -> bool {
+        matches!(self, Self::TxLevel { .. })
+    }
+
+    pub fn is_otx(self) -> bool {
+        matches!(self, Self::Otx { .. })
+    }
+
+    pub fn action_ref(self, action_index: usize) -> ActionRef {
+        match self {
+            Self::TxLevel { witness_index } => ActionRef::TxLevel {
+                witness_index,
+                action_index,
+            },
+            Self::Otx {
+                witness_index,
+                otx_index,
+                ..
+            } => ActionRef::Otx {
+                witness_index,
+                otx_index,
+                action_index,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OtxPart {
+    Base,
+    Append,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -93,12 +214,28 @@ impl OtxMessageLayout {
         self.inputs().indexes()
     }
 
+    pub fn contains_input(&self, index: usize) -> bool {
+        self.classify_input(index).is_some()
+    }
+
+    pub fn classify_input(&self, index: usize) -> Option<(OtxPart, usize)> {
+        classify_index(self.base_inputs, self.append_inputs, index)
+    }
+
     pub fn outputs(&self) -> Range {
         merge_adjacent_ranges(self.base_outputs, self.append_outputs)
     }
 
     pub fn output_indexes(&self) -> IndexRange {
         self.outputs().indexes()
+    }
+
+    pub fn contains_output(&self, index: usize) -> bool {
+        self.classify_output(index).is_some()
+    }
+
+    pub fn classify_output(&self, index: usize) -> Option<(OtxPart, usize)> {
+        classify_index(self.base_outputs, self.append_outputs, index)
     }
 
     pub fn cell_deps(&self) -> Range {
@@ -109,12 +246,28 @@ impl OtxMessageLayout {
         self.cell_deps().indexes()
     }
 
+    pub fn contains_cell_dep(&self, index: usize) -> bool {
+        self.classify_cell_dep(index).is_some()
+    }
+
+    pub fn classify_cell_dep(&self, index: usize) -> Option<(OtxPart, usize)> {
+        classify_index(self.base_cell_deps, self.append_cell_deps, index)
+    }
+
     pub fn header_deps(&self) -> Range {
         merge_adjacent_ranges(self.base_header_deps, self.append_header_deps)
     }
 
     pub fn header_dep_indexes(&self) -> IndexRange {
         self.header_deps().indexes()
+    }
+
+    pub fn contains_header_dep(&self, index: usize) -> bool {
+        self.classify_header_dep(index).is_some()
+    }
+
+    pub fn classify_header_dep(&self, index: usize) -> Option<(OtxPart, usize)> {
+        classify_index(self.base_header_deps, self.append_header_deps, index)
     }
 
     pub fn base_inputs(&self) -> Range {
@@ -150,6 +303,15 @@ impl OtxMessageLayout {
     }
 }
 
+fn classify_index(base: Range, append: Range, index: usize) -> Option<(OtxPart, usize)> {
+    if let Some(local_index) = base.local_index(index) {
+        return Some((OtxPart::Base, local_index));
+    }
+    append
+        .local_index(index)
+        .map(|local_index| (OtxPart::Append, local_index))
+}
+
 fn merge_adjacent_ranges(base: Range, append: Range) -> Range {
     debug_assert_eq!(base.start.checked_add(base.count), Some(append.start));
     Range {
@@ -168,4 +330,54 @@ pub struct OtxTypeRelation {
     pub output_type_in_base: bool,
     pub output_type_in_base_covered: bool,
     pub output_type_in_append: bool,
+}
+
+impl OtxTypeRelation {
+    pub fn input_type_in_base(self) -> bool {
+        self.input_type_in_base
+    }
+
+    pub fn input_type_in_append(self) -> bool {
+        self.input_type_in_append
+    }
+
+    pub fn output_type_in_base(self) -> bool {
+        self.output_type_in_base
+    }
+
+    pub fn output_type_in_base_covered(self) -> bool {
+        self.output_type_in_base_covered
+    }
+
+    pub fn output_type_in_append(self) -> bool {
+        self.output_type_in_append
+    }
+
+    pub fn input_type_present(self) -> bool {
+        self.input_type_in_base || self.input_type_in_append
+    }
+
+    pub fn output_type_present(self) -> bool {
+        self.output_type_in_base || self.output_type_in_append
+    }
+
+    pub fn base_type_present(self) -> bool {
+        self.input_type_in_base || self.output_type_in_base
+    }
+
+    pub fn append_type_present(self) -> bool {
+        self.input_type_in_append || self.output_type_in_append
+    }
+
+    pub fn type_present(self) -> bool {
+        self.input_type_present() || self.output_type_present()
+    }
+}
+
+fn unique_slice_item<T>(items: &[T]) -> Result<Option<&T>, CoreError> {
+    match items {
+        [] => Ok(None),
+        [item] => Ok(Some(item)),
+        _ => Err(CoreError::DuplicateMatchingAction),
+    }
 }
