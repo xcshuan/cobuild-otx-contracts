@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use cobuild_types::lazy_reader::{
-    core::{Message, Otx, OtxStart, SealPair},
+    core::{Action, Message, Otx, OtxStart, SealPair},
     support::Cursor,
     witness::WitnessLayout as CobuildWitnessLayout,
 };
@@ -139,7 +139,24 @@ impl MessageView {
     }
 
     pub fn actions(&self) -> Result<Vec<ActionView>, CoreError> {
-        parse_actions(&self.cursor)
+        verify_message(&self.cursor)?;
+        parse_actions_from_verified_message(&self.cursor)
+    }
+
+    pub fn action(&self, index: usize) -> Result<Option<ActionView>, CoreError> {
+        verify_message(&self.cursor)?;
+        parse_action_from_verified_message(&self.cursor, index)
+    }
+
+    pub(crate) fn actions_from_verified_message(&self) -> Result<Vec<ActionView>, CoreError> {
+        parse_actions_from_verified_message(&self.cursor)
+    }
+
+    pub(crate) fn action_from_verified_message(
+        &self,
+        index: usize,
+    ) -> Result<Option<ActionView>, CoreError> {
+        parse_action_from_verified_message(&self.cursor, index)
     }
 
     pub fn actions_for(
@@ -274,11 +291,15 @@ impl CobuildWitnessLayoutView {
     }
 }
 
-fn parse_actions(message: &Cursor) -> Result<Vec<ActionView>, CoreError> {
+fn verify_message(message: &Cursor) -> Result<(), CoreError> {
     let message = Message::from(message.clone());
     message
         .verify(false)
-        .map_err(|_| CoreError::InvalidOtxLayout)?;
+        .map_err(|_| CoreError::InvalidOtxLayout)
+}
+
+fn parse_actions_from_verified_message(message: &Cursor) -> Result<Vec<ActionView>, CoreError> {
+    let message = Message::from(message.clone());
     let actions = message.actions().map_err(|_| CoreError::MalformedCobuild)?;
     let action_count = actions.len().map_err(|_| CoreError::MalformedCobuild)?;
     let mut out = Vec::with_capacity(action_count);
@@ -286,22 +307,42 @@ fn parse_actions(message: &Cursor) -> Result<Vec<ActionView>, CoreError> {
         let action = actions
             .get(index)
             .map_err(|_| CoreError::MalformedCobuild)?;
-        let script_role = action
-            .script_role()
-            .map_err(|_| CoreError::MalformedCobuild)?;
-        out.push(ActionView {
-            index,
-            script_info_hash: action
-                .script_info_hash()
-                .map_err(|_| CoreError::MalformedCobuild)?,
-            script_role: ScriptRole::try_from(script_role)?,
-            script_hash: action
-                .script_hash()
-                .map_err(|_| CoreError::MalformedCobuild)?,
-            data: action.data().map_err(|_| CoreError::MalformedCobuild)?,
-        });
+        out.push(action_view(index, action)?);
     }
     Ok(out)
+}
+
+fn parse_action_from_verified_message(
+    message: &Cursor,
+    index: usize,
+) -> Result<Option<ActionView>, CoreError> {
+    let message = Message::from(message.clone());
+    let actions = message.actions().map_err(|_| CoreError::MalformedCobuild)?;
+    let action_count = actions.len().map_err(|_| CoreError::MalformedCobuild)?;
+    if index >= action_count {
+        return Ok(None);
+    }
+    let action = actions
+        .get(index)
+        .map_err(|_| CoreError::MalformedCobuild)?;
+    action_view(index, action).map(Some)
+}
+
+fn action_view(index: usize, action: Action) -> Result<ActionView, CoreError> {
+    let script_role = action
+        .script_role()
+        .map_err(|_| CoreError::MalformedCobuild)?;
+    Ok(ActionView {
+        index,
+        script_info_hash: action
+            .script_info_hash()
+            .map_err(|_| CoreError::MalformedCobuild)?,
+        script_role: ScriptRole::try_from(script_role)?,
+        script_hash: action
+            .script_hash()
+            .map_err(|_| CoreError::MalformedCobuild)?,
+        data: action.data().map_err(|_| CoreError::MalformedCobuild)?,
+    })
 }
 
 fn otx_start_view(start: &OtxStart) -> Result<OtxStartView, CoreError> {

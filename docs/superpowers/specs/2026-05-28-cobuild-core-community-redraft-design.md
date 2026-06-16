@@ -907,6 +907,94 @@ Standard extensions MUST NOT:
 - redefine the Core minimum lock/type responsibility split;
 - require every Core-compatible script to understand the extension.
 
+### Canonical Action References
+
+Extensions that need to refer to a specific `Action` SHOULD derive a canonical
+action reference from the Cobuild message origin plus the action's index inside
+that message.
+
+Core v1 defines the following conceptual reference forms:
+
+```text
+TxLevelActionRef {
+  witness_index: usize,
+  action_index: usize,
+}
+
+OtxActionRef {
+  witness_index: usize,
+  otx_index: usize,
+  action_index: usize,
+}
+```
+
+The reference is not an additional Core witness field. It is a deterministic
+coordinate that implementations can derive after witness scanning:
+
+- `witness_index` identifies the witness carrying the tx-level or OTX message;
+- `otx_index` identifies the OTX inside the collected OTX sequence;
+- `action_index` identifies the action inside `Message.actions`.
+
+Extensions SHOULD use this reference, or an equivalent lossless coordinate,
+when sorting actions, constructing receipts, building proofs, or binding
+off-chain execution artifacts to on-chain actions. An OTX action reference MUST
+NOT be collapsed to `(witness_index, action_index)` because the OTX sequence
+position is part of the action identity.
+
+When a total order is needed, implementations SHOULD order action references by
+`witness_index` first, then by origin-specific coordinates. For well-formed Core
+v1 witnesses, a witness cannot simultaneously be a tx-level message carrier and
+an OTX message carrier; if an implementation needs a synthetic tie-breaker, it
+SHOULD place tx-level actions before OTX actions at the same witness index.
+
+### Extension Hash Framing
+
+Extensions MAY define their own hashes for receipts, proofs, envelopes, or
+application payloads. Those hashes MUST be framed independently from Core hash
+domains and MUST NOT be bare concatenations of variable-length fields.
+
+A safe extension hash format SHOULD:
+
+- use a unique personalization/domain string for each hash purpose;
+- encode fixed-width scalars in an explicit byte order;
+- encode variable-length byte strings as `u32 length || bytes`, or use a
+  canonical Molecule object;
+- encode lists as `u32 item_count || framed_item*`, or use canonical Molecule
+  vectors;
+- include version bytes when future semantic changes are plausible;
+- include the relevant action reference when the hash commits to one action;
+- include the relevant OTX part/range information when the hash depends on OTX
+  scope.
+
+Extension hashes MUST NOT alter Core signing hashes. If an extension hash needs
+to be authorized, the extension should place its commitment in `Action.data` or
+another application-defined object that is already covered by the relevant
+Cobuild message/signing flow.
+
+Implementation helper APIs that enumerate tx-level or OTX actions SHOULD return
+origin-bearing related actions and validate that every action target exists in
+the transaction script set. Low-level raw message parsing may exist internally,
+but implementations SHOULD NOT expose unchecked public action enumeration.
+
+### Extension Actions and OTX Signing
+
+An OTX signature covers the OTX message according to the Core OTX signing rules.
+Therefore, an extension action carried inside an OTX message MUST be finalized
+before the corresponding base or append signature is produced.
+
+Extensions MUST NOT require a builder to append new actions to an already
+signed OTX message. If an extension needs user authorization before final
+execution evidence is available, it SHOULD use a two-stage design:
+
+- the signed OTX message carries an intent, constraint, or commitment;
+- the final receipt/proof is carried separately by a tx-level message,
+  coordinator action, application cell, or another extension-defined object;
+- the application script verifies that the final receipt/proof satisfies the
+  signed intent or commitment.
+
+This preserves Core's signing semantics while allowing richer application
+flows.
+
 ### Approved-Action Placement
 
 Approved-action is explicitly outside Core and belongs to the standard

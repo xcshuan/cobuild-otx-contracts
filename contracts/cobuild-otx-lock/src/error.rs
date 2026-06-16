@@ -25,6 +25,7 @@ pub enum Error {
     DuplicateMatchingAction,
     InvalidLockGroupWitness,
     LockSemanticFailure,
+    ActionNotFound,
     VerifyFailure,
     InternalFailure,
     InvalidContextInput,
@@ -60,6 +61,7 @@ impl Error {
             Self::InvalidLockGroupWitness => 39,
 
             Self::LockSemanticFailure => 40,
+            Self::ActionNotFound => 41,
 
             Self::VerifyFailure => 50,
 
@@ -112,6 +114,7 @@ impl From<CoreError> for Error {
             CoreError::InvalidSealScope => Self::InvalidSealScope,
             CoreError::DuplicateMatchingAction => Self::DuplicateMatchingAction,
             CoreError::InvalidLockGroupWitness => Self::InvalidLockGroupWitness,
+            CoreError::ActionNotFound => Self::ActionNotFound,
         }
     }
 }

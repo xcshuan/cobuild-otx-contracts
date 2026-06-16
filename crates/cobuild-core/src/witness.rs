@@ -111,6 +111,7 @@ impl WitnessScan {
         self.has_cobuild_witness_layout
     }
 
+    #[cfg(test)]
     pub(crate) fn unique_sighash_all_message(&self) -> Result<Option<Cursor>, CoreError> {
         let mut message = None;
         for summary in &self.sighash_all_summaries {

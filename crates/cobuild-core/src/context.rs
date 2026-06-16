@@ -1,5 +1,6 @@
 use alloc::{collections::BTreeSet, vec::Vec};
 
+#[cfg(test)]
 use cobuild_types::lazy_reader::support::Cursor;
 
 use crate::{
@@ -8,8 +9,11 @@ use crate::{
     plan::OtxTypeRelation,
     protocol::ScriptRole,
     syscalls::SyscallTxReader,
-    view::MessageView,
+    view::ActionView,
 };
+
+#[cfg(test)]
+use crate::view::MessageView;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CurrentScript {
@@ -251,8 +255,14 @@ impl CurrentScriptContext {
             .all(|index| range_contains(range, *index)))
     }
 
+    #[cfg(test)]
     pub(crate) fn validate_message_targets(&self, message: &Cursor) -> Result<(), CoreError> {
-        for action in MessageView::new(message.clone()).actions()? {
+        let actions = MessageView::new(message.clone()).actions()?;
+        self.validate_action_targets(&actions)
+    }
+
+    pub(crate) fn validate_action_targets(&self, actions: &[ActionView]) -> Result<(), CoreError> {
+        for action in actions {
             if !self
                 .script_hashes
                 .contains(action.script_role, action.script_hash)

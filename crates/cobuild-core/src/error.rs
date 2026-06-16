@@ -6,6 +6,7 @@ pub enum CoreError {
     InvalidMessageTarget,
     MissingHashInput,
     HashInputTooLarge,
+    ActionNotFound,
     DuplicateSighashAll,
     MissingLockGroupCoverage,
     MissingSealPair,

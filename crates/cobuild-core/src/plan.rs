@@ -1,11 +1,18 @@
 use alloc::vec::Vec;
 use core::cmp::Ordering;
 
+use blake2b_ref::Blake2bBuilder;
+
 use crate::{
     error::CoreError,
+    hash::checked_len_prefix,
     layout::{IndexRange, Range},
+    protocol::ScriptRole,
+    reader::update_cursor_with_error,
     view::ActionView,
 };
+
+const ACTION_HASH_PERSONAL: &[u8; 16] = b"ckbcb_act_core1\0";
 
 #[derive(Clone)]
 pub struct LockValidationPlan {
@@ -83,6 +90,63 @@ pub struct RelatedAction {
 impl RelatedAction {
     pub fn action_ref(&self) -> ActionRef {
         self.origin.action_ref(self.action.index)
+    }
+
+    pub fn action_hash(&self) -> Result<[u8; 32], CoreError> {
+        action_hash(self.action_ref(), &self.action)
+    }
+}
+
+pub fn action_hash(action_ref: ActionRef, action: &ActionView) -> Result<[u8; 32], CoreError> {
+    let mut hasher = Blake2bBuilder::new(32)
+        .personal(ACTION_HASH_PERSONAL)
+        .build();
+
+    write_action_ref(&mut hasher, action_ref)?;
+    hasher.update(&action.script_info_hash);
+    hasher.update(&[script_role_raw(action.script_role)]);
+    hasher.update(&action.script_hash);
+    hasher.update(&checked_len_prefix(action.data.size)?);
+    update_cursor_with_error(&mut hasher, &action.data, CoreError::MalformedCobuild)?;
+
+    let mut out = [0u8; 32];
+    hasher.finalize(&mut out);
+    Ok(out)
+}
+
+fn write_action_ref(
+    hasher: &mut blake2b_ref::Blake2b,
+    action_ref: ActionRef,
+) -> Result<(), CoreError> {
+    match action_ref {
+        ActionRef::TxLevel {
+            witness_index,
+            action_index,
+        } => {
+            hasher.update(&[0]);
+            hasher.update(&checked_len_prefix(witness_index)?);
+            hasher.update(&[0; 4]);
+            hasher.update(&checked_len_prefix(action_index)?);
+        }
+        ActionRef::Otx {
+            witness_index,
+            otx_index,
+            action_index,
+        } => {
+            hasher.update(&[1]);
+            hasher.update(&checked_len_prefix(witness_index)?);
+            hasher.update(&checked_len_prefix(otx_index)?);
+            hasher.update(&checked_len_prefix(action_index)?);
+        }
+    }
+    Ok(())
+}
+
+fn script_role_raw(role: ScriptRole) -> u8 {
+    match role {
+        ScriptRole::InputLock => 0,
+        ScriptRole::InputType => 1,
+        ScriptRole::OutputType => 2,
     }
 }
 

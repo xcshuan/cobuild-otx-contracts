@@ -416,8 +416,8 @@ fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
     }
     let context_rs = fs::read_to_string(core_src.join("context.rs")).expect("context.rs");
     assert!(
-        context_rs.contains("MessageView") && context_rs.contains(".actions()?"),
-        "message target validation should reuse MessageView action parsing"
+        context_rs.contains("validate_action_targets(&self, actions: &[ActionView])"),
+        "message target validation should accept already parsed actions"
     );
     assert!(
         !context_rs.contains("message_actions"),
@@ -476,6 +476,33 @@ fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
             "layout.rs should not expose owned test layout API {forbidden}"
         );
     }
+}
+
+#[test]
+fn cobuild_core_engine_reuses_verified_message_actions() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let core_src = workspace_root.join("crates/cobuild-core/src");
+
+    let view_rs = fs::read_to_string(core_src.join("view.rs")).expect("view.rs");
+    for expected in [
+        "pub(crate) fn actions_from_verified_message(",
+        "pub(crate) fn action_from_verified_message(",
+    ] {
+        assert!(
+            view_rs.contains(expected),
+            "MessageView should expose internal verified-message fast path {expected}"
+        );
+    }
+
+    let engine_rs = fs::read_to_string(core_src.join("engine.rs")).expect("engine.rs");
+    assert!(
+        engine_rs.contains("fn message_actions("),
+        "engine should parse already-scanned messages through a focused helper"
+    );
+    assert!(
+        !engine_rs.contains("validate_message_targets("),
+        "engine should validate already parsed actions instead of re-parsing messages"
+    );
 }
 
 #[test]

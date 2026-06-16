@@ -86,6 +86,23 @@ fn message_view_returns_action_views_with_cursor_backed_data() {
 }
 
 #[test]
+fn message_view_returns_action_by_index() {
+    let script_hash = [0x22u8; 32];
+    let message = message_with_actions(&[
+        action_bytes([0x01u8; 32], 0, script_hash, &[0x10]),
+        action_bytes([0x02u8; 32], 0, script_hash, &[0x20]),
+    ]);
+    let view = MessageView::new(cobuild_core::reader::cursor_from_slice(&message));
+
+    let action = view.action(1).unwrap().unwrap();
+
+    assert_eq!(action.index, 1);
+    assert_eq!(action.script_info_hash, [0x02u8; 32]);
+    assert_eq!(cursor_bytes(&action.data).unwrap(), vec![0x20]);
+    assert!(view.action(2).unwrap().is_none());
+}
+
+#[test]
 fn message_view_filters_actions_by_role_and_script_hash() {
     let lock_hash = [0x33u8; 32];
     let other_hash = [0x44u8; 32];
