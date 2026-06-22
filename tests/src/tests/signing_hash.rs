@@ -91,6 +91,32 @@ fn signing_hash_oracle_otx_base_changes_when_resolved_input_data_changes() {
 }
 
 #[test]
+fn signing_hash_oracle_otx_base_all_uncovered_fields_matches_default_slot_golden() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_outputs: vec![signing_output(2, vec![0xbb])],
+        base_cell_deps: vec![signing_cell_dep(3)],
+        base_header_deps: vec![[4; 32]],
+        base_input_masks: Some(base_input_mask(1).bytes()),
+        base_output_masks: Some(base_output_mask(1).bytes()),
+        base_cell_dep_masks: Some(base_cell_dep_item_mask(1).bytes()),
+        base_header_dep_masks: Some(base_header_dep_item_mask(1).bytes()),
+        ..Default::default()
+    });
+    let built = shape.build();
+
+    let actual = TestSigningHashOracle.otx_base(&built, otx);
+    let expected = [
+        0x5e, 0xd5, 0x73, 0xc8, 0x6c, 0xa8, 0x64, 0xc8, 0x67, 0xe6, 0x52, 0x3c, 0x68, 0x57, 0x8c,
+        0x89, 0x76, 0x26, 0x59, 0xc0, 0x8f, 0x33, 0xab, 0xdf, 0x50, 0xa8, 0x9c, 0x2f, 0xd7, 0x76,
+        0x01, 0x20,
+    ];
+
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn signing_hash_oracle_otx_base_changes_when_covered_previous_output_changes() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
@@ -108,10 +134,208 @@ fn signing_hash_oracle_otx_base_changes_when_covered_previous_output_changes() {
 
     built.apply_shape_mutation(TxShapeMutation::ReplaceInput {
         input,
-        replacement: signing_resolved_input(9, vec![0xaa]),
+        replacement: signing_resolved_input_with_previous_output_tag(1, 9, vec![0xaa]),
     });
 
     assert_hash_changed(before, TestSigningHashOracle.otx_base(&built, otx));
+}
+
+#[test]
+fn signing_hash_oracle_otx_base_ignores_uncovered_since_change() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_input_masks: Some(
+            base_input_mask(1)
+                .cover_field(0, BaseInputMaskField::PreviousOutput)
+                .bytes(),
+        ),
+        ..Default::default()
+    });
+    let input = shape.otx_base_input(otx, 0);
+    let mut built = shape.build();
+    let before = TestSigningHashOracle.otx_base(&built, otx);
+
+    built.apply_shape_mutation(TxShapeMutation::ReplaceInput {
+        input,
+        replacement: signing_resolved_input_with_since(1, 99, vec![0xaa]),
+    });
+
+    assert_eq!(before, TestSigningHashOracle.otx_base(&built, otx));
+}
+
+#[test]
+fn signing_hash_oracle_otx_base_ignores_uncovered_previous_output_change() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_input_masks: Some(
+            base_input_mask(1)
+                .cover_field(0, BaseInputMaskField::Since)
+                .bytes(),
+        ),
+        ..Default::default()
+    });
+    let input = shape.otx_base_input(otx, 0);
+    let mut built = shape.build();
+    let before = TestSigningHashOracle.otx_base(&built, otx);
+
+    built.apply_shape_mutation(TxShapeMutation::ReplaceInput {
+        input,
+        replacement: signing_resolved_input_with_previous_output_tag(1, 9, vec![0xaa]),
+    });
+
+    assert_eq!(before, TestSigningHashOracle.otx_base(&built, otx));
+}
+
+#[test]
+fn signing_hash_oracle_otx_base_ignores_uncovered_output_capacity_change() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_outputs: vec![signing_output(2, vec![0xbb])],
+        base_output_masks: Some(
+            base_output_mask(1)
+                .cover_field(0, BaseOutputMaskField::Lock)
+                .cover_field(0, BaseOutputMaskField::Type)
+                .cover_field(0, BaseOutputMaskField::Data)
+                .bytes(),
+        ),
+        ..Default::default()
+    });
+    let output = shape.otx_base_output(otx, 0);
+    let mut built = shape.build();
+    let before = TestSigningHashOracle.otx_base(&built, otx);
+
+    built.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
+        output,
+        replacement: signing_output_with_lock_tag(9, 2, vec![0xbb]),
+    });
+
+    assert_eq!(before, TestSigningHashOracle.otx_base(&built, otx));
+}
+
+#[test]
+fn signing_hash_oracle_otx_base_ignores_uncovered_output_lock_change() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_outputs: vec![signing_output(2, vec![0xbb])],
+        base_output_masks: Some(
+            base_output_mask(1)
+                .cover_field(0, BaseOutputMaskField::Capacity)
+                .cover_field(0, BaseOutputMaskField::Type)
+                .cover_field(0, BaseOutputMaskField::Data)
+                .bytes(),
+        ),
+        ..Default::default()
+    });
+    let output = shape.otx_base_output(otx, 0);
+    let mut built = shape.build();
+    let before = TestSigningHashOracle.otx_base(&built, otx);
+
+    built.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
+        output,
+        replacement: signing_output_with_lock_tag(2, 9, vec![0xbb]),
+    });
+
+    assert_eq!(before, TestSigningHashOracle.otx_base(&built, otx));
+}
+
+#[test]
+fn signing_hash_oracle_otx_base_ignores_uncovered_output_type_change() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_outputs: vec![signing_output(2, vec![0xbb])],
+        base_output_masks: Some(
+            base_output_mask(1)
+                .cover_field(0, BaseOutputMaskField::Capacity)
+                .cover_field(0, BaseOutputMaskField::Lock)
+                .cover_field(0, BaseOutputMaskField::Data)
+                .bytes(),
+        ),
+        ..Default::default()
+    });
+    let output = shape.otx_base_output(otx, 0);
+    let mut built = shape.build();
+    let before = TestSigningHashOracle.otx_base(&built, otx);
+
+    built.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
+        output,
+        replacement: signing_typed_output(2, 9, vec![0xbb]),
+    });
+
+    assert_eq!(before, TestSigningHashOracle.otx_base(&built, otx));
+}
+
+#[test]
+fn signing_hash_oracle_otx_base_ignores_uncovered_output_data_change() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_outputs: vec![signing_output(2, vec![0xbb])],
+        base_output_masks: Some(
+            base_output_mask(1)
+                .cover_field(0, BaseOutputMaskField::Capacity)
+                .cover_field(0, BaseOutputMaskField::Lock)
+                .cover_field(0, BaseOutputMaskField::Type)
+                .bytes(),
+        ),
+        ..Default::default()
+    });
+    let output = shape.otx_base_output(otx, 0);
+    let mut built = shape.build();
+    let before = TestSigningHashOracle.otx_base(&built, otx);
+
+    built.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
+        output,
+        replacement: signing_output(2, vec![0xcc]),
+    });
+
+    assert_eq!(before, TestSigningHashOracle.otx_base(&built, otx));
+}
+
+#[test]
+fn signing_hash_oracle_otx_base_ignores_uncovered_cell_dep_change() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_cell_deps: vec![signing_cell_dep(3)],
+        base_cell_dep_masks: Some(base_cell_dep_item_mask(1).bytes()),
+        ..Default::default()
+    });
+    let cell_dep = shape.otx_base_cell_dep(otx, 0);
+    let mut built = shape.build();
+    let before = TestSigningHashOracle.otx_base(&built, otx);
+
+    built.apply_shape_mutation(TxShapeMutation::ReplaceCellDep {
+        cell_dep,
+        replacement: signing_cell_dep(9),
+    });
+
+    assert_eq!(before, TestSigningHashOracle.otx_base(&built, otx));
+}
+
+#[test]
+fn signing_hash_oracle_otx_base_ignores_uncovered_header_dep_change() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        base_header_deps: vec![[4; 32]],
+        base_header_dep_masks: Some(base_header_dep_item_mask(1).bytes()),
+        ..Default::default()
+    });
+    let header_dep = shape.otx_base_header_dep(otx, 0);
+    let mut built = shape.build();
+    let before = TestSigningHashOracle.otx_base(&built, otx);
+
+    built.apply_shape_mutation(TxShapeMutation::ReplaceHeaderDep {
+        header_dep,
+        replacement: [9; 32],
+    });
+
+    assert_eq!(before, TestSigningHashOracle.otx_base(&built, otx));
 }
 
 #[test]

@@ -1,5 +1,9 @@
 use blake2b_ref::Blake2b;
-use ckb_testtool::ckb_types::{core::TransactionView, prelude::Entity};
+use ckb_testtool::ckb_types::{
+    core::TransactionView,
+    packed,
+    prelude::{Builder, Entity},
+};
 use cobuild_core::{
     error::CoreError,
     layout::{OtxLayout, Range},
@@ -53,6 +57,26 @@ pub(crate) fn otx_append_hash(
     out
 }
 
+fn write_default_out_point(hasher: &mut Blake2b) {
+    let value = packed::OutPoint::new_builder().build();
+    hasher.update(value.as_slice());
+}
+
+fn write_default_script(hasher: &mut Blake2b) {
+    let value = packed::Script::new_builder().build();
+    hasher.update(value.as_slice());
+}
+
+fn write_default_script_opt(hasher: &mut Blake2b) {
+    let value = packed::ScriptOpt::new_builder().build();
+    hasher.update(value.as_slice());
+}
+
+fn write_default_cell_dep(hasher: &mut Blake2b) {
+    let value = packed::CellDep::new_builder().build();
+    hasher.update(value.as_slice());
+}
+
 fn write_otx_base_input_cells(
     hasher: &mut Blake2b,
     built: &BuiltTxShape,
@@ -72,6 +96,8 @@ fn write_otx_base_input_cells(
             .expect("input mask")
         {
             hasher.update(&input.since().expect("since").to_le_bytes());
+        } else {
+            hasher.update(&0u64.to_le_bytes());
         }
         if otx
             .includes_base_input_previous_output(local_index)
@@ -83,6 +109,8 @@ fn write_otx_base_input_cells(
                 CoreError::MissingHashInput,
             )
             .expect("previous output cursor");
+        } else {
+            write_default_out_point(hasher);
         }
         hasher.update(built.resolved_inputs[tx_index].output.as_slice());
         write_len_prefixed_bytes(hasher, built.resolved_inputs[tx_index].data.as_ref());
@@ -109,6 +137,8 @@ fn write_otx_base_output_cells(
             .expect("output mask")
         {
             hasher.update(&output_view.capacity().expect("capacity").to_le_bytes());
+        } else {
+            hasher.update(&0u64.to_le_bytes());
         }
         if otx
             .includes_base_output_lock(local_index)
@@ -120,6 +150,8 @@ fn write_otx_base_output_cells(
                 CoreError::MissingHashInput,
             )
             .expect("lock cursor");
+        } else {
+            write_default_script(hasher);
         }
         if otx
             .includes_base_output_type(local_index)
@@ -133,12 +165,16 @@ fn write_otx_base_output_cells(
                 CoreError::MissingHashInput,
             )
             .expect("type cursor");
+        } else {
+            write_default_script_opt(hasher);
         }
         if otx
             .includes_base_output_data(local_index)
             .expect("output mask")
         {
             write_len_prefixed_bytes(hasher, &raw_output_data_bytes(&built.tx, tx_index));
+        } else {
+            write_len_prefixed_bytes(hasher, &[]);
         }
     }
 }
@@ -152,14 +188,16 @@ fn write_otx_base_cell_deps(
     write_count(hasher, otx.base_cell_deps);
     write_len_prefixed_bytes(hasher, otx.base_cell_dep_masks.bytes());
     for local_index in 0..otx.base_cell_deps {
+        write_count(hasher, local_index);
         if otx
             .base_cell_dep_masks
             .get(local_index)
             .expect("cell dep mask")
         {
             let tx_index = checked_index(layout.base_cell_deps, local_index);
-            write_count(hasher, local_index);
             hasher.update(&raw_cell_dep_bytes(&built.tx, tx_index));
+        } else {
+            write_default_cell_dep(hasher);
         }
     }
 }
@@ -173,14 +211,16 @@ fn write_otx_base_header_deps(
     write_count(hasher, otx.base_header_deps);
     write_len_prefixed_bytes(hasher, otx.base_header_dep_masks.bytes());
     for local_index in 0..otx.base_header_deps {
+        write_count(hasher, local_index);
         if otx
             .base_header_dep_masks
             .get(local_index)
             .expect("header dep mask")
         {
             let tx_index = checked_index(layout.base_header_deps, local_index);
-            write_count(hasher, local_index);
             hasher.update(&raw_header_dep_hash(&built.tx, tx_index));
+        } else {
+            hasher.update(&[0u8; 32]);
         }
     }
 }

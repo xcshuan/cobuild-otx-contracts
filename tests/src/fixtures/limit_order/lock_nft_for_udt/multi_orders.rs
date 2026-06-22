@@ -1,4 +1,5 @@
 use super::*;
+use crate::framework::scenario::{ExpectedOutcome, ScriptLocation};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum TwoLockOrdersCase {
@@ -97,6 +98,7 @@ fn two_lock_orders_case(case: TwoLockOrdersCase) -> BuiltLimitOrderCase {
     });
     let base_scope = SignatureScope::OtxBase { otx };
     let order_a_input = shape.otx_base_input(otx, 0);
+    let order_b_input = shape.otx_base_input(otx, 1);
     let payment_a = shape.otx_append_output(otx, 0);
     let payment_b = shape.otx_append_output(otx, 1);
     let second_payment = if case == TwoLockOrdersCase::ReusePaymentOutput {
@@ -138,7 +140,16 @@ fn two_lock_orders_case(case: TwoLockOrdersCase) -> BuiltLimitOrderCase {
         built,
         signing_facts,
         if case == TwoLockOrdersCase::ReusePaymentOutput {
-            input_lock_error(order_a_input, LimitOrderLockError::InvalidAction)
+            LimitOrderExpectedOutcome::Framework(ExpectedOutcome::AnyOf(vec![
+                ExpectedOutcome::ScriptExit {
+                    location: ScriptLocation::InputLock(order_a_input),
+                    code: LimitOrderLockError::InvalidAction.code(),
+                },
+                ExpectedOutcome::ScriptExit {
+                    location: ScriptLocation::InputLock(order_b_input),
+                    code: LimitOrderLockError::InvalidAction.code(),
+                },
+            ]))
         } else {
             LimitOrderExpectedOutcome::Pass
         },

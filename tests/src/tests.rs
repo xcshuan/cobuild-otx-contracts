@@ -9,8 +9,9 @@ use crate::{
         assertions,
         cells::{ResolvedInputFacts, TestCellOutput, normal_output},
         cobuild::{
-            BaseInputMaskField, CobuildMessageBuilder, OtxStartSpec, RawOtxBuilder,
-            base_input_mask, seal_pair,
+            BaseInputMaskField, BaseOutputMaskField, CobuildMessageBuilder, OtxStartSpec,
+            RawOtxBuilder, base_cell_dep_item_mask, base_header_dep_item_mask, base_input_mask,
+            base_output_mask, seal_pair,
         },
         scenario::{ExpectedOutcome, ScriptLocation},
         scripts::packed_hash_to_array,
@@ -66,11 +67,60 @@ fn signing_resolved_input(tag: u8, data: impl Into<Bytes>) -> ResolvedInputFacts
     }
 }
 
+fn signing_resolved_input_with_since(
+    tag: u8,
+    since: u64,
+    data: impl Into<Bytes>,
+) -> ResolvedInputFacts {
+    let mut facts = signing_resolved_input(tag, data);
+    facts.input = facts.input.as_builder().since(since).build();
+    facts
+}
+
+fn signing_resolved_input_with_previous_output_tag(
+    base_tag: u8,
+    previous_output_tag: u8,
+    data: impl Into<Bytes>,
+) -> ResolvedInputFacts {
+    let mut facts = signing_resolved_input(base_tag, data);
+    facts.input = facts
+        .input
+        .as_builder()
+        .previous_output(OutPoint::new([previous_output_tag; 32].pack(), 0))
+        .build();
+    facts
+}
+
 fn signing_output(tag: u8, data: impl Into<Bytes>) -> TestCellOutput {
     TestCellOutput::new(
         CellOutput::new_builder()
             .capacity(2_000 + u64::from(tag))
             .lock(signing_test_script(tag))
+            .build(),
+        data,
+    )
+}
+
+fn signing_output_with_lock_tag(
+    capacity_tag: u8,
+    lock_tag: u8,
+    data: impl Into<Bytes>,
+) -> TestCellOutput {
+    TestCellOutput::new(
+        CellOutput::new_builder()
+            .capacity(2_000 + u64::from(capacity_tag))
+            .lock(signing_test_script(lock_tag))
+            .build(),
+        data,
+    )
+}
+
+fn signing_typed_output(capacity_tag: u8, type_tag: u8, data: impl Into<Bytes>) -> TestCellOutput {
+    TestCellOutput::new(
+        CellOutput::new_builder()
+            .capacity(2_000 + u64::from(capacity_tag))
+            .lock(signing_test_script(capacity_tag))
+            .type_(Some(signing_test_script(type_tag)).pack())
             .build(),
         data,
     )
