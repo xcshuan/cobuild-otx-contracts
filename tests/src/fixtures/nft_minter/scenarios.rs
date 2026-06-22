@@ -17,7 +17,7 @@ use crate::{
     },
     framework::{
         cells::{TestCellOutput, live_resolved_facts, normal_output, typed_output},
-        cobuild::{ActionRole, CobuildMessageBuilder},
+        cobuild::{ActionRole, BaseOutputMaskField, CobuildMessageBuilder, base_output_masks},
         fixture::CobuildTestFixture,
         scripts::script_hash,
         signing::{
@@ -56,10 +56,12 @@ pub use minter_lifecycle::{
     minter_burn_case, minter_multiple_group_inputs_case, minter_multiple_group_outputs_case,
 };
 pub use otx::{
-    mint_mixed_tx_and_otx_order_case, mint_otx_output_in_other_otx_append_range_case,
-    mint_otx_output_in_remainder_case, mint_otx_output_outside_append_range_case,
-    mint_real_otx_lock_bad_base_seal_case, mint_real_otx_lock_missing_base_seal_case,
-    mint_real_otx_lock_signed_base_case,
+    mint_mixed_tx_and_otx_order_case, mint_otx_output_in_base_range_case,
+    mint_otx_output_in_other_otx_append_range_case, mint_otx_output_in_remainder_case,
+    mint_real_otx_lock_bad_base_seal_case,
+    mint_real_otx_lock_base_nft_output_lock_capacity_mask_case,
+    mint_real_otx_lock_base_nft_output_tampered_capacity_case,
+    mint_real_otx_lock_missing_base_seal_case, mint_real_otx_lock_signed_base_case,
     mint_real_otx_lock_tampered_append_nft_output_signed_base_case,
     mint_real_otx_lock_tampered_base_output_case,
     mint_three_otx_actions_single_minter_transition_signed_base_case,

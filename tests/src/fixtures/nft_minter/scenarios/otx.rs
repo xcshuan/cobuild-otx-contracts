@@ -76,7 +76,7 @@ pub fn mint_mixed_tx_and_otx_order_case() -> NftMinterCase {
     }
 }
 
-pub fn mint_otx_output_outside_append_range_case() -> NftMinterCase {
+pub fn mint_otx_output_in_base_range_case() -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
     let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
     let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
@@ -110,7 +110,7 @@ pub fn mint_otx_output_outside_append_range_case() -> NftMinterCase {
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
     shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
     shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
-    let otx = shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSegment {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
@@ -124,17 +124,13 @@ pub fn mint_otx_output_outside_append_range_case() -> NftMinterCase {
         ],
         ..Default::default()
     });
-    let minter_input = shape.otx_base_input(otx, 0);
     let mut built = shape.build();
     built.tx = fixture.context_mut().complete_tx(built.tx);
     NftMinterCase {
-        name: "mint_otx_output_outside_append_range",
+        name: "mint_otx_output_in_base_range",
         fixture,
         built,
-        expected: NftMinterExpected::MinterInputType {
-            input: minter_input,
-            error: NftMinterTypeError::InvalidMintedNft,
-        },
+        expected: NftMinterExpected::Pass,
     }
 }
 
@@ -279,6 +275,149 @@ pub fn mint_otx_output_in_other_otx_append_range_case() -> NftMinterCase {
 
 pub fn mint_real_otx_lock_signed_base_case() -> NftMinterCase {
     real_otx_lock_mint_case("mint_real_otx_lock_signed_base", RealOtxLockMintMode::Valid)
+}
+
+pub fn mint_real_otx_lock_base_nft_output_lock_capacity_mask_case() -> NftMinterCase {
+    real_otx_lock_base_nft_output_case(
+        "mint_real_otx_lock_base_nft_output_lock_capacity_mask",
+        RealOtxLockBaseNftOutputMode::Valid,
+    )
+}
+
+pub fn mint_real_otx_lock_base_nft_output_tampered_capacity_case() -> NftMinterCase {
+    real_otx_lock_base_nft_output_case(
+        "mint_real_otx_lock_base_nft_output_tampered_capacity",
+        RealOtxLockBaseNftOutputMode::TamperNftCapacity,
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RealOtxLockBaseNftOutputMode {
+    Valid,
+    TamperNftCapacity,
+}
+
+fn real_otx_lock_base_nft_output_case(
+    name: &'static str,
+    mode: RealOtxLockBaseNftOutputMode,
+) -> NftMinterCase {
+    let secret_key = fixed_secret_key(43);
+    let mut fixture = CobuildTestFixture::new();
+    let lock_code = deploy_cobuild_otx_lock_code(fixture.context_mut());
+    let user_lock = build_cobuild_otx_lock(
+        fixture.context_mut(),
+        &lock_code,
+        0,
+        &public_key_hash20(&secret_key),
+    );
+    let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
+    let minter_hash = script_hash(&minter_code.script);
+    let serial = 6;
+    let seed = [6u8; 32];
+    let nft_code = deploy_minted_nft_type(fixture.context_mut(), nft_id(minter_hash, serial));
+    let minter_cell = typed_output(
+        user_lock.script.clone(),
+        minter_code.script.clone(),
+        200_000_000_000,
+    );
+    let minter_input_cell = live_resolved_facts(
+        fixture.context_mut(),
+        minter_cell.clone(),
+        minter_data(MinterState {
+            mint_counter: serial,
+            supply_cap: 100,
+        }),
+    );
+    let minter_output = TestCellOutput::new(
+        minter_cell,
+        minter_data(MinterState {
+            mint_counter: serial + 1,
+            supply_cap: 100,
+        }),
+    );
+    let minted_output = minted_nft_output(
+        &user_lock.script,
+        &nft_code.script,
+        minter_hash,
+        serial,
+        seed,
+    );
+
+    let mut shape = TxShape::new();
+    shape.push_prefix_cell_dep(lock_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
+    let otx = shape.push_otx(OtxSegment {
+        message: Some(
+            CobuildMessageBuilder::new()
+                .input_type_action(minter_hash)
+                .action_data(mint_nft_action_data(seed, script_hash(&user_lock.script)))
+                .build(),
+        ),
+        base_inputs: vec![minter_input_cell],
+        base_outputs: vec![minter_output, minted_output.clone()],
+        base_output_masks: Some(base_output_masks(
+            2,
+            &[
+                (0, BaseOutputMaskField::Capacity),
+                (0, BaseOutputMaskField::Lock),
+                (0, BaseOutputMaskField::Type),
+                (0, BaseOutputMaskField::Data),
+                (1, BaseOutputMaskField::Capacity),
+                (1, BaseOutputMaskField::Lock),
+            ],
+        )),
+        ..Default::default()
+    });
+    let minter_input = shape.otx_base_input(otx, 0);
+    let minted_base_output = shape.otx_base_output(otx, 1);
+    let mut built = shape.build();
+    built.tx = fixture.context_mut().complete_tx(built.tx);
+
+    let facts = sign_scope(
+        &built,
+        &TestSigningHashOracle,
+        SignerId("nft_minter_owner"),
+        &secret_key,
+        user_lock.script_hash,
+        built.otx_witness(otx),
+        SignatureScope::OtxBase { otx },
+    );
+    built.apply_protocol_mutation(ProtocolMutation::SealRaw {
+        otx,
+        script_hash: user_lock.script_hash,
+        scope: 0,
+        seal: facts.seal,
+    });
+
+    if mode == RealOtxLockBaseNftOutputMode::TamperNftCapacity {
+        built.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
+            output: minted_base_output,
+            replacement: TestCellOutput::new(
+                typed_output(
+                    user_lock.script.clone(),
+                    nft_code.script.clone(),
+                    200_000_000_001,
+                ),
+                minted_output.data.clone(),
+            ),
+        });
+    }
+
+    let expected = match mode {
+        RealOtxLockBaseNftOutputMode::Valid => NftMinterExpected::Pass,
+        RealOtxLockBaseNftOutputMode::TamperNftCapacity => NftMinterExpected::OtxLockInput {
+            input: minter_input,
+            error: CobuildOtxLockError::BadSeal,
+        },
+    };
+
+    NftMinterCase {
+        name,
+        fixture,
+        built,
+        expected,
+    }
 }
 
 pub fn mint_real_otx_lock_tampered_base_output_case() -> NftMinterCase {

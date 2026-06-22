@@ -58,7 +58,12 @@ pub struct MintActionFact {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum OutputCandidates {
     All,
-    Range { start: usize, end: usize },
+    OtxRanges {
+        base_start: usize,
+        base_end: usize,
+        append_start: usize,
+        append_end: usize,
+    },
 }
 
 pub fn mint_actions(plan: &TypeValidationPlan) -> Result<Vec<MintActionFact>, Error> {
@@ -77,9 +82,11 @@ pub fn mint_actions(plan: &TypeValidationPlan) -> Result<Vec<MintActionFact>, Er
         };
         let output_candidates = match related.action.origin {
             ActionOrigin::TxLevel { .. } => OutputCandidates::All,
-            ActionOrigin::Otx { layout, .. } => OutputCandidates::Range {
-                start: layout.append_outputs.start,
-                end: layout.append_outputs.end(),
+            ActionOrigin::Otx { layout, .. } => OutputCandidates::OtxRanges {
+                base_start: layout.base_outputs.start,
+                base_end: layout.base_outputs.end(),
+                append_start: layout.append_outputs.start,
+                append_end: layout.append_outputs.end(),
             },
         };
         facts.push(MintActionFact {
@@ -124,20 +131,32 @@ fn validate_expected_outputs(
                     )?;
                 }
             }
-            OutputCandidates::Range { start, end } => {
-                for index in start..end {
-                    let type_script = load_cell_type(index, Source::Output)?;
-                    matches += validate_expected_output_at(
-                        index,
-                        type_script,
-                        current_type_hash,
-                        &expected_id,
-                        serial,
-                        rarity,
-                        expected_attributes,
-                        action.mint_to_lock_hash,
-                    )?;
-                }
+            OutputCandidates::OtxRanges {
+                base_start,
+                base_end,
+                append_start,
+                append_end,
+            } => {
+                matches += validate_expected_outputs_in_range(
+                    base_start,
+                    base_end,
+                    current_type_hash,
+                    &expected_id,
+                    serial,
+                    rarity,
+                    expected_attributes,
+                    action.mint_to_lock_hash,
+                )?;
+                matches += validate_expected_outputs_in_range(
+                    append_start,
+                    append_end,
+                    current_type_hash,
+                    &expected_id,
+                    serial,
+                    rarity,
+                    expected_attributes,
+                    action.mint_to_lock_hash,
+                )?;
             }
         }
 
@@ -146,6 +165,33 @@ fn validate_expected_outputs(
         }
     }
     Ok(())
+}
+
+fn validate_expected_outputs_in_range(
+    start: usize,
+    end: usize,
+    current_type_hash: [u8; 32],
+    expected_id: &[u8; 32],
+    serial: u64,
+    rarity: u8,
+    expected_attributes: [u8; 32],
+    expected_lock_hash: [u8; 32],
+) -> Result<usize, Error> {
+    let mut matches = 0usize;
+    for index in start..end {
+        let type_script = load_cell_type(index, Source::Output)?;
+        matches += validate_expected_output_at(
+            index,
+            type_script,
+            current_type_hash,
+            expected_id,
+            serial,
+            rarity,
+            expected_attributes,
+            expected_lock_hash,
+        )?;
+    }
+    Ok(matches)
 }
 
 fn validate_expected_output_at(
@@ -355,7 +401,12 @@ mod tests {
                     },
                     metadata_seed: seed_a,
                     mint_to_lock_hash: mint_to_a,
-                    output_candidates: OutputCandidates::Range { start: 1, end: 1 },
+                    output_candidates: OutputCandidates::OtxRanges {
+                        base_start: 0,
+                        base_end: 1,
+                        append_start: 1,
+                        append_end: 1,
+                    },
                 },
                 MintActionFact {
                     action_ref: ActionRef::TxLevel {
