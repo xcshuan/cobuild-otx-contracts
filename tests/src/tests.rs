@@ -29,7 +29,7 @@ use ckb_testtool::{
     ckb_script::ScriptError,
     ckb_types::{
         bytes::Bytes,
-        packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
+        packed::{CellDep, CellInput, CellOutput, OutPoint, Script, ScriptOpt},
         prelude::{Builder, Entity, Pack},
     },
 };

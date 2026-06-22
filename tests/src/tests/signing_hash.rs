@@ -117,6 +117,28 @@ fn signing_hash_oracle_otx_base_all_uncovered_fields_matches_default_slot_golden
 }
 
 #[test]
+fn signing_hash_oracle_default_literals_match_packed_defaults() {
+    let default_script = [
+        53, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ];
+
+    assert_eq!(
+        [0u8; 36].as_slice(),
+        OutPoint::new_builder().build().as_slice()
+    );
+    assert_eq!(
+        default_script.as_slice(),
+        Script::new_builder().build().as_slice()
+    );
+    assert_eq!(&[] as &[u8], ScriptOpt::new_builder().build().as_slice());
+    assert_eq!(
+        [0u8; 37].as_slice(),
+        CellDep::new_builder().build().as_slice()
+    );
+}
+
+#[test]
 fn signing_hash_oracle_otx_base_changes_when_covered_previous_output_changes() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
