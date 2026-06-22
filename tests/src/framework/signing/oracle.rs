@@ -1,10 +1,9 @@
 use cobuild_types::entity::core::Message as CobuildMessage;
-use secp256k1::SecretKey;
 
 use crate::framework::tx::{BuiltTxShape, OtxHandle, WitnessHandle};
 
 use super::{
-    keys::{SignerId, sign_recoverable},
+    keys::{SecretKey, SignerId, sign_recoverable},
     otx::{otx_append_hash, otx_base_hash},
     tx::{tx_with_message_hash_for_built, tx_without_message_hash_for_built},
 };

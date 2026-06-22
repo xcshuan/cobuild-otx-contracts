@@ -40,7 +40,6 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
     let otx_lock = build_cobuild_otx_lock(
         fixture.context_mut(),
         &otx_lock_code,
-        0,
         &public_key_hash20(&secret_key),
     );
     let owner_success = deploy_always_success(fixture.context_mut(), b"owner".to_vec());

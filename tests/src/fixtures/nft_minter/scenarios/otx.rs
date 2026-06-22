@@ -307,7 +307,6 @@ fn real_otx_lock_base_nft_output_case(
     let user_lock = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&secret_key),
     );
     let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
@@ -457,19 +456,16 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> Nft
     let user_lock_a = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&secret_key_a),
     );
     let user_lock_b = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&secret_key_b),
     );
     let user_lock_c = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&secret_key_c),
     );
     let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
@@ -642,7 +638,6 @@ fn real_otx_lock_mint_case(name: &'static str, mode: RealOtxLockMintMode) -> Nft
     let user_lock = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&secret_key),
     );
     let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());

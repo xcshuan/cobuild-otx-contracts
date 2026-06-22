@@ -7,7 +7,6 @@ pub(super) fn signed_sighash_all_case() -> BuiltCobuildOtxLockCase {
     let contract = build_cobuild_otx_lock(
         fixture.context_mut(),
         &code,
-        0,
         &public_key_hash20(&secret_key),
     );
     let lock_input = resolved_lock_input(
@@ -49,7 +48,6 @@ pub(super) fn signed_sighash_all_offset_lock_case() -> BuiltCobuildOtxLockCase {
     let contract = build_cobuild_otx_lock(
         fixture.context_mut(),
         &code,
-        0,
         &public_key_hash20(&secret_key),
     );
     let other = deploy_always_success(fixture.context_mut(), Vec::new());

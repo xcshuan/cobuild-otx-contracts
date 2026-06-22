@@ -8,26 +8,21 @@ impl crate::verify::LockVerifier for LocalVerifier {
         seal: &[u8],
         signing_message_hash: &[u8; 32],
     ) -> Result<(), crate::error::Error> {
-        use secp256k1::{Message, Secp256k1, ecdsa};
+        use k256::ecdsa::{RecoveryId, Signature};
 
         if seal.len() != 65 {
             return Err(crate::error::Error::VerifyFailure);
         }
 
-        if auth.kind != crate::args::AUTH_KIND_SECP256K1_BLAKE160 {
-            return Err(crate::error::Error::VerifyFailure);
-        }
-
-        let recovery_id = ecdsa::RecoveryId::try_from(i32::from(seal[64]))
-            .map_err(|_| crate::error::Error::VerifyFailure)?;
-        let signature = ecdsa::RecoverableSignature::from_compact(&seal[..64], recovery_id)
-            .map_err(|_| crate::error::Error::VerifyFailure)?;
-        let message = Message::from_digest(*signing_message_hash);
-        let secp = Secp256k1::verification_only();
-        let public_key = secp
-            .recover_ecdsa(&message, &signature)
-            .map_err(|_| crate::error::Error::VerifyFailure)?;
-        let pubkey_hash = ckb_hash::blake2b_256(public_key.serialize());
+        let recovery_id =
+            RecoveryId::try_from(seal[64]).map_err(|_| crate::error::Error::VerifyFailure)?;
+        let signature =
+            Signature::from_slice(&seal[..64]).map_err(|_| crate::error::Error::VerifyFailure)?;
+        let public_key =
+            super::recover::recover_from_prehash(signing_message_hash, &signature, recovery_id)
+                .map_err(|_| crate::error::Error::VerifyFailure)?;
+        let encoded = public_key.to_encoded_point(true);
+        let pubkey_hash = ckb_hash::blake2b_256(encoded.as_bytes());
         if pubkey_hash[..20] == auth.identity {
             Ok(())
         } else {

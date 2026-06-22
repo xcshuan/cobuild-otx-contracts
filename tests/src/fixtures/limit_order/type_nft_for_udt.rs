@@ -16,6 +16,7 @@ use crate::framework::{
     cobuild::{ActionRole, empty_message},
     contracts::cell_dep_for_script,
     fixture::CobuildTestFixture,
+    scenario::{ExpectedOutcome, ScriptLocation},
     scripts::script_hash,
     tx::{BuiltTxShape, InputHandle, OtxHandle, OtxSegment, OutputHandle, TxShape, WitnessHandle},
 };

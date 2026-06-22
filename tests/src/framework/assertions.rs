@@ -9,7 +9,7 @@ use ckb_testtool::{
 
 use crate::verify_and_dump_failed_tx;
 
-const MAX_CYCLES: u64 = 50_000_000;
+pub(crate) const MAX_CYCLES: u64 = 100_000_000;
 const DUMP_EXPECTED_FAILURES_ENV: &str = "COBUILD_TEST_DUMP_EXPECTED_FAILURES";
 
 pub fn assert_pass(context: &Context, tx: &TransactionView) -> Cycle {

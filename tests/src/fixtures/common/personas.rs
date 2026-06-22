@@ -1,5 +1,3 @@
-use secp256k1::SecretKey;
-
 use ckb_testtool::ckb_types::{
     bytes::Bytes,
     packed::Script,
@@ -8,7 +6,7 @@ use ckb_testtool::ckb_types::{
 
 use crate::framework::{
     scripts::script_hash,
-    signing::{SignerId, fixed_secret_key, public_key_hash20},
+    signing::{SecretKey, SignerId, fixed_secret_key, public_key_hash20},
 };
 
 #[derive(Clone, Debug)]

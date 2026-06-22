@@ -91,20 +91,9 @@ pub fn deploy_cobuild_otx_lock_code(context: &mut Context) -> DeployedScript {
 pub fn build_cobuild_otx_lock(
     context: &mut Context,
     code: &DeployedScript,
-    auth_algorithm_id: u8,
     public_key_hash: &[u8],
 ) -> DeployedScript {
-    rebuild_data2_deployed_script(
-        context,
-        code,
-        cobuild_otx_lock_args(auth_algorithm_id, public_key_hash),
-    )
-}
-
-fn cobuild_otx_lock_args(auth_algorithm_id: u8, public_key_hash: &[u8]) -> Vec<u8> {
-    let mut args = vec![auth_algorithm_id];
-    args.extend_from_slice(public_key_hash);
-    args
+    rebuild_data2_deployed_script(context, code, public_key_hash.to_vec())
 }
 
 pub fn deploy_limit_order_type(context: &mut Context) -> DeployedScript {

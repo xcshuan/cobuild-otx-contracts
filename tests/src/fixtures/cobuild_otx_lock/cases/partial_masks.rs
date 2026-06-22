@@ -152,7 +152,6 @@ fn partial_mask_case(name: &'static str, config: PartialMaskConfig) -> BuiltCobu
     let contract = build_cobuild_otx_lock(
         fixture.context_mut(),
         &code,
-        0,
         &public_key_hash20(&secret_key),
     );
     let base_lock = contract.script.clone();

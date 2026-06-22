@@ -7,7 +7,6 @@ use cobuild_types::entity::{
     core::{Otx, SealPairVec},
     witness::{WitnessLayout, WitnessLayoutUnion},
 };
-use secp256k1::SecretKey;
 
 use crate::{
     fixtures::{
@@ -30,8 +29,8 @@ use crate::{
         fixture::CobuildTestFixture,
         scenario::{ExpectedOutcome, ScriptLocation},
         signing::{
-            SignatureScope, SignerId, SigningFacts, TestSigningHashOracle, fixed_secret_key,
-            public_key_hash20, sighash_all_only_witness, sign_scope,
+            SecretKey, SignatureScope, SignerId, SigningFacts, TestSigningHashOracle,
+            fixed_secret_key, public_key_hash20, sighash_all_only_witness, sign_scope,
         },
         tx::{
             BuiltTxShape, InputHandle, OtxHandle, OtxSegment, ProtocolMutation, TxShape,

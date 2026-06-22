@@ -78,7 +78,6 @@ fn create_minter_real_sighash_all_case(
     let lock = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&secret_key),
     );
     let minter_code = deploy_nft_minter_type(fixture.context_mut(), Vec::new());

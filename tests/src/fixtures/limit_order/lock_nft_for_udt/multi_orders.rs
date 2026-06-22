@@ -96,7 +96,7 @@ fn two_lock_orders_case(case: TwoLockOrdersCase) -> BuiltLimitOrderCase {
         ..Default::default()
     });
     let base_scope = SignatureScope::OtxBase { otx };
-    let order_b_input = shape.otx_base_input(otx, 1);
+    let order_a_input = shape.otx_base_input(otx, 0);
     let payment_a = shape.otx_append_output(otx, 0);
     let payment_b = shape.otx_append_output(otx, 1);
     let second_payment = if case == TwoLockOrdersCase::ReusePaymentOutput {
@@ -138,7 +138,7 @@ fn two_lock_orders_case(case: TwoLockOrdersCase) -> BuiltLimitOrderCase {
         built,
         signing_facts,
         if case == TwoLockOrdersCase::ReusePaymentOutput {
-            input_lock_error(order_b_input, LimitOrderLockError::InvalidAction)
+            input_lock_error(order_a_input, LimitOrderLockError::InvalidAction)
         } else {
             LimitOrderExpectedOutcome::Pass
         },

@@ -9,25 +9,22 @@ pub fn two_udt_transfer_otxs_case(include_fee_input: bool) -> BuiltCobuildOtxLoc
     let fee_lock = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&fee_secret_key),
     );
     let otx_a_lock = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&otx_a_secret_key),
     );
     let otx_b_lock = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&otx_b_secret_key),
     );
     let fee_lock_hash = fee_lock.script_hash;
     let otx_a_lock_hash = otx_a_lock.script_hash;
     let otx_b_lock_hash = otx_b_lock.script_hash;
-    let issuer_lock = build_cobuild_otx_lock(fixture.context_mut(), &lock_code, 0, &[0u8; 20]);
+    let issuer_lock = build_cobuild_otx_lock(fixture.context_mut(), &lock_code, &[0u8; 20]);
     let udt = deploy_test_udt(fixture.context_mut(), issuer_lock.script_hash);
 
     let mut shape = TxShape::new();
@@ -132,18 +129,16 @@ pub(super) fn nft_for_udt_swap_otxs_case() -> BuiltCobuildOtxLockCase {
     let otx_a_lock = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&otx_a_secret_key),
     );
     let otx_b_lock = build_cobuild_otx_lock(
         fixture.context_mut(),
         &lock_code,
-        0,
         &public_key_hash20(&otx_b_secret_key),
     );
     let otx_a_lock_hash = otx_a_lock.script_hash;
     let otx_b_lock_hash = otx_b_lock.script_hash;
-    let issuer_lock = build_cobuild_otx_lock(fixture.context_mut(), &lock_code, 0, &[0u8; 20]);
+    let issuer_lock = build_cobuild_otx_lock(fixture.context_mut(), &lock_code, &[0u8; 20]);
     let udt = deploy_test_udt(fixture.context_mut(), issuer_lock.script_hash);
     let nft = deploy_test_nft(fixture.context_mut(), [0x44; 32]);
     let nft_payload = nft_data(b"swap-nft", [4, 5, 6, 7], 1_717_171_719);

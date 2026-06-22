@@ -9,11 +9,9 @@ pub(super) fn invalid_args_case() -> BuiltCobuildOtxLockCase {
 }
 
 pub(super) fn no_relevant_signature_request_case() -> BuiltCobuildOtxLockCase {
-    let mut args = vec![0u8];
-    args.extend_from_slice(&[1u8; 20]);
     unsigned_single_input_case(
         "contract_rejects_without_relevant_signature_request",
-        Bytes::from(args),
+        Bytes::from(vec![1u8; 20]),
         CobuildOtxLockError::NoRelevantSignatureRequest,
     )
 }
@@ -25,7 +23,6 @@ pub(super) fn malformed_cobuild_witness_case() -> BuiltCobuildOtxLockCase {
     let contract = build_cobuild_otx_lock(
         fixture.context_mut(),
         &code,
-        0,
         &public_key_hash20(&secret_key),
     );
     let lock_input = resolved_lock_input(

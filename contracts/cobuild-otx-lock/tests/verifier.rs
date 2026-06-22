@@ -1,5 +1,5 @@
 use cobuild_otx_lock::{
-    args::{AUTH_KIND_SECP256K1_BLAKE160, AuthContext},
+    args::AuthContext,
     error::Error,
     verify::{LockVerifier, local::LocalVerifier},
 };
@@ -20,7 +20,6 @@ impl LockVerifier for FailingVerifier {
 #[test]
 fn verifier_trait_returns_verify_error() {
     let auth = AuthContext {
-        kind: AUTH_KIND_SECP256K1_BLAKE160,
         identity: [0u8; 20],
     };
     assert_eq!(
@@ -32,7 +31,6 @@ fn verifier_trait_returns_verify_error() {
 #[test]
 fn local_verifier_rejects_invalid_seal_encoding() {
     let auth = AuthContext {
-        kind: AUTH_KIND_SECP256K1_BLAKE160,
         identity: [0u8; 20],
     };
     assert_eq!(
@@ -44,7 +42,6 @@ fn local_verifier_rejects_invalid_seal_encoding() {
 #[test]
 fn local_verifier_rejects_unrecoverable_seal() {
     let auth = AuthContext {
-        kind: AUTH_KIND_SECP256K1_BLAKE160,
         identity: [0u8; 20],
     };
     assert_eq!(

@@ -4,7 +4,8 @@ pub mod otx;
 pub mod tx;
 
 pub use keys::{
-    SignerId, fixed_secret_key, public_key_hash20, sighash_all_only_witness, sign_recoverable,
+    SecretKey, SignerId, fixed_secret_key, public_key_hash20, sighash_all_only_witness,
+    sign_recoverable,
 };
 pub use oracle::{
     SignatureScope, SigningFacts, SigningHashOracle, TestSigningHashOracle, assert_hash_changed,

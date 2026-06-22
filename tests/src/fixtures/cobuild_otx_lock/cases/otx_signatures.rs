@@ -232,7 +232,6 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
     let contract = build_cobuild_otx_lock(
         fixture.context_mut(),
         &code,
-        0,
         &public_key_hash20(&secret_key),
     );
     let lock_output = normal_output(contract.script.clone(), 100_000_000_000);

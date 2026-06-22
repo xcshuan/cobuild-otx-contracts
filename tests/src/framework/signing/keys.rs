@@ -3,7 +3,9 @@ use ckb_testtool::ckb_types::{
     prelude::{Builder, Entity},
 };
 use cobuild_types::entity::{core::SighashAllOnly, witness::WitnessLayout};
-use secp256k1::{Message, PublicKey, Secp256k1, SecretKey};
+use k256::ecdsa::SigningKey;
+
+pub type SecretKey = SigningKey;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct SignerId(pub &'static str);
@@ -13,22 +15,20 @@ pub fn fixed_secret_key(byte: u8) -> SecretKey {
 }
 
 pub fn public_key_hash20(secret_key: &SecretKey) -> [u8; 20] {
-    let secp = Secp256k1::new();
-    let public_key = PublicKey::from_secret_key(&secp, secret_key);
-    let hash = ckb_hash::blake2b_256(public_key.serialize());
+    let public_key = secret_key.verifying_key().to_encoded_point(true);
+    let hash = ckb_hash::blake2b_256(public_key.as_bytes());
     let mut out = [0u8; 20];
     out.copy_from_slice(&hash[..20]);
     out
 }
 
 pub fn sign_recoverable(secret_key: &SecretKey, digest: [u8; 32]) -> Vec<u8> {
-    let secp = Secp256k1::new();
-    let message = Message::from_digest(digest);
-    let signature = secp.sign_ecdsa_recoverable(&message, secret_key);
-    let (recovery_id, compact) = signature.serialize_compact();
+    let (signature, recovery_id) = secret_key
+        .sign_prehash_recoverable(&digest)
+        .expect("recoverable signature");
     let mut seal = Vec::with_capacity(65);
-    seal.extend_from_slice(&compact);
-    seal.push(i32::from(recovery_id) as u8);
+    seal.extend_from_slice(&signature.to_bytes());
+    seal.push(recovery_id.to_byte());
     seal
 }
 

@@ -1,4 +1,5 @@
 pub mod local;
+mod recover;
 
 use crate::args::AuthContext;
 use crate::error::Error;
