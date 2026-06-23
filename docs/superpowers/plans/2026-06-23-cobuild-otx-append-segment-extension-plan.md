@@ -657,9 +657,7 @@ pub(crate) fn otx_append_segment_hash(
         .ok_or(CoreError::InvalidOtxLayout)?;
     let mut hasher = new_signing_hasher(OTX_APPEND_SEGMENT_PERSONAL);
 
-    writer::write_cursor_with_error(&mut hasher, &otx.message, CoreError::MalformedCobuild)?;
     hasher.update(&base_hash);
-    writer::write_count(&mut hasher, segment_index)?;
     hasher.update(&[segment_layout.flags.raw()]);
 
     if segment_layout.flags.coverage_previous_segments() {
@@ -927,6 +925,21 @@ Implement it by calling `otx::otx_append_segment_hash`.
 Add to `tests/src/tests/signing_hash.rs`:
 
 ```rust
+#[test]
+fn signing_hash_oracle_otx_append_message_is_bound_by_base_hash_only() {
+    // Build an OTX append segment, replace only the OTX message, and pass the
+    // same base_hash into both append hash calls. The append hash must not
+    // change directly from message bytes; production callers bind message by
+    // recomputing base_hash.
+}
+
+#[test]
+fn signing_hash_oracle_own_only_segment_is_positionless() {
+    // Compare the same own-only segment at append index 0 and append index 1
+    // under the same base commitment. The hash must be unchanged because
+    // coverage_previous_segments=false means positionless own authorization.
+}
+
 #[test]
 fn signing_hash_oracle_segment_own_coverage_does_not_bind_later_segment() {
     let mut shape = TxShape::new();

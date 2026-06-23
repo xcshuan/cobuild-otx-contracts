@@ -513,6 +513,43 @@ fn signing_hash_oracle_otx_append_binds_base_hash() {
 }
 
 #[test]
+fn signing_hash_oracle_otx_append_message_is_bound_by_base_hash_only() {
+    let mut shape = TxShape::new();
+    let message = CobuildMessageBuilder::new()
+        .input_lock_action([1; 32])
+        .action_data(vec![1])
+        .build();
+    let changed_message = CobuildMessageBuilder::new()
+        .input_lock_action([1; 32])
+        .action_data(vec![2])
+        .build();
+    let otx = shape.push_otx(OtxSegment {
+        message: Some(message),
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![signing_output(2, vec![0xbb])]),
+        ],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let changed_otx = otx_witness(&built, otx)
+        .as_builder()
+        .message(changed_message)
+        .build();
+    let changed_witness = WitnessLayout::from(changed_otx);
+    let changed = signing_replace_otx_witness(
+        built.clone(),
+        Bytes::copy_from_slice(changed_witness.as_slice()),
+    );
+    let base_hash = [3; 32];
+
+    assert_hash_unchanged(
+        TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash),
+        TestSigningHashOracle.otx_append_segment(&changed, otx, 0, base_hash),
+    );
+}
+
+#[test]
 fn signing_hash_oracle_otx_append_count_comes_from_witness() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
@@ -607,6 +644,39 @@ fn signing_hash_oracle_segment_own_coverage_does_not_bind_later_segment() {
     assert_hash_unchanged(
         before,
         TestSigningHashOracle.otx_append_segment(&changed, otx, 0, base_hash),
+    );
+}
+
+#[test]
+fn signing_hash_oracle_own_only_segment_is_positionless() {
+    let mut first_shape = TxShape::new();
+    let first_otx = first_shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![signing_output(3, vec![0xcc])]),
+        ],
+        ..Default::default()
+    });
+    let first = first_shape.build();
+
+    let mut second_shape = TxShape::new();
+    let second_otx = second_shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x01).with_outputs(vec![signing_output(2, vec![0xbb])]),
+            append_segment_spec(0x00).with_outputs(vec![signing_output(3, vec![0xcc])]),
+        ],
+        ..Default::default()
+    });
+    let second = second_shape.build();
+
+    let first_base_hash = TestSigningHashOracle.otx_base(&first, first_otx);
+    let second_base_hash = TestSigningHashOracle.otx_base(&second, second_otx);
+    assert_eq!(first_base_hash, second_base_hash);
+
+    assert_hash_unchanged(
+        TestSigningHashOracle.otx_append_segment(&first, first_otx, 0, first_base_hash),
+        TestSigningHashOracle.otx_append_segment(&second, second_otx, 1, second_base_hash),
     );
 }
 

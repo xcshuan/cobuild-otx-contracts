@@ -237,9 +237,7 @@ OtxAppendSegment
 ```text
 OtxAppendSegmentHash =
   hash(
-    message,
     base_hash,
-    segment_index,
     segment_flags,
     segment input count and full segment inputs,
     segment output count and full segment outputs,
@@ -254,9 +252,7 @@ OtxAppendSegmentHash =
 ```text
 OtxAppendSegmentHash =
   hash(
-    message,
     base_hash,
-    segment_index,
     segment_flags,
     previous segment count,
     for each previous segment:
@@ -273,8 +269,18 @@ OtxAppendSegmentHash =
   )
 ```
 
-`segment_index` 必须进入 hash，避免两个相同内容的 segment 签名可互换。
-`base_hash` 必须进入 hash，避免 segment 被搬到另一个 base intent 下复用。
+`base_hash` 已经覆盖 `message`，因此 append segment hash 不再直接重复覆盖
+`message`。`base_hash` 必须进入 hash，避免 segment 被搬到另一个 base intent 下
+复用。
+
+当 bit 1 为 `0` 时，segment 是 positionless own-only authorization：签名者
+授权该 segment 自身的 inputs/outputs/deps/header_deps 可以以任意 append 位置
+加入指定 base。它不承诺自己是第几个 segment。
+
+当 bit 1 为 `1` 时，`previous segment count` 和按顺序写入的 previous segment
+commitments 间接绑定了当前位置；如果前序 segment 的内容或顺序不对，验签无法
+通过。因此不需要额外把 own `segment_index` 写入 hash。
+
 当 bit 1 为 `1` 时，previous segment 的 flags 也必须进入 hash，避免前序段的
 finality 或 coverage 语义在后续接力签名中被替换。
 
@@ -302,7 +308,7 @@ finality 或 coverage 语义在后续接力签名中被替换。
 - 如果 segment `i` 的 `coverage_previous_segments` 为一，则它的 signing hash
   必须覆盖 segment `0..i` 的完整 append 实体和 flags；
 - 如果 segment `i` 的 `coverage_previous_segments` 为零，则它的 signing hash
-  不得覆盖其他 segment 的 append 实体；
+  不得覆盖其他 segment 的 append 实体，也不得绑定自己的 append position；
 - `append_permissions` 的 reserved bits 必须为零；
 - segment counts 必须与对应 append permissions 兼容；
 - 每个 required segment seal 必须唯一；

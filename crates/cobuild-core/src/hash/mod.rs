@@ -107,9 +107,7 @@ pub(crate) fn otx_append_segment_hash(
 
     let mut hasher = new_signing_hasher(OTX_APPEND_SEGMENT_PERSONAL);
 
-    writer::write_cursor_with_error(&mut hasher, &otx.message, CoreError::MalformedCobuild)?;
     hasher.update(&base_hash);
-    writer::write_count(&mut hasher, segment_index)?;
     hasher.update(&[segment.flags.raw()]);
     if segment.flags.coverage_previous_segments() {
         writer::write_count(&mut hasher, segment_index)?;

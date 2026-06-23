@@ -58,10 +58,7 @@ pub(crate) fn otx_append_segment_hash(
     let mut out = [0u8; 32];
     let mut hasher = new_hasher(OTX_APPEND_SEGMENT_PERSONAL);
 
-    update_cursor_with_error(&mut hasher, &view.message, CoreError::MalformedCobuild)
-        .expect("message cursor");
     hasher.update(&base_hash);
-    write_count(&mut hasher, segment_index);
     hasher.update(&[segment.flags.raw()]);
     if segment.flags.coverage_previous_segments() {
         write_count(&mut hasher, segment_index);
