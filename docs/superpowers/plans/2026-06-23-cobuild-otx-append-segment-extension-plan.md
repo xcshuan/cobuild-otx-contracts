@@ -25,6 +25,12 @@ Protocol choices:
 - Move append seals into each `OtxAppendSegment.seals`.
 - Remove `SealScope` entirely; a seal's position determines whether it signs base or one append segment.
 - Remove long-term use of the old `OtxAppend` signing hash.
+- Keep `append_permissions` limited to entity-type append permissions:
+  - bit `0`: allow append inputs.
+  - bit `1`: allow append outputs.
+  - bit `2`: allow append cell deps.
+  - bit `3`: allow append header deps.
+  - bits `4..7`: invalid.
 - Add `OtxAppendSegment` signing hash with flags:
   - `0x01`: allow later segments.
   - `0x02`: cover previous segments.
@@ -71,6 +77,12 @@ Modify:
 Add to `crates/cobuild-core/src/protocol.rs`:
 
 ```rust
+pub const APPEND_PERMISSION_INPUTS_BIT: u8 = 0;
+pub const APPEND_PERMISSION_OUTPUTS_BIT: u8 = 1;
+pub const APPEND_PERMISSION_CELL_DEPS_BIT: u8 = 2;
+pub const APPEND_PERMISSION_HEADER_DEPS_BIT: u8 = 3;
+pub const APPEND_PERMISSION_ALLOWED_MASK: u8 = 0x0f;
+
 pub const SEGMENT_FLAG_ALLOW_MORE_AFTER: u8 = 0x01;
 pub const SEGMENT_FLAG_COVERAGE_PREVIOUS: u8 = 0x02;
 pub const SEGMENT_FLAG_ALLOWED_MASK: u8 =
@@ -216,22 +228,42 @@ git commit -m "feat: replace otx append schema with segments"
 
 ---
 
-### Task 2: Parse Segment Flags And OTX Views
+### Task 2: Parse Append Permissions, Segment Flags, And OTX Views
 
 **Files:**
 - Modify: `crates/cobuild-core/src/protocol.rs`
 - Modify: `crates/cobuild-core/src/view.rs`
 - Test: `crates/cobuild-core/tests/view.rs`
 
-- [ ] **Step 1: Add failing `SegmentFlags` tests**
+- [ ] **Step 1: Add failing protocol flag tests**
 
 Append a `#[cfg(test)]` module to `crates/cobuild-core/src/protocol.rs`:
 
 ```rust
 #[cfg(test)]
 mod tests {
-    use super::{SegmentFlags, SEGMENT_FLAG_ALLOW_MORE_AFTER, SEGMENT_FLAG_COVERAGE_PREVIOUS};
+    use super::{
+        AppendPermissions, SegmentFlags, APPEND_PERMISSION_CELL_DEPS_BIT,
+        APPEND_PERMISSION_HEADER_DEPS_BIT, APPEND_PERMISSION_INPUTS_BIT,
+        APPEND_PERMISSION_OUTPUTS_BIT, SEGMENT_FLAG_ALLOW_MORE_AFTER,
+        SEGMENT_FLAG_COVERAGE_PREVIOUS,
+    };
     use crate::error::CoreError;
+
+    #[test]
+    fn append_permissions_accept_entity_append_bits() {
+        let permissions = AppendPermissions::try_from(0x0f).unwrap();
+        assert!(permissions.allows(APPEND_PERMISSION_INPUTS_BIT));
+        assert!(permissions.allows(APPEND_PERMISSION_OUTPUTS_BIT));
+        assert!(permissions.allows(APPEND_PERMISSION_CELL_DEPS_BIT));
+        assert!(permissions.allows(APPEND_PERMISSION_HEADER_DEPS_BIT));
+    }
+
+    #[test]
+    fn append_permissions_reject_reserved_bits() {
+        assert_eq!(AppendPermissions::try_from(0x10), Err(CoreError::InvalidOtxLayout));
+        assert_eq!(AppendPermissions::try_from(0x80), Err(CoreError::InvalidOtxLayout));
+    }
 
     #[test]
     fn segment_flags_accept_defined_bits() {
@@ -257,16 +289,22 @@ mod tests {
 Run:
 
 ```bash
-cargo test --offline -p cobuild-core segment_flags -- --nocapture
+cargo test --offline -p cobuild-core protocol::tests -- --nocapture
 ```
 
-Expected: FAIL because `SegmentFlags` is missing.
+Expected: FAIL because `SegmentFlags` and the append permission bit constants are missing.
 
-- [ ] **Step 3: Implement `SegmentFlags`**
+- [ ] **Step 3: Implement append permission constants and `SegmentFlags`**
 
 Add to `crates/cobuild-core/src/protocol.rs`:
 
 ```rust
+pub const APPEND_PERMISSION_INPUTS_BIT: u8 = 0;
+pub const APPEND_PERMISSION_OUTPUTS_BIT: u8 = 1;
+pub const APPEND_PERMISSION_CELL_DEPS_BIT: u8 = 2;
+pub const APPEND_PERMISSION_HEADER_DEPS_BIT: u8 = 3;
+pub const APPEND_PERMISSION_ALLOWED_MASK: u8 = 0x0f;
+
 pub const SEGMENT_FLAG_ALLOW_MORE_AFTER: u8 = 0x01;
 pub const SEGMENT_FLAG_COVERAGE_PREVIOUS: u8 = 0x02;
 pub const SEGMENT_FLAG_ALLOWED_MASK: u8 =
@@ -302,6 +340,10 @@ impl TryFrom<u8> for SegmentFlags {
     }
 }
 ```
+
+Update `AppendPermissions::try_from` to reject `raw & !APPEND_PERMISSION_ALLOWED_MASK != 0`.
+Do not define a `preserve_append_input_output_pairing` permission bit; input/output pairing is a
+business-script concern, not an OTX core permission.
 
 - [ ] **Step 4: Replace `OtxView` append fields**
 
@@ -512,10 +554,10 @@ for (index, segment) in data.append_segments.iter().enumerate() {
     if index + 1 != data.append_segments.len() && !flags.allow_more_segments_after() {
         return Err(CoreError::InvalidOtxLayout);
     }
-    append_permissions.require_allowed(0, segment.input_cells)?;
-    append_permissions.require_allowed(1, segment.output_cells)?;
-    append_permissions.require_allowed(2, segment.cell_deps)?;
-    append_permissions.require_allowed(3, segment.header_deps)?;
+    append_permissions.require_allowed(APPEND_PERMISSION_INPUTS_BIT, segment.input_cells)?;
+    append_permissions.require_allowed(APPEND_PERMISSION_OUTPUTS_BIT, segment.output_cells)?;
+    append_permissions.require_allowed(APPEND_PERMISSION_CELL_DEPS_BIT, segment.cell_deps)?;
+    append_permissions.require_allowed(APPEND_PERMISSION_HEADER_DEPS_BIT, segment.header_deps)?;
 }
 ```
 

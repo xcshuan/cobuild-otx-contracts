@@ -126,6 +126,27 @@ table Otx {
 `OtxAppendSegment.seals` 中。seal 自身不再携带 base/append scope，签名位置由
 所在字段决定。
 
+## Append Permissions
+
+`append_permissions` 只表达 base 作者允许后续追加哪些实体类型：
+
+```text
+bit 0: allow_append_inputs
+bit 1: allow_append_outputs
+bit 2: allow_append_cell_deps
+bit 3: allow_append_header_deps
+bits 4..7: reserved, MUST be zero
+```
+
+reserved bits 非零时 witness 无效。
+
+这里不引入类似 PSBTv2 `Has SIGHASH_SINGLE` 的
+`preserve_append_input_output_pairing` bit。Bitcoin 需要这个 flag 是因为
+`SIGHASH_SINGLE` 自带 input index 和 output index 的配对语义；OTX append
+segment 没有同样的内建 sighash 规则。如果某个业务需要 input/output 配对，应由
+业务脚本按 segment 边界和 action 语义检查，而不是放进 OTX core 的全局
+permission bit。
+
 ## Segment Flags
 
 第一版只定义两个 flag：
@@ -282,6 +303,7 @@ finality 或 coverage 语义在后续接力签名中被替换。
   必须覆盖 segment `0..i` 的完整 append 实体和 flags；
 - 如果 segment `i` 的 `coverage_previous_segments` 为零，则它的 signing hash
   不得覆盖其他 segment 的 append 实体；
+- `append_permissions` 的 reserved bits 必须为零；
 - segment counts 必须与对应 append permissions 兼容；
 - 每个 required segment seal 必须唯一；
 - segment layout 必须与最终交易实体范围一致。
