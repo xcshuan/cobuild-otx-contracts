@@ -84,10 +84,13 @@ fn mixed_type_lock_duplicate_payment_case() -> BuiltLimitOrderCase {
     );
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![type_order_input, type_nft_input, lock_nft_input],
-        append_inputs: vec![udt_input],
         base_outputs: vec![type_nft_output, lock_nft_output],
-        append_outputs: vec![payment_output],
-        seals: vec![empty_seal_pair(order_lock_hash, 0)],
+        append_segments: vec![
+            append_segment_spec(0x00)
+                .with_inputs(vec![udt_input])
+                .with_outputs(vec![payment_output]),
+        ],
+        base_seals: vec![empty_lock_seal(order_lock_hash)],
         ..Default::default()
     });
     let base_scope = SignatureScope::OtxBase { otx };

@@ -21,9 +21,8 @@ fn error_codes_are_grouped_by_category() {
     assert_eq!(Error::InvalidMessageTarget.code(), 32);
     assert_eq!(Error::DuplicateSighashAll.code(), 33);
     assert_eq!(Error::MissingLockGroupCoverage.code(), 34);
-    assert_eq!(Error::MissingSealPair.code(), 35);
-    assert_eq!(Error::DuplicateSealPair.code(), 36);
-    assert_eq!(Error::InvalidSealScope.code(), 37);
+    assert_eq!(Error::MissingLockSeal.code(), 35);
+    assert_eq!(Error::DuplicateLockSeal.code(), 36);
     assert_eq!(Error::DuplicateMatchingAction.code(), 38);
     assert_eq!(Error::InvalidLockGroupWitness.code(), 39);
 
@@ -85,16 +84,12 @@ fn core_errors_map_to_dedicated_contract_errors() {
         Error::MissingLockGroupCoverage
     );
     assert_eq!(
-        Error::from(CoreError::MissingSealPair),
-        Error::MissingSealPair
+        Error::from(CoreError::MissingLockSeal),
+        Error::MissingLockSeal
     );
     assert_eq!(
-        Error::from(CoreError::DuplicateSealPair),
-        Error::DuplicateSealPair
-    );
-    assert_eq!(
-        Error::from(CoreError::InvalidSealScope),
-        Error::InvalidSealScope
+        Error::from(CoreError::DuplicateLockSeal),
+        Error::DuplicateLockSeal
     );
     assert_eq!(
         Error::from(CoreError::DuplicateMatchingAction),

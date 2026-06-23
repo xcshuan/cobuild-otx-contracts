@@ -50,13 +50,15 @@ pub fn mint_mixed_tx_and_otx_order_case() -> NftMinterCase {
         ),
         base_inputs: vec![minter_input],
         base_outputs: vec![minter_output],
-        append_outputs: vec![minted_nft_output(
-            &lock.script,
-            &nft_7_code.script,
-            minter_hash,
-            7,
-            [7u8; 32],
-        )],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![minted_nft_output(
+                &lock.script,
+                &nft_7_code.script,
+                minter_hash,
+                7,
+                [7u8; 32],
+            )]),
+        ],
         ..Default::default()
     });
     shape.push_remainder_output(minted_nft_output(
@@ -251,13 +253,15 @@ pub fn mint_otx_output_in_other_otx_append_range_case() -> NftMinterCase {
     let minter_input = shape.otx_base_input(otx, 0);
     shape.push_otx(OtxSegment {
         base_inputs: vec![unrelated_input],
-        append_outputs: vec![minted_nft_output(
-            &lock.script,
-            &nft_code.script,
-            minter_hash,
-            serial,
-            seed,
-        )],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![minted_nft_output(
+                &lock.script,
+                &nft_code.script,
+                minter_hash,
+                serial,
+                seed,
+            )]),
+        ],
         ..Default::default()
     });
     let mut built = shape.build();
@@ -382,11 +386,10 @@ fn real_otx_lock_base_nft_output_case(
         built.otx_witness(otx),
         SignatureScope::OtxBase { otx },
     );
-    built.apply_protocol_mutation(ProtocolMutation::SealRaw {
+    built.apply_protocol_mutation(ProtocolMutation::BaseSealRaw {
         otx,
         script_hash: user_lock.script_hash,
-        scope: 0,
-        seal: facts.seal,
+        seal: Some(facts.seal),
     });
 
     if mode == RealOtxLockBaseNftOutputMode::TamperNftCapacity {
@@ -522,13 +525,15 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> Nft
         ),
         base_inputs: vec![minter_input],
         base_outputs: vec![minter_output],
-        append_outputs: vec![minted_nft_output(
-            &user_lock_a.script,
-            &nft_6_code.script,
-            minter_hash,
-            6,
-            [6u8; 32],
-        )],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![minted_nft_output(
+                &user_lock_a.script,
+                &nft_6_code.script,
+                minter_hash,
+                6,
+                [6u8; 32],
+            )]),
+        ],
         ..Default::default()
     });
     let otx_b = shape.push_otx(OtxSegment {
@@ -542,13 +547,15 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> Nft
                 .build(),
         ),
         base_inputs: vec![user_b_input],
-        append_outputs: vec![minted_nft_output(
-            &user_lock_b.script,
-            &nft_7_code.script,
-            minter_hash,
-            7,
-            [7u8; 32],
-        )],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![minted_nft_output(
+                &user_lock_b.script,
+                &nft_7_code.script,
+                minter_hash,
+                7,
+                [7u8; 32],
+            )]),
+        ],
         ..Default::default()
     });
     let otx_c = shape.push_otx(OtxSegment {
@@ -562,13 +569,15 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> Nft
                 .build(),
         ),
         base_inputs: vec![user_c_input],
-        append_outputs: vec![minted_nft_output(
-            &user_lock_c.script,
-            &nft_8_code.script,
-            minter_hash,
-            8,
-            [8u8; 32],
-        )],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![minted_nft_output(
+                &user_lock_c.script,
+                &nft_8_code.script,
+                minter_hash,
+                8,
+                [8u8; 32],
+            )]),
+        ],
         ..Default::default()
     });
     let mut built = shape.build();
@@ -606,11 +615,10 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> Nft
             built.otx_witness(otx),
             SignatureScope::OtxBase { otx },
         );
-        built.apply_protocol_mutation(ProtocolMutation::SealRaw {
+        built.apply_protocol_mutation(ProtocolMutation::BaseSealRaw {
             otx,
             script_hash,
-            scope: 0,
-            seal: facts.seal,
+            seal: Some(facts.seal),
         });
     }
 
@@ -686,7 +694,7 @@ fn real_otx_lock_mint_case(name: &'static str, mode: RealOtxLockMintMode) -> Nft
         ),
         base_inputs: vec![minter_input],
         base_outputs: vec![minter_output],
-        append_outputs: vec![minted_output.clone()],
+        append_segments: vec![append_segment_spec(0x00).with_outputs(vec![minted_output.clone()])],
         ..Default::default()
     });
     let minter_input = shape.otx_base_input(otx, 0);
@@ -710,11 +718,10 @@ fn real_otx_lock_mint_case(name: &'static str, mode: RealOtxLockMintMode) -> Nft
         if mode == RealOtxLockMintMode::BadBaseSeal {
             seal[0] ^= 0x01;
         }
-        built.apply_protocol_mutation(ProtocolMutation::SealRaw {
+        built.apply_protocol_mutation(ProtocolMutation::BaseSealRaw {
             otx,
             script_hash: user_lock.script_hash,
-            scope: 0,
-            seal,
+            seal: Some(seal),
         });
     }
     if mode == RealOtxLockMintMode::TamperBaseOutput {
@@ -764,7 +771,7 @@ fn real_otx_lock_mint_case(name: &'static str, mode: RealOtxLockMintMode) -> Nft
         }
         RealOtxLockMintMode::MissingBaseSeal => NftMinterExpected::OtxLockInput {
             input: minter_input,
-            error: CobuildOtxLockError::MissingSealPair,
+            error: CobuildOtxLockError::MissingLockSeal,
         },
     };
 

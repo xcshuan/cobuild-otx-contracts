@@ -229,9 +229,12 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
     );
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![order_input, nft_input],
-        append_inputs: vec![udt_input],
         base_outputs: vec![nft_output],
-        append_outputs: vec![udt_payment_output],
+        append_segments: vec![
+            append_segment_spec(0x00)
+                .with_inputs(vec![udt_input])
+                .with_outputs(vec![udt_payment_output]),
+        ],
         ..Default::default()
     });
     let order = shape.otx_base_input(otx, 0);
@@ -247,7 +250,7 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
         );
         let other_otx = shape.push_otx(OtxSegment {
             base_inputs: vec![dummy_input],
-            append_outputs: vec![output],
+            append_segments: vec![append_segment_spec(0x00).with_outputs(vec![output])],
             ..Default::default()
         });
         Some(shape.otx_append_output(other_otx, 0))
@@ -465,12 +468,15 @@ fn two_type_orders_case(case: FillActionCase) -> BuiltLimitOrderCase {
     );
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![order_input_a, nft_input_a, order_input_b, nft_input_b],
-        append_inputs: vec![udt_input],
         base_outputs: vec![nft_output_a, nft_output_b],
-        append_outputs: vec![payment_output_a, payment_output_b],
+        append_segments: vec![
+            append_segment_spec(0x00)
+                .with_inputs(vec![udt_input])
+                .with_outputs(vec![payment_output_a, payment_output_b]),
+        ],
         ..Default::default()
     });
-    let order_b = shape.otx_base_input(otx, 2);
+    let order_a = shape.otx_base_input(otx, 0);
     let payment_a = shape.otx_append_output(otx, 0);
     let payment_b = shape.otx_append_output(otx, 1);
     let second_payment = if case == FillActionCase::TwoTypeOrdersReusePaymentOutput {
@@ -507,7 +513,7 @@ fn two_type_orders_case(case: FillActionCase) -> BuiltLimitOrderCase {
         fixture,
         built,
         if case == FillActionCase::TwoTypeOrdersReusePaymentOutput {
-            input_type_error(order_b, LimitOrderTypeError::InvalidAction)
+            input_type_error(order_a, LimitOrderTypeError::InvalidAction)
         } else {
             LimitOrderExpectedOutcome::Pass
         },

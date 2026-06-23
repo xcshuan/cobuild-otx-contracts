@@ -96,7 +96,6 @@ enum OtxSealShape {
     MissingBase,
     MissingAppend,
     DuplicateBase,
-    InvalidScope,
     WrongScriptHash,
 }
 
@@ -163,13 +162,6 @@ pub(super) fn signed_otx_duplicate_base_seal_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_otx_duplicate_base_seal",
         OtxCaseConfig::default().with_seal_shape(OtxSealShape::DuplicateBase),
-    )
-}
-
-pub(super) fn signed_otx_invalid_seal_scope_case() -> BuiltCobuildOtxLockCase {
-    signed_otx_case(
-        "contract_rejects_otx_invalid_seal_scope",
-        OtxCaseConfig::default().with_seal_shape(OtxSealShape::InvalidScope),
     )
 }
 
@@ -307,13 +299,16 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         message: (config.tamper == OtxTamper::InvalidActionTarget)
             .then(invalid_action_target_message),
         base_inputs: vec![base_input],
-        append_inputs: vec![append_input],
         base_outputs,
-        append_outputs,
         base_cell_deps,
-        append_cell_deps,
         base_header_deps,
-        append_header_deps,
+        append_segments: vec![
+            append_segment_spec(0x00)
+                .with_inputs(vec![append_input])
+                .with_outputs(append_outputs)
+                .with_cell_deps(append_cell_deps)
+                .with_header_deps(append_header_deps),
+        ],
         base_input_masks: Some(full_base_input_masks(1)),
         base_cell_dep_masks: config
             .preimage_shape
@@ -348,7 +343,10 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         &secret_key,
         contract.script_hash,
         built.otx_witness(otx),
-        SignatureScope::OtxAppend { otx },
+        SignatureScope::OtxAppendSegment {
+            otx,
+            segment_index: 0,
+        },
     );
     match config.seal_shape {
         OtxSealShape::Valid => {
@@ -366,14 +364,6 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
                 otx,
                 &[base_facts.clone(), base_facts.clone(), append_facts.clone()],
             );
-        }
-        OtxSealShape::InvalidScope => {
-            fill_otx_seals(&mut built, otx, &[base_facts.clone(), append_facts.clone()]);
-            built.apply_protocol_mutation(ProtocolMutation::SealScopeRaw {
-                otx,
-                script_hash: contract.script_hash,
-                scope: 9,
-            });
         }
         OtxSealShape::WrongScriptHash => {
             fill_otx_seals_with(
@@ -400,11 +390,11 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
     if config.tamper == OtxTamper::CorruptAppendSeal {
         let mut bad_seal = append_facts.seal.clone();
         bad_seal[0] ^= 0x01;
-        built.apply_protocol_mutation(ProtocolMutation::SealRaw {
+        built.apply_protocol_mutation(ProtocolMutation::AppendSegmentSealRaw {
             otx,
+            segment_index: 0,
             script_hash: contract.script_hash,
-            scope: 1,
-            seal: bad_seal,
+            seal: Some(bad_seal),
         });
     }
     if config.tamper == OtxTamper::MalformedPermissions {
@@ -435,11 +425,9 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         config.seal_shape,
         OtxSealShape::MissingBase | OtxSealShape::MissingAppend | OtxSealShape::WrongScriptHash
     ) {
-        lock_exit(base_input_handle, CobuildOtxLockError::MissingSealPair)
+        lock_exit(base_input_handle, CobuildOtxLockError::MissingLockSeal)
     } else if config.seal_shape == OtxSealShape::DuplicateBase {
-        lock_exit(base_input_handle, CobuildOtxLockError::DuplicateSealPair)
-    } else if config.seal_shape == OtxSealShape::InvalidScope {
-        lock_exit(base_input_handle, CobuildOtxLockError::InvalidSealScope)
+        lock_exit(base_input_handle, CobuildOtxLockError::DuplicateLockSeal)
     } else if config.tamper == OtxTamper::CorruptAppendSeal
         || config.preimage_shape == OtxPreimageShape::FullWithSignedAppendOutputMutation
     {

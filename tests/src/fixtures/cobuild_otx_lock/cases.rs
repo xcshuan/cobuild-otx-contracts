@@ -4,7 +4,7 @@ use ckb_testtool::ckb_types::{
     prelude::*,
 };
 use cobuild_types::entity::{
-    core::{Otx, SealPairVec},
+    core::{LockSealVec, Otx, OtxAppendSegmentVec},
     witness::{WitnessLayout, WitnessLayoutUnion},
 };
 
@@ -24,7 +24,7 @@ use crate::{
         cobuild::{
             BaseInputMaskField, BaseOutputMaskField, base_cell_dep_item_mask,
             base_header_dep_item_mask, base_input_mask, base_output_mask, full_base_cell_dep_masks,
-            full_base_header_dep_masks, full_base_input_masks, full_base_output_masks, seal_pair,
+            full_base_header_dep_masks, full_base_input_masks, full_base_output_masks, lock_seal,
         },
         fixture::CobuildTestFixture,
         scenario::{ExpectedOutcome, ScriptLocation},
@@ -34,7 +34,7 @@ use crate::{
         },
         tx::{
             BuiltTxShape, InputHandle, OtxHandle, OtxSegment, ProtocolMutation, TxShape,
-            TxShapeMutation, WitnessHandle,
+            TxShapeMutation, WitnessHandle, append_segment_spec,
         },
     },
 };
@@ -79,7 +79,6 @@ pub fn cases() -> Vec<BuiltCobuildOtxLockCase> {
         otx_signatures::signed_otx_missing_base_seal_case(),
         otx_signatures::signed_otx_missing_append_seal_case(),
         otx_signatures::signed_otx_duplicate_base_seal_case(),
-        otx_signatures::signed_otx_invalid_seal_scope_case(),
         otx_signatures::signed_otx_wrong_script_hash_seal_case(),
         otx_signatures::signed_otx_invalid_action_target_case(),
         otx_signatures::malformed_otx_duplicate_start_case(),

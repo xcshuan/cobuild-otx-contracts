@@ -11,17 +11,18 @@ use crate::{
         cobuild::{
             BaseInputMaskField, BaseOutputMaskField, CobuildMessageBuilder, OtxStartSpec,
             RawOtxBuilder, base_cell_dep_item_mask, base_header_dep_item_mask, base_input_mask,
-            base_output_mask, seal_pair,
+            base_output_mask, lock_seal,
         },
         scenario::{ExpectedOutcome, ScriptLocation},
         scripts::packed_hash_to_array,
         signing::{
             SignatureScope, SignerId, SigningHashOracle, TestSigningHashOracle,
-            assert_hash_changed, fixed_secret_key, sign_scope, tx_without_message_hash_for_inputs,
+            assert_hash_changed, assert_hash_unchanged, fixed_secret_key, sign_scope,
+            tx_without_message_hash_for_inputs,
         },
         tx::{
             BuiltTxShape, HeaderDepHandle, OtxSegment, ProtocolMutation, TxShape, TxShapeMutation,
-            WitnessHandle,
+            WitnessHandle, append_segment_spec,
         },
     },
 };
@@ -178,6 +179,27 @@ fn signing_otx_witness_with_append_output_count(append_output_cells: u32) -> Byt
     Bytes::copy_from_slice(witness.as_slice())
 }
 
+fn signing_otx_witness_with_append_segment_flags(segment_flags: u8) -> Bytes {
+    let otx = RawOtxBuilder::new()
+        .base_input_cells(1)
+        .append_segment(segment_flags, 0, 1, 0, 0, Vec::new())
+        .allow_append_outputs()
+        .build();
+    let witness = WitnessLayout::from(otx);
+    Bytes::copy_from_slice(witness.as_slice())
+}
+
+fn signing_otx_witness_with_two_append_segments() -> Bytes {
+    let otx = RawOtxBuilder::new()
+        .base_input_cells(1)
+        .append_segment(0x01, 0, 1, 0, 0, Vec::new())
+        .append_segment(0x00, 0, 1, 0, 0, Vec::new())
+        .allow_append_outputs()
+        .build();
+    let witness = WitnessLayout::from(otx);
+    Bytes::copy_from_slice(witness.as_slice())
+}
+
 fn signing_otx_witness_with_message_and_seal() -> (Bytes, Otx) {
     signing_otx_witness_with_message_seal_and_outputs(2, 2)
 }
@@ -190,7 +212,7 @@ fn signing_otx_witness_with_message_seal_and_outputs(
         .input_lock_action([9; 32])
         .action_data(vec![1, 2, 3])
         .build();
-    let seal = seal_pair([7; 32], 0x42, vec![0xaa, 0xbb, 0xcc]);
+    let seal = lock_seal([7; 32], vec![0xaa, 0xbb, 0xcc]);
     let otx = RawOtxBuilder::new()
         .message(message)
         .append_permissions(0x0b)
@@ -200,7 +222,7 @@ fn signing_otx_witness_with_message_seal_and_outputs(
         .base_output_masks(vec![0xa5])
         .append_input_cells(1)
         .append_output_cells(append_output_cells)
-        .seals(vec![seal])
+        .base_seals(vec![seal])
         .build();
     let witness = WitnessLayout::from(otx.clone());
 
@@ -214,8 +236,8 @@ fn assert_same_message_seals_and_permissions(mutated: &Otx, original: &Otx) {
         "message"
     );
     assert_eq!(
-        mutated.seals().as_slice(),
-        original.seals().as_slice(),
+        mutated.base_seals().as_slice(),
+        original.base_seals().as_slice(),
         "seals"
     );
     assert_eq!(
@@ -253,23 +275,51 @@ fn assert_same_base_outputs(mutated: &Otx, original: &Otx) {
 
 fn assert_same_append_counts(mutated: &Otx, original: &Otx) {
     assert_eq!(
-        molecule_u32(mutated.append_input_cells()),
-        molecule_u32(original.append_input_cells()),
+        first_append_segment_input_cells(mutated),
+        first_append_segment_input_cells(original),
         "append input cells"
     );
     assert_eq!(
-        molecule_u32(mutated.append_output_cells()),
-        molecule_u32(original.append_output_cells()),
+        first_append_segment_output_cells(mutated),
+        first_append_segment_output_cells(original),
         "append output cells"
     );
     assert_eq!(
-        molecule_u32(mutated.append_cell_deps()),
-        molecule_u32(original.append_cell_deps()),
+        first_append_segment_cell_deps(mutated),
+        first_append_segment_cell_deps(original),
         "append cell deps"
     );
     assert_eq!(
-        molecule_u32(mutated.append_header_deps()),
-        molecule_u32(original.append_header_deps()),
+        first_append_segment_header_deps(mutated),
+        first_append_segment_header_deps(original),
         "append header deps"
     );
+}
+
+fn first_append_segment_input_cells(otx: &Otx) -> u32 {
+    otx.append_segments()
+        .get(0)
+        .map(|segment| molecule_u32(segment.input_cells()))
+        .unwrap_or(0)
+}
+
+fn first_append_segment_output_cells(otx: &Otx) -> u32 {
+    otx.append_segments()
+        .get(0)
+        .map(|segment| molecule_u32(segment.output_cells()))
+        .unwrap_or(0)
+}
+
+fn first_append_segment_cell_deps(otx: &Otx) -> u32 {
+    otx.append_segments()
+        .get(0)
+        .map(|segment| molecule_u32(segment.cell_deps()))
+        .unwrap_or(0)
+}
+
+fn first_append_segment_header_deps(otx: &Otx) -> u32 {
+    otx.append_segments()
+        .get(0)
+        .map(|segment| molecule_u32(segment.header_deps()))
+        .unwrap_or(0)
 }

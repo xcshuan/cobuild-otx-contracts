@@ -10,7 +10,10 @@ pub mod malformed;
 #[path = "tx/mutate.rs"]
 pub mod mutate;
 
-pub use builder::{BuiltTxShape, OtxRangeFacts, OtxSegment, TxShape};
+pub use builder::{
+    AppendSegmentRangeFacts, AppendSegmentSpec, BuiltTxShape, OtxRangeFacts, OtxSegment, TxShape,
+    append_segment_spec,
+};
 pub use handles::{
     CellDepHandle, EntityIndexMap, HeaderDepHandle, InputHandle, OtxHandle, OutputHandle,
     WitnessHandle,
@@ -47,7 +50,7 @@ mod tests {
         witness::{WitnessLayout, WitnessLayoutUnion},
     };
 
-    use super::{BuiltTxShape, OtxSegment, TxShape};
+    use super::{BuiltTxShape, OtxSegment, TxShape, append_segment_spec};
     use crate::framework::cells::{ResolvedInputFacts, TestCellOutput, normal_output};
 
     fn empty_script() -> Script {
@@ -112,24 +115,30 @@ mod tests {
 
         let first_otx = shape.push_otx(OtxSegment {
             base_inputs: vec![resolved_input(2)],
-            append_inputs: vec![resolved_input(3)],
             base_outputs: vec![output(10)],
-            append_outputs: vec![output(11), output(12)],
             base_cell_deps: vec![cell_dep(10)],
-            append_cell_deps: vec![cell_dep(11), cell_dep(12)],
             base_header_deps: vec![[10; 32]],
-            append_header_deps: vec![[11; 32], [12; 32]],
+            append_segments: vec![
+                append_segment_spec(0x00)
+                    .with_inputs(vec![resolved_input(3)])
+                    .with_outputs(vec![output(11), output(12)])
+                    .with_cell_deps(vec![cell_dep(11), cell_dep(12)])
+                    .with_header_deps(vec![[11; 32], [12; 32]]),
+            ],
             ..Default::default()
         });
         let second_otx = shape.push_otx(OtxSegment {
             base_inputs: vec![resolved_input(4)],
-            append_inputs: vec![resolved_input(5)],
             base_outputs: vec![output(20)],
-            append_outputs: vec![output(21)],
             base_cell_deps: vec![cell_dep(20)],
-            append_cell_deps: vec![cell_dep(21)],
             base_header_deps: vec![[20; 32]],
-            append_header_deps: vec![[21; 32]],
+            append_segments: vec![
+                append_segment_spec(0x00)
+                    .with_inputs(vec![resolved_input(5)])
+                    .with_outputs(vec![output(21)])
+                    .with_cell_deps(vec![cell_dep(21)])
+                    .with_header_deps(vec![[21; 32]]),
+            ],
             ..Default::default()
         });
         let remainder = shape.push_remainder_output(output(30));

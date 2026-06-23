@@ -18,7 +18,10 @@ use crate::framework::{
     fixture::CobuildTestFixture,
     scenario::{ExpectedOutcome, ScriptLocation},
     scripts::script_hash,
-    tx::{BuiltTxShape, InputHandle, OtxHandle, OtxSegment, OutputHandle, TxShape, WitnessHandle},
+    tx::{
+        BuiltTxShape, InputHandle, OtxHandle, OtxSegment, OutputHandle, TxShape, WitnessHandle,
+        append_segment_spec,
+    },
 };
 
 use super::{

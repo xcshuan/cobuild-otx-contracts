@@ -85,19 +85,49 @@ pub(super) fn fill_otx_seals_with(
     facts: &[SigningFacts],
     script_hash_override: Option<[u8; 32]>,
 ) {
-    let seals = facts
-        .iter()
-        .map(|facts| {
-            seal_pair(
-                script_hash_override.unwrap_or(facts.script_hash),
-                seal_scope(facts.scope),
-                facts.seal.clone(),
-            )
-        })
-        .collect::<Vec<_>>();
-    let updated = current_otx_witness(built, otx)
+    let current = current_otx_witness(built, otx);
+    let mut base_seals = Vec::new();
+    let mut append_segment_seals = vec![Vec::new(); current.append_segments().len()];
+    for facts in facts {
+        let seal = lock_seal(
+            script_hash_override.unwrap_or(facts.script_hash),
+            facts.seal.clone(),
+        );
+        match facts.scope {
+            SignatureScope::OtxBase { .. } => base_seals.push(seal),
+            SignatureScope::OtxAppendSegment { segment_index, .. } => append_segment_seals
+                .get_mut(segment_index)
+                .unwrap_or_else(|| panic!("append segment {segment_index} has no seal bucket"))
+                .push(seal),
+            SignatureScope::TxWithoutMessage | SignatureScope::TxWithMessage => {
+                panic!("tx-level signature facts cannot be inserted into an OTX")
+            }
+        }
+    }
+
+    let append_segments =
+        current
+            .append_segments()
+            .into_iter()
+            .enumerate()
+            .map(|(index, segment)| {
+                segment
+                    .as_builder()
+                    .seals(
+                        LockSealVec::new_builder()
+                            .extend(append_segment_seals[index].clone())
+                            .build(),
+                    )
+                    .build()
+            });
+    let updated = current
         .as_builder()
-        .seals(SealPairVec::new_builder().extend(seals).build())
+        .append_segments(
+            OtxAppendSegmentVec::new_builder()
+                .extend(append_segments)
+                .build(),
+        )
+        .base_seals(LockSealVec::new_builder().extend(base_seals).build())
         .build();
     replace_otx_witness(built, otx, updated);
 }
@@ -165,16 +195,6 @@ pub(super) fn insert_leading_witness_placeholders(
     handles
 }
 
-pub(super) fn seal_scope(scope: SignatureScope) -> u8 {
-    match scope {
-        SignatureScope::OtxBase { .. } => 0,
-        SignatureScope::OtxAppend { .. } => 1,
-        SignatureScope::TxWithoutMessage | SignatureScope::TxWithMessage => {
-            panic!("tx-level signature facts cannot be inserted into an OTX")
-        }
-    }
-}
-
 pub(super) fn resolved_lock_input(
     fixture: &mut ckb_testtool::context::Context,
     lock: Script,
@@ -229,6 +249,84 @@ pub(super) fn udt_output(lock: Script, type_script: Script, amount: u128) -> Tes
             .build(),
         udt_amount_data(amount),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tx_mutations_fill_otx_seals_routes_append_segment_seals() {
+        let mut fixture = CobuildTestFixture::new();
+        let lock = deploy_always_success(fixture.context_mut(), b"seal-route".to_vec());
+        let base_input = resolved_lock_input(
+            fixture.context_mut(),
+            lock.script.clone(),
+            100_000_000_000,
+            Bytes::new(),
+        );
+        let append_output =
+            always_success_output(fixture.context_mut(), 90_000_000_000, Bytes::new());
+        let mut shape = TxShape::new();
+        let otx = shape.push_otx(OtxSegment {
+            base_inputs: vec![base_input],
+            append_segments: vec![append_segment_spec(0x00).with_outputs(vec![append_output])],
+            ..Default::default()
+        });
+        let mut built = shape.build();
+        let carrier = built.otx_witness(otx);
+        let facts = vec![
+            SigningFacts {
+                signer: SignerId("base"),
+                scope: SignatureScope::OtxBase { otx },
+                carrier,
+                script_hash: [1; 32],
+                signing_hash: [0; 32],
+                seal: vec![0xba],
+            },
+            SigningFacts {
+                signer: SignerId("append"),
+                scope: SignatureScope::OtxAppendSegment {
+                    otx,
+                    segment_index: 0,
+                },
+                carrier,
+                script_hash: [2; 32],
+                signing_hash: [0; 32],
+                seal: vec![0xab],
+            },
+        ];
+
+        fill_otx_seals_with(&mut built, otx, &facts, None);
+
+        let witness = current_otx_witness(&built, otx);
+        let base_seals = witness.base_seals();
+        assert_eq!(base_seals.len(), 1);
+        assert_eq!(
+            base_seals
+                .get(0)
+                .expect("base seal")
+                .script_hash()
+                .raw_data()
+                .as_ref(),
+            &[1; 32]
+        );
+        let append_seals = witness
+            .append_segments()
+            .get(0)
+            .expect("append segment")
+            .seals();
+        assert_eq!(append_seals.len(), 1);
+        assert_eq!(
+            append_seals
+                .get(0)
+                .expect("append seal")
+                .script_hash()
+                .raw_data()
+                .as_ref(),
+            &[2; 32]
+        );
+    }
 }
 
 pub(super) fn lock_exit(input: InputHandle, error: CobuildOtxLockError) -> ExpectedOutcome {

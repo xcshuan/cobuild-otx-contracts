@@ -3,7 +3,7 @@ use ckb_testtool::ckb_types::{
     prelude::{Builder, Entity},
 };
 use cobuild_types::entity::{
-    core::{Message as CobuildMessage, OtxStart, SealPair, SighashAll, SighashAllOnly},
+    core::{LockSeal, Message as CobuildMessage, OtxStart, SighashAll, SighashAllOnly},
     witness::WitnessLayout,
 };
 
@@ -11,14 +11,9 @@ use super::otx::BuiltOtxSpec;
 
 pub use crate::framework::tx::WitnessHandle;
 
-pub fn seal_pair(
-    script_hash: [u8; 32],
-    scope: u8,
-    seal: Vec<u8>,
-) -> cobuild_types::entity::core::SealPair {
-    SealPair::new_builder()
+pub fn lock_seal(script_hash: [u8; 32], seal: Vec<u8>) -> cobuild_types::entity::core::LockSeal {
+    LockSeal::new_builder()
         .script_hash(script_hash)
-        .scope(scope)
         .seal(seal)
         .build()
 }

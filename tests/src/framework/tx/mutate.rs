@@ -2,7 +2,7 @@ use std::ops::Range;
 
 use ckb_testtool::ckb_types::{bytes::Bytes, packed::CellDep, prelude::*};
 use cobuild_types::entity::{
-    core::{Otx, SealPair, SealPairVec, SighashAll, SighashAllOnly},
+    core::{LockSeal, LockSealVec, Otx, OtxAppendSegmentVec, SighashAll, SighashAllOnly},
     witness::{WitnessLayout, WitnessLayoutUnion},
 };
 
@@ -31,16 +31,16 @@ pub enum ProtocolMutation {
         otx: OtxHandle,
         masks: Vec<u8>,
     },
-    SealScopeRaw {
+    BaseSealRaw {
         otx: OtxHandle,
         script_hash: [u8; 32],
-        scope: u8,
+        seal: Option<Vec<u8>>,
     },
-    SealRaw {
+    AppendSegmentSealRaw {
         otx: OtxHandle,
+        segment_index: usize,
         script_hash: [u8; 32],
-        scope: u8,
-        seal: Vec<u8>,
+        seal: Option<Vec<u8>>,
     },
 }
 
@@ -137,25 +137,27 @@ impl BuiltTxShape {
                 let first_otx_index = self.witnesses.tx_index(self.first_otx_witness());
                 self.swap_witnesses(start_index, first_otx_index);
             }
-            ProtocolMutation::SealScopeRaw {
+            ProtocolMutation::BaseSealRaw {
                 otx,
                 script_hash,
-                scope,
-            } => {
-                let updated = self
-                    .current_otx_witness(otx)
-                    .with_raw_seal_scope(script_hash, scope);
-                self.replace_otx_witness(otx, updated);
-            }
-            ProtocolMutation::SealRaw {
-                otx,
-                script_hash,
-                scope,
                 seal,
             } => {
                 let updated = self
                     .current_otx_witness(otx)
-                    .with_raw_seal(script_hash, scope, seal);
+                    .with_base_lock_seal(script_hash, seal);
+                self.replace_otx_witness(otx, updated);
+            }
+            ProtocolMutation::AppendSegmentSealRaw {
+                otx,
+                segment_index,
+                script_hash,
+                seal,
+            } => {
+                let updated = self.current_otx_witness(otx).with_append_segment_lock_seal(
+                    segment_index,
+                    script_hash,
+                    seal,
+                );
                 self.replace_otx_witness(otx, updated);
             }
         }
@@ -404,6 +406,9 @@ impl BuiltTxShape {
         for facts in &mut self.otx_ranges {
             move_index_out_of_otx_range(&mut facts.base_outputs, old_index);
             move_index_out_of_otx_range(&mut facts.append_outputs, old_index);
+            for segment in &mut facts.append_segments {
+                move_index_out_of_otx_range(&mut segment.outputs, old_index);
+            }
         }
         self.tx = self
             .tx
@@ -478,10 +483,16 @@ impl BuiltTxShape {
                 ));
             }
             if in_append {
+                let segment_index = facts
+                    .append_segments
+                    .iter()
+                    .find(|segment| segment.outputs.contains(&old_index))
+                    .map(|segment| segment.segment_index)
+                    .expect("append output index does not belong to an append segment range");
                 updates.push((
                     facts.otx,
                     self.current_otx_witness(facts.otx)
-                        .decrement_append_output_count(),
+                        .decrement_append_output_count(segment_index),
                 ));
             }
         }
@@ -504,7 +515,7 @@ fn move_index_out_of_otx_range(range: &mut Range<usize>, old_index: usize) {
 
 trait OtxOutputCountMutation {
     fn decrement_base_output_count(self, removed_local_index: usize) -> Self;
-    fn decrement_append_output_count(self) -> Self;
+    fn decrement_append_output_count(self, segment_index: usize) -> Self;
 }
 
 impl OtxOutputCountMutation for Otx {
@@ -527,81 +538,103 @@ impl OtxOutputCountMutation for Otx {
             .build()
     }
 
-    fn decrement_append_output_count(self) -> Self {
-        let old_count = u32_field(self.append_output_cells(), "append_output_cells");
+    fn decrement_append_output_count(self, segment_index: usize) -> Self {
+        let mut append_segments: Vec<_> = self.append_segments().into_iter().collect();
+        let segment = append_segments
+            .get_mut(segment_index)
+            .expect("cannot decrement missing append segment");
+        let old_count = u32_field(segment.output_cells(), "append output_cells");
         assert!(old_count > 0, "cannot decrement zero append_output_cells");
+        *segment = segment
+            .clone()
+            .as_builder()
+            .output_cells((old_count - 1).to_le_bytes())
+            .build();
         self.as_builder()
-            .append_output_cells((old_count - 1).to_le_bytes())
+            .append_segments(
+                OtxAppendSegmentVec::new_builder()
+                    .extend(append_segments)
+                    .build(),
+            )
             .build()
     }
 }
 
 trait OtxSealMutation {
-    fn with_raw_seal_scope(self, script_hash: [u8; 32], scope: u8) -> Self;
-    fn with_raw_seal(self, script_hash: [u8; 32], scope: u8, seal: Vec<u8>) -> Self;
+    fn with_base_lock_seal(self, script_hash: [u8; 32], seal: Option<Vec<u8>>) -> Self;
+    fn with_append_segment_lock_seal(
+        self,
+        segment_index: usize,
+        script_hash: [u8; 32],
+        seal: Option<Vec<u8>>,
+    ) -> Self;
 }
 
 impl OtxSealMutation for Otx {
-    fn with_raw_seal_scope(self, script_hash: [u8; 32], scope: u8) -> Self {
-        let mut replaced = false;
-        let mut seals: Vec<_> = self
-            .seals()
-            .into_iter()
-            .map(|seal| {
-                if seal.script_hash().raw_data().as_ref() == script_hash {
-                    replaced = true;
-                    seal.as_builder().scope(scope).build()
-                } else {
-                    seal
-                }
-            })
-            .collect();
-        if !replaced {
-            seals.push(
-                SealPair::new_builder()
-                    .script_hash(script_hash)
-                    .scope(scope)
-                    .seal(Vec::<u8>::new())
-                    .build(),
-            );
-        }
-
+    fn with_base_lock_seal(self, script_hash: [u8; 32], seal: Option<Vec<u8>>) -> Self {
+        let seals =
+            upsert_lock_seal_vec(self.base_seals().into_iter().collect(), script_hash, seal);
         self.as_builder()
-            .seals(SealPairVec::new_builder().extend(seals).build())
+            .base_seals(LockSealVec::new_builder().extend(seals).build())
             .build()
     }
 
-    fn with_raw_seal(self, script_hash: [u8; 32], scope: u8, seal: Vec<u8>) -> Self {
-        let mut replaced = false;
-        let mut seals: Vec<_> = self
-            .seals()
-            .into_iter()
-            .map(|existing| {
-                if existing.script_hash().raw_data().as_ref() == script_hash
-                    && existing.scope().as_slice() == [scope]
-                    && !replaced
-                {
-                    replaced = true;
+    fn with_append_segment_lock_seal(
+        self,
+        segment_index: usize,
+        script_hash: [u8; 32],
+        seal: Option<Vec<u8>>,
+    ) -> Self {
+        let mut append_segments: Vec<_> = self.append_segments().into_iter().collect();
+        let segment = append_segments
+            .get_mut(segment_index)
+            .expect("append segment seal mutation requires existing segment");
+        let seals = upsert_lock_seal_vec(segment.seals().into_iter().collect(), script_hash, seal);
+        *segment = segment
+            .clone()
+            .as_builder()
+            .seals(LockSealVec::new_builder().extend(seals).build())
+            .build();
+        self.as_builder()
+            .append_segments(
+                OtxAppendSegmentVec::new_builder()
+                    .extend(append_segments)
+                    .build(),
+            )
+            .build()
+    }
+}
+
+fn upsert_lock_seal_vec(
+    seals: Vec<LockSeal>,
+    script_hash: [u8; 32],
+    seal: Option<Vec<u8>>,
+) -> Vec<LockSeal> {
+    let mut replaced = false;
+    let mut seals: Vec<_> = seals
+        .into_iter()
+        .map(|existing| {
+            if existing.script_hash().raw_data().as_ref() == script_hash && !replaced {
+                replaced = true;
+                if let Some(seal) = &seal {
                     existing.as_builder().seal(seal.clone()).build()
                 } else {
                     existing
                 }
-            })
-            .collect();
-        if !replaced {
-            seals.push(
-                SealPair::new_builder()
-                    .script_hash(script_hash)
-                    .scope(scope)
-                    .seal(seal)
-                    .build(),
-            );
-        }
-
-        self.as_builder()
-            .seals(SealPairVec::new_builder().extend(seals).build())
-            .build()
+            } else {
+                existing
+            }
+        })
+        .collect();
+    if !replaced {
+        seals.push(
+            LockSeal::new_builder()
+                .script_hash(script_hash)
+                .seal(seal.unwrap_or_default())
+                .build(),
+        );
     }
+    seals
 }
 
 fn u32_field(value: cobuild_types::entity::blockchain::Uint32, field: &str) -> u32 {

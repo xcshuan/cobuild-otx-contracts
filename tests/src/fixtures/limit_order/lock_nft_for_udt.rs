@@ -1,6 +1,6 @@
 use ckb_testtool::ckb_types::{bytes::Bytes, core::ScriptHashType, packed::Script, prelude::*};
 use cobuild_types::entity::{
-    core::{Message as CobuildMessage, Otx, SealPair, SighashAll},
+    core::{LockSeal, Message as CobuildMessage, Otx, SighashAll},
     witness::{WitnessLayout, WitnessLayoutUnion},
 };
 
@@ -13,12 +13,15 @@ use crate::fixtures::common::{
 };
 use crate::framework::{
     cells::{ResolvedInputFacts, TestCellOutput, live_resolved_facts, normal_output, typed_output},
-    cobuild::{ActionRole, empty_message, seal_pair},
+    cobuild::{ActionRole, empty_message, lock_seal},
     contracts::{DeployedScript, cell_dep_for_script},
     fixture::CobuildTestFixture,
     scripts::script_hash,
     signing::{SignatureScope, SignerId, SigningFacts, SigningHashOracle, TestSigningHashOracle},
-    tx::{BuiltTxShape, InputHandle, OtxHandle, OtxSegment, TxShape, WitnessHandle},
+    tx::{
+        BuiltTxShape, InputHandle, OtxHandle, OtxSegment, TxShape, WitnessHandle,
+        append_segment_spec,
+    },
 };
 
 use super::{
@@ -165,8 +168,8 @@ fn otx_witness_bytes(otx: Otx) -> Bytes {
     Bytes::copy_from_slice(witness.as_slice())
 }
 
-fn empty_seal_pair(script_hash: [u8; 32], scope: u8) -> SealPair {
-    seal_pair(script_hash, scope, Vec::new())
+fn empty_lock_seal(script_hash: [u8; 32]) -> LockSeal {
+    lock_seal(script_hash, Vec::new())
 }
 
 fn empty_seal_facts(
@@ -180,9 +183,9 @@ fn empty_seal_facts(
             panic!("limit-order lock empty seals are OTX-scoped")
         }
         SignatureScope::OtxBase { otx } => oracle.otx_base(built, otx),
-        SignatureScope::OtxAppend { otx } => {
+        SignatureScope::OtxAppendSegment { otx, segment_index } => {
             let base_hash = oracle.otx_base(built, otx);
-            oracle.otx_append(built, otx, base_hash)
+            oracle.otx_append_segment(built, otx, segment_index, base_hash)
         }
     };
     SigningFacts {
@@ -197,7 +200,7 @@ fn empty_seal_facts(
 
 fn seal_carrier(built: &BuiltTxShape, scope: SignatureScope) -> WitnessHandle {
     match scope {
-        SignatureScope::OtxBase { otx } | SignatureScope::OtxAppend { otx } => {
+        SignatureScope::OtxBase { otx } | SignatureScope::OtxAppendSegment { otx, .. } => {
             built.otx_witness(otx)
         }
         SignatureScope::TxWithoutMessage | SignatureScope::TxWithMessage => {

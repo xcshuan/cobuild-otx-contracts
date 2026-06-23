@@ -6,7 +6,8 @@ use ckb_testtool::ckb_types::{
 };
 use cobuild_core::{
     error::CoreError,
-    layout::{OtxLayout, Range},
+    layout::{OtxAppendSegmentLayout, OtxLayout, Range},
+    protocol::SegmentFlags,
     reader::{cursor_from_slice, update_cursor_with_error},
     view::{CobuildWitnessLayoutView, OtxView},
 };
@@ -17,7 +18,7 @@ use crate::framework::tx::{BuiltTxShape, OtxHandle, OtxRangeFacts};
 use super::tx::{checked_len_prefix, new_hasher};
 
 const OTX_BASE_PERSONAL: &[u8; 16] = b"ckbcb_otb_core1\0";
-const OTX_APPEND_PERSONAL: &[u8; 16] = b"ckbcb_ota_core1\0";
+const OTX_APPEND_SEGMENT_PERSONAL: &[u8; 16] = b"ckbcb_ots_core1\0";
 
 pub(crate) fn otx_base_hash(built: &BuiltTxShape, otx: OtxHandle) -> [u8; 32] {
     let (view, layout) = otx_hash_inputs(built, otx);
@@ -36,22 +37,55 @@ pub(crate) fn otx_base_hash(built: &BuiltTxShape, otx: OtxHandle) -> [u8; 32] {
     out
 }
 
-pub(crate) fn otx_append_hash(
+pub(crate) fn otx_append_segment_hash(
     built: &BuiltTxShape,
     otx: OtxHandle,
+    segment_index: usize,
     base_hash: [u8; 32],
 ) -> [u8; 32] {
     let (view, layout) = otx_hash_inputs(built, otx);
+    let segment = layout
+        .append_segments
+        .get(segment_index)
+        .expect("append segment layout");
+    assert_eq!(
+        segment.segment_index, segment_index,
+        "append segment layout index"
+    );
+    view.append_segments
+        .get(segment_index)
+        .expect("append segment view");
     let mut out = [0u8; 32];
-    let mut hasher = new_hasher(OTX_APPEND_PERSONAL);
+    let mut hasher = new_hasher(OTX_APPEND_SEGMENT_PERSONAL);
 
     update_cursor_with_error(&mut hasher, &view.message, CoreError::MalformedCobuild)
         .expect("message cursor");
     hasher.update(&base_hash);
-    write_otx_append_input_cells(&mut hasher, built, &view, &layout);
-    write_otx_append_output_cells(&mut hasher, built, &view, &layout);
-    write_otx_append_cell_deps(&mut hasher, built, &view, &layout);
-    write_otx_append_header_deps(&mut hasher, built, &view, &layout);
+    write_count(&mut hasher, segment_index);
+    hasher.update(&[segment.flags.raw()]);
+    if segment.flags.coverage_previous_segments() {
+        write_count(&mut hasher, segment_index);
+        for previous_segment_index in 0..segment_index {
+            let previous_segment = layout
+                .append_segments
+                .get(previous_segment_index)
+                .expect("previous append segment layout");
+            assert_eq!(
+                previous_segment.segment_index, previous_segment_index,
+                "previous append segment layout index"
+            );
+            write_count(&mut hasher, previous_segment_index);
+            hasher.update(&[previous_segment.flags.raw()]);
+            write_otx_append_segment_entities(
+                &mut hasher,
+                built,
+                &view,
+                &layout,
+                previous_segment_index,
+            );
+        }
+    }
+    write_otx_append_segment_entities(&mut hasher, built, &view, &layout, segment_index);
 
     hasher.finalize(&mut out);
     out
@@ -225,15 +259,45 @@ fn write_otx_base_header_deps(
     }
 }
 
-fn write_otx_append_input_cells(
+fn write_otx_append_segment_entities(
     hasher: &mut Blake2b,
     built: &BuiltTxShape,
     otx: &OtxView,
     layout: &OtxLayout,
+    segment_index: usize,
 ) {
-    write_count(hasher, otx.append_input_cells);
-    for local_index in 0..otx.append_input_cells {
-        let tx_index = checked_index(layout.append_inputs, local_index);
+    let segment = otx
+        .append_segments
+        .get(segment_index)
+        .expect("append segment view");
+    let segment_layout = layout
+        .append_segments
+        .get(segment_index)
+        .expect("append segment layout");
+    assert_eq!(
+        segment_layout.segment_index, segment_index,
+        "append segment layout index"
+    );
+    write_otx_append_input_cells(hasher, built, segment.input_cells, segment_layout.inputs);
+    write_otx_append_output_cells(hasher, built, segment.output_cells, segment_layout.outputs);
+    write_otx_append_cell_deps(hasher, built, segment.cell_deps, segment_layout.cell_deps);
+    write_otx_append_header_deps(
+        hasher,
+        built,
+        segment.header_deps,
+        segment_layout.header_deps,
+    );
+}
+
+fn write_otx_append_input_cells(
+    hasher: &mut Blake2b,
+    built: &BuiltTxShape,
+    count: usize,
+    range: Range,
+) {
+    write_count(hasher, count);
+    for local_index in 0..count {
+        let tx_index = checked_index(range, local_index);
         write_count(hasher, local_index);
         hasher.update(built.resolved_inputs[tx_index].input.as_slice());
         hasher.update(built.resolved_inputs[tx_index].output.as_slice());
@@ -244,12 +308,12 @@ fn write_otx_append_input_cells(
 fn write_otx_append_output_cells(
     hasher: &mut Blake2b,
     built: &BuiltTxShape,
-    otx: &OtxView,
-    layout: &OtxLayout,
+    count: usize,
+    range: Range,
 ) {
-    write_count(hasher, otx.append_output_cells);
-    for local_index in 0..otx.append_output_cells {
-        let tx_index = checked_index(layout.append_outputs, local_index);
+    write_count(hasher, count);
+    for local_index in 0..count {
+        let tx_index = checked_index(range, local_index);
         write_count(hasher, local_index);
         hasher.update(&raw_output_bytes(&built.tx, tx_index));
         write_len_prefixed_bytes(hasher, &raw_output_data_bytes(&built.tx, tx_index));
@@ -259,12 +323,12 @@ fn write_otx_append_output_cells(
 fn write_otx_append_cell_deps(
     hasher: &mut Blake2b,
     built: &BuiltTxShape,
-    otx: &OtxView,
-    layout: &OtxLayout,
+    count: usize,
+    range: Range,
 ) {
-    write_count(hasher, otx.append_cell_deps);
-    for local_index in 0..otx.append_cell_deps {
-        let tx_index = checked_index(layout.append_cell_deps, local_index);
+    write_count(hasher, count);
+    for local_index in 0..count {
+        let tx_index = checked_index(range, local_index);
         write_count(hasher, local_index);
         hasher.update(&raw_cell_dep_bytes(&built.tx, tx_index));
     }
@@ -273,12 +337,12 @@ fn write_otx_append_cell_deps(
 fn write_otx_append_header_deps(
     hasher: &mut Blake2b,
     built: &BuiltTxShape,
-    otx: &OtxView,
-    layout: &OtxLayout,
+    count: usize,
+    range: Range,
 ) {
-    write_count(hasher, otx.append_header_deps);
-    for local_index in 0..otx.append_header_deps {
-        let tx_index = checked_index(layout.append_header_deps, local_index);
+    write_count(hasher, count);
+    for local_index in 0..count {
+        let tx_index = checked_index(range, local_index);
         write_count(hasher, local_index);
         hasher.update(&raw_header_dep_hash(&built.tx, tx_index));
     }
@@ -299,6 +363,10 @@ fn otx_hash_inputs(built: &BuiltTxShape, otx: OtxHandle) -> (OtxView, OtxLayout)
             .expect("parse OTX")
             .expect("OTX witness layout");
     let facts = otx_range_facts(built, otx);
+    assert!(
+        view.append_segments.len() <= facts.append_segments.len(),
+        "witness append segment count exceeds built range facts"
+    );
     let layout = OtxLayout {
         witness_index,
         base_inputs: range(&facts.base_inputs),
@@ -309,6 +377,26 @@ fn otx_hash_inputs(built: &BuiltTxShape, otx: OtxHandle) -> (OtxView, OtxLayout)
         append_cell_deps: range(&facts.append_cell_deps),
         base_header_deps: range(&facts.base_header_deps),
         append_header_deps: range(&facts.append_header_deps),
+        append_segments: facts
+            .append_segments
+            .iter()
+            .take(view.append_segments.len())
+            .map(|segment| {
+                let view_segment = view
+                    .append_segments
+                    .get(segment.segment_index)
+                    .expect("append segment view");
+                OtxAppendSegmentLayout {
+                    segment_index: segment.segment_index,
+                    flags: SegmentFlags::try_from(view_segment.segment_flags)
+                        .expect("append segment flags"),
+                    inputs: range(&segment.inputs),
+                    outputs: range(&segment.outputs),
+                    cell_deps: range(&segment.cell_deps),
+                    header_deps: range(&segment.header_deps),
+                }
+            })
+            .collect(),
     };
     (view, layout)
 }

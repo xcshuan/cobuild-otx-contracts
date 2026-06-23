@@ -14,4 +14,4 @@ pub use otx::{
     base_input_masks, base_output_mask, base_output_masks, full_base_cell_dep_masks,
     full_base_header_dep_masks, full_base_input_masks, full_base_output_masks,
 };
-pub use witness::{OtxStartSpec, WitnessHandle, WitnessSpec, seal_pair};
+pub use witness::{OtxStartSpec, WitnessHandle, WitnessSpec, lock_seal};

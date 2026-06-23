@@ -249,7 +249,7 @@ fn cobuild_core_uses_explicit_signature_request_names() {
         "SignatureOrigin",
         "TxLevel",
         "OtxBase",
-        "OtxAppend",
+        "OtxAppendSegment",
     ] {
         assert!(
             plan_rs.contains(expected),
@@ -280,7 +280,7 @@ fn cobuild_core_uses_explicit_signature_request_names() {
     }
 
     let protocol_rs = fs::read_to_string(core_src.join("protocol.rs")).expect("core protocol.rs");
-    for expected in ["ScriptRole", "SealScope", "AppendPermissions"] {
+    for expected in ["ScriptRole", "AppendPermissions", "SegmentFlags"] {
         assert!(
             protocol_rs.contains(expected),
             "core protocol layer should expose typed protocol value {expected}"
@@ -377,7 +377,7 @@ fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
     for forbidden in [
         "OtxStartData",
         "OtxData",
-        "SealPairData",
+        "LockSealData",
         "ActionData",
         "message: Vec<u8>",
         "base_input_masks: Vec<u8>",
@@ -393,7 +393,7 @@ fn cobuild_core_view_is_cursor_backed_protocol_boundary() {
         "SighashAllWitnessView",
         "OtxStartView",
         "OtxView",
-        "SealPairView",
+        "LockSealView",
         "ActionView",
         "MaskView",
         "bytes: Vec<u8>",
@@ -882,7 +882,9 @@ fn cobuild_core_lock_plan_exposes_related_actions() {
             && engine_rs.contains("push_otx_actions")
             && engine_rs.contains("add_otx_signatures")
             && engine_rs.contains("input_range_contains_current_lock(otx.layout.base_inputs)")
-            && engine_rs.contains("input_range_contains_current_lock(otx.layout.append_inputs)")
+            && engine_rs.contains("fn otx_segment_signature_indexes(")
+            && engine_rs.contains("input_range_contains_current_lock(segment.inputs)")
+            && engine_rs.contains("SignatureOrigin::OtxAppendSegment")
             && engine_rs.contains("related_otx_action"),
         "lock planning should keep explicit related action constructors and separate signature relevance from action delivery"
     );

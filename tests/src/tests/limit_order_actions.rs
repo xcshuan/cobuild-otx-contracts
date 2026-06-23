@@ -5,10 +5,10 @@ fn limit_order_fill_action_encodes_payment_output_handle_tx_index() {
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, Bytes::new())],
         base_outputs: vec![signing_output(2, Bytes::new())],
-        append_outputs: vec![
+        append_segments: vec![append_segment_spec(0x00).with_outputs(vec![
             signing_output(3, Bytes::new()),
             signing_output(4, Bytes::new()),
-        ],
+        ])],
         ..Default::default()
     });
     let payment = shape.otx_append_output(otx, 1);
@@ -58,7 +58,9 @@ fn limit_order_duplicate_payment_is_expressed_by_reusing_the_same_output_handle(
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, Bytes::new())],
-        append_outputs: vec![signing_output(2, Bytes::new())],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![signing_output(2, Bytes::new())]),
+        ],
         ..Default::default()
     });
     let shared_payment = shape.otx_append_output(otx, 0);
@@ -91,13 +93,17 @@ fn limit_order_payment_handles_can_point_outside_current_otx_output_range() {
     let mut shape = TxShape::new();
     let current_otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, Bytes::new())],
-        append_outputs: vec![signing_output(2, Bytes::new())],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![signing_output(2, Bytes::new())]),
+        ],
         ..Default::default()
     });
     let current_payment = shape.otx_append_output(current_otx, 0);
     let other_otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(3, Bytes::new())],
-        append_outputs: vec![signing_output(4, Bytes::new())],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![signing_output(4, Bytes::new())]),
+        ],
         ..Default::default()
     });
     let other_otx_payment = shape.otx_append_output(other_otx, 0);

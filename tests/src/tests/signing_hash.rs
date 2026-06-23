@@ -365,13 +365,15 @@ fn signing_hash_oracle_otx_append_changes_when_append_input_changes() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
-        append_inputs: vec![signing_resolved_input(2, vec![0xbb])],
+        append_segments: vec![
+            append_segment_spec(0x00).with_inputs(vec![signing_resolved_input(2, vec![0xbb])]),
+        ],
         ..Default::default()
     });
     let input = shape.otx_append_input(otx, 0);
     let mut built = shape.build();
     let base_hash = TestSigningHashOracle.otx_base(&built, otx);
-    let before = TestSigningHashOracle.otx_append(&built, otx, base_hash);
+    let before = TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash);
 
     built.apply_shape_mutation(TxShapeMutation::ReplaceInput {
         input,
@@ -380,7 +382,7 @@ fn signing_hash_oracle_otx_append_changes_when_append_input_changes() {
 
     assert_hash_changed(
         before,
-        TestSigningHashOracle.otx_append(&built, otx, base_hash),
+        TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash),
     );
 }
 
@@ -389,13 +391,15 @@ fn signing_hash_oracle_otx_append_changes_when_append_output_changes() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
-        append_outputs: vec![signing_output(2, vec![0xbb])],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![signing_output(2, vec![0xbb])]),
+        ],
         ..Default::default()
     });
     let output = shape.otx_append_output(otx, 0);
     let mut built = shape.build();
     let base_hash = TestSigningHashOracle.otx_base(&built, otx);
-    let before = TestSigningHashOracle.otx_append(&built, otx, base_hash);
+    let before = TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash);
 
     built.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
         output,
@@ -404,7 +408,7 @@ fn signing_hash_oracle_otx_append_changes_when_append_output_changes() {
 
     assert_hash_changed(
         before,
-        TestSigningHashOracle.otx_append(&built, otx, base_hash),
+        TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash),
     );
 }
 
@@ -413,14 +417,17 @@ fn signing_hash_oracle_otx_append_changes_when_append_output_order_changes() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
-        append_outputs: vec![signing_output(2, vec![0xbb]), signing_output(3, vec![0xcc])],
+        append_segments: vec![append_segment_spec(0x00).with_outputs(vec![
+            signing_output(2, vec![0xbb]),
+            signing_output(3, vec![0xcc]),
+        ])],
         ..Default::default()
     });
     let first = shape.otx_append_output(otx, 0);
     let second = shape.otx_append_output(otx, 1);
     let mut built = shape.build();
     let base_hash = TestSigningHashOracle.otx_base(&built, otx);
-    let before = TestSigningHashOracle.otx_append(&built, otx, base_hash);
+    let before = TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash);
 
     built.apply_shape_mutation(TxShapeMutation::SwapOutputs {
         left: first,
@@ -429,7 +436,7 @@ fn signing_hash_oracle_otx_append_changes_when_append_output_order_changes() {
 
     assert_hash_changed(
         before,
-        TestSigningHashOracle.otx_append(&built, otx, base_hash),
+        TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash),
     );
 }
 
@@ -438,13 +445,13 @@ fn signing_hash_oracle_otx_append_changes_when_append_cell_dep_changes() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
-        append_cell_deps: vec![signing_cell_dep(2)],
+        append_segments: vec![append_segment_spec(0x00).with_cell_deps(vec![signing_cell_dep(2)])],
         ..Default::default()
     });
     let cell_dep = shape.otx_append_cell_dep(otx, 0);
     let mut built = shape.build();
     let base_hash = TestSigningHashOracle.otx_base(&built, otx);
-    let before = TestSigningHashOracle.otx_append(&built, otx, base_hash);
+    let before = TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash);
 
     built.apply_shape_mutation(TxShapeMutation::ReplaceCellDep {
         cell_dep,
@@ -453,7 +460,7 @@ fn signing_hash_oracle_otx_append_changes_when_append_cell_dep_changes() {
 
     assert_hash_changed(
         before,
-        TestSigningHashOracle.otx_append(&built, otx, base_hash),
+        TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash),
     );
 }
 
@@ -462,13 +469,13 @@ fn signing_hash_oracle_otx_append_changes_when_append_header_dep_changes() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
-        append_header_deps: vec![[2; 32]],
+        append_segments: vec![append_segment_spec(0x00).with_header_deps(vec![[2; 32]])],
         ..Default::default()
     });
     let header_dep: HeaderDepHandle = shape.otx_append_header_dep(otx, 0);
     let mut built = shape.build();
     let base_hash = TestSigningHashOracle.otx_base(&built, otx);
-    let before = TestSigningHashOracle.otx_append(&built, otx, base_hash);
+    let before = TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash);
 
     built.apply_shape_mutation(TxShapeMutation::ReplaceHeaderDep {
         header_dep,
@@ -477,7 +484,7 @@ fn signing_hash_oracle_otx_append_changes_when_append_header_dep_changes() {
 
     assert_hash_changed(
         before,
-        TestSigningHashOracle.otx_append(&built, otx, base_hash),
+        TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash),
     );
 }
 
@@ -486,19 +493,22 @@ fn signing_hash_oracle_otx_append_binds_base_hash() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
-        append_inputs: vec![signing_resolved_input(2, vec![0xbb])],
         base_outputs: vec![signing_output(3, vec![0xcc])],
-        append_outputs: vec![signing_output(4, vec![0xdd])],
-        append_cell_deps: vec![signing_cell_dep(5)],
-        append_header_deps: vec![[6; 32]],
+        append_segments: vec![
+            append_segment_spec(0x00)
+                .with_inputs(vec![signing_resolved_input(2, vec![0xbb])])
+                .with_outputs(vec![signing_output(4, vec![0xdd])])
+                .with_cell_deps(vec![signing_cell_dep(5)])
+                .with_header_deps(vec![[6; 32]]),
+        ],
         ..Default::default()
     });
     let built = shape.build();
     let oracle = TestSigningHashOracle;
 
     assert_hash_changed(
-        oracle.otx_append(&built, otx, [1; 32]),
-        oracle.otx_append(&built, otx, [2; 32]),
+        oracle.otx_append_segment(&built, otx, 0, [1; 32]),
+        oracle.otx_append_segment(&built, otx, 0, [2; 32]),
     );
 }
 
@@ -507,7 +517,9 @@ fn signing_hash_oracle_otx_append_count_comes_from_witness() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
-        append_outputs: vec![signing_output(2, vec![0xbb])],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![signing_output(2, vec![0xbb])]),
+        ],
         ..Default::default()
     });
     let built = shape.build();
@@ -519,8 +531,110 @@ fn signing_hash_oracle_otx_append_count_comes_from_witness() {
     let base_hash = [3; 32];
 
     assert_hash_changed(
-        oracle.otx_append(&built, otx, base_hash),
-        oracle.otx_append(&changed, otx, base_hash),
+        oracle.otx_append_segment(&built, otx, 0, base_hash),
+        oracle.otx_append_segment(&changed, otx, 0, base_hash),
+    );
+}
+
+#[test]
+fn signing_hash_oracle_otx_append_segment_flags_come_from_witness() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![signing_output(2, vec![0xbb])]),
+        ],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let changed = signing_replace_otx_witness(
+        built.clone(),
+        signing_otx_witness_with_append_segment_flags(0x01),
+    );
+    let oracle = TestSigningHashOracle;
+    let base_hash = [3; 32];
+
+    assert_hash_changed(
+        oracle.otx_append_segment(&built, otx, 0, base_hash),
+        oracle.otx_append_segment(&changed, otx, 0, base_hash),
+    );
+}
+
+#[test]
+#[should_panic(expected = "witness append segment count exceeds built range facts")]
+fn signing_hash_oracle_rejects_witness_append_segment_count_expansion() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x00).with_outputs(vec![signing_output(2, vec![0xbb])]),
+        ],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let changed =
+        signing_replace_otx_witness(built, signing_otx_witness_with_two_append_segments());
+
+    TestSigningHashOracle.otx_append_segment(&changed, otx, 1, [3; 32]);
+}
+
+#[test]
+fn signing_hash_oracle_segment_own_coverage_does_not_bind_later_segment() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x01)
+                .with_inputs(vec![signing_resolved_input(2, vec![0xbb])])
+                .with_outputs(vec![signing_output(3, vec![0xcc])]),
+            append_segment_spec(0x00)
+                .with_inputs(vec![signing_resolved_input(4, vec![0xdd])])
+                .with_outputs(vec![signing_output(5, vec![0xee])]),
+        ],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let base_hash = TestSigningHashOracle.otx_base(&built, otx);
+    let before = TestSigningHashOracle.otx_append_segment(&built, otx, 0, base_hash);
+    let later_output = built.otx_append_segment_output(otx, 1, 0);
+    let mut changed = built.clone();
+
+    changed.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
+        output: later_output,
+        replacement: signing_output(9, vec![0xff]),
+    });
+
+    assert_hash_unchanged(
+        before,
+        TestSigningHashOracle.otx_append_segment(&changed, otx, 0, base_hash),
+    );
+}
+
+#[test]
+fn signing_hash_oracle_segment_previous_coverage_binds_previous_segment() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x01).with_outputs(vec![signing_output(2, vec![0xbb])]),
+            append_segment_spec(0x02).with_outputs(vec![signing_output(3, vec![0xcc])]),
+        ],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let base_hash = TestSigningHashOracle.otx_base(&built, otx);
+    let before = TestSigningHashOracle.otx_append_segment(&built, otx, 1, base_hash);
+    let previous_output = built.otx_append_segment_output(otx, 0, 0);
+    let mut changed = built.clone();
+
+    changed.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
+        output: previous_output,
+        replacement: signing_output(9, vec![0xdd]),
+    });
+
+    assert_hash_changed(
+        before,
+        TestSigningHashOracle.otx_append_segment(&changed, otx, 1, base_hash),
     );
 }
 

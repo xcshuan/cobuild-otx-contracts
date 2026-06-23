@@ -40,7 +40,7 @@ fn legacy_settlement_case(case: LegacySettlementCase) -> BuiltLimitOrderCase {
     push_deps(&mut shape, [&limit_order, &always_success]);
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![order_input],
-        append_outputs: vec![settlement_output],
+        append_segments: vec![append_segment_spec(0x00).with_outputs(vec![settlement_output])],
         ..Default::default()
     });
     let order = shape.otx_base_input(otx, 0);

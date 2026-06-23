@@ -99,10 +99,13 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
     );
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![otx_lock_input, nft_input],
-        append_inputs: vec![udt_input],
         base_outputs: vec![otx_lock_change, nft_output],
-        append_outputs: vec![payment_output],
-        seals: vec![empty_seal_pair(order_lock_hash, 0)],
+        append_segments: vec![
+            append_segment_spec(0x00)
+                .with_inputs(vec![udt_input])
+                .with_outputs(vec![payment_output]),
+        ],
+        base_seals: vec![empty_lock_seal(order_lock_hash)],
         ..Default::default()
     });
     let otx_lock_input = shape.otx_base_input(otx, 0);
@@ -131,11 +134,10 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
         if case == RealOtxLockCase::BadBaseSeal {
             seal[0] ^= 0x01;
         }
-        built.apply_protocol_mutation(ProtocolMutation::SealRaw {
+        built.apply_protocol_mutation(ProtocolMutation::BaseSealRaw {
             otx,
             script_hash: otx_lock.script_hash,
-            scope: 0,
-            seal,
+            seal: Some(seal),
         });
     }
     if case == RealOtxLockCase::TamperBaseOutput {
@@ -151,7 +153,7 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
     let expected = match case {
         RealOtxLockCase::SignedBase => LimitOrderExpectedOutcome::Pass,
         RealOtxLockCase::MissingBaseSeal => {
-            otx_lock_error(otx_lock_input, CobuildOtxLockError::MissingSealPair)
+            otx_lock_error(otx_lock_input, CobuildOtxLockError::MissingLockSeal)
         }
         RealOtxLockCase::BadBaseSeal | RealOtxLockCase::TamperBaseOutput => {
             otx_lock_error(otx_lock_input, CobuildOtxLockError::BadSeal)

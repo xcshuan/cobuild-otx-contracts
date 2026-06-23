@@ -4,7 +4,7 @@ use crate::framework::tx::{BuiltTxShape, OtxHandle, WitnessHandle};
 
 use super::{
     keys::{SecretKey, SignerId, sign_recoverable},
-    otx::{otx_append_hash, otx_base_hash},
+    otx::{otx_append_segment_hash, otx_base_hash},
     tx::{tx_with_message_hash_for_built, tx_without_message_hash_for_built},
 };
 
@@ -12,7 +12,13 @@ pub trait SigningHashOracle {
     fn tx_without_message(&self, built: &BuiltTxShape) -> [u8; 32];
     fn tx_with_message(&self, built: &BuiltTxShape, message: &CobuildMessage) -> [u8; 32];
     fn otx_base(&self, built: &BuiltTxShape, otx: OtxHandle) -> [u8; 32];
-    fn otx_append(&self, built: &BuiltTxShape, otx: OtxHandle, base_hash: [u8; 32]) -> [u8; 32];
+    fn otx_append_segment(
+        &self,
+        built: &BuiltTxShape,
+        otx: OtxHandle,
+        segment_index: usize,
+        base_hash: [u8; 32],
+    ) -> [u8; 32];
 }
 
 pub struct TestSigningHashOracle;
@@ -30,8 +36,14 @@ impl SigningHashOracle for TestSigningHashOracle {
         otx_base_hash(built, otx)
     }
 
-    fn otx_append(&self, built: &BuiltTxShape, otx: OtxHandle, base_hash: [u8; 32]) -> [u8; 32] {
-        otx_append_hash(built, otx, base_hash)
+    fn otx_append_segment(
+        &self,
+        built: &BuiltTxShape,
+        otx: OtxHandle,
+        segment_index: usize,
+        base_hash: [u8; 32],
+    ) -> [u8; 32] {
+        otx_append_segment_hash(built, otx, segment_index, base_hash)
     }
 }
 
@@ -39,8 +51,13 @@ impl SigningHashOracle for TestSigningHashOracle {
 pub enum SignatureScope {
     TxWithoutMessage,
     TxWithMessage,
-    OtxBase { otx: OtxHandle },
-    OtxAppend { otx: OtxHandle },
+    OtxBase {
+        otx: OtxHandle,
+    },
+    OtxAppendSegment {
+        otx: OtxHandle,
+        segment_index: usize,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -76,9 +93,9 @@ pub fn sign_scope(
             panic!("sign_scope requires a message parameter for TxWithMessage")
         }
         SignatureScope::OtxBase { otx } => oracle.otx_base(built, otx),
-        SignatureScope::OtxAppend { otx } => {
+        SignatureScope::OtxAppendSegment { otx, segment_index } => {
             let base_hash = oracle.otx_base(built, otx);
-            oracle.otx_append(built, otx, base_hash)
+            oracle.otx_append_segment(built, otx, segment_index, base_hash)
         }
     };
     let seal = sign_recoverable(secret_key, signing_hash);

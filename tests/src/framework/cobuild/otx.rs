@@ -1,6 +1,7 @@
 use ckb_testtool::ckb_types::prelude::{Builder, Entity};
 use cobuild_types::entity::core::{
-    ActionVec, Message as CobuildMessage, Otx, SealPair, SealPairVec,
+    ActionVec, LockSeal, LockSealVec, Message as CobuildMessage, Otx, OtxAppendSegment,
+    OtxAppendSegmentVec,
 };
 
 #[derive(Clone, Debug)]
@@ -15,11 +16,19 @@ pub struct OtxBuilder {
     base_cell_dep_masks: Vec<u8>,
     base_header_deps: u32,
     base_header_dep_masks: Vec<u8>,
-    append_input_cells: u32,
-    append_output_cells: u32,
-    append_cell_deps: u32,
-    append_header_deps: u32,
-    seals: Vec<SealPair>,
+    append_segments: Vec<OtxAppendSegmentSpec>,
+    base_seals: Vec<LockSeal>,
+    auto_allow_more_after: bool,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct OtxAppendSegmentSpec {
+    pub flags: u8,
+    pub input_cells: u32,
+    pub output_cells: u32,
+    pub cell_deps: u32,
+    pub header_deps: u32,
+    pub seals: Vec<LockSeal>,
 }
 
 #[derive(Clone, Debug)]
@@ -33,6 +42,16 @@ pub struct BuiltOtxSpec {
     pub append_output_cells: u32,
     pub append_cell_deps: u32,
     pub append_header_deps: u32,
+    pub append_segments: Vec<BuiltOtxAppendSegmentSpec>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BuiltOtxAppendSegmentSpec {
+    pub flags: u8,
+    pub input_cells: u32,
+    pub output_cells: u32,
+    pub cell_deps: u32,
+    pub header_deps: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -86,11 +105,9 @@ impl OtxBuilder {
             base_cell_dep_masks: Vec::new(),
             base_header_deps: 0,
             base_header_dep_masks: Vec::new(),
-            append_input_cells: 0,
-            append_output_cells: 0,
-            append_cell_deps: 0,
-            append_header_deps: 0,
-            seals: Vec::new(),
+            append_segments: Vec::new(),
+            base_seals: Vec::new(),
+            auto_allow_more_after: true,
         }
     }
 
@@ -126,7 +143,7 @@ impl OtxBuilder {
     }
 
     pub fn append_output_cells(mut self, count: u32) -> Self {
-        self.append_output_cells = count;
+        self.first_append_segment_mut().output_cells = count;
         self
     }
 
@@ -153,23 +170,50 @@ impl OtxBuilder {
     }
 
     pub fn append_input_cells(mut self, count: u32) -> Self {
-        self.append_input_cells = count;
+        self.first_append_segment_mut().input_cells = count;
         self
     }
 
     pub fn append_cell_deps(mut self, count: u32) -> Self {
-        self.append_cell_deps = count;
+        self.first_append_segment_mut().cell_deps = count;
         self
     }
 
     pub fn append_header_deps(mut self, count: u32) -> Self {
-        self.append_header_deps = count;
+        self.first_append_segment_mut().header_deps = count;
         self
     }
 
-    pub fn seals(mut self, seals: Vec<SealPair>) -> Self {
-        self.seals = seals;
+    pub fn append_segment(
+        mut self,
+        flags: u8,
+        input_cells: u32,
+        output_cells: u32,
+        cell_deps: u32,
+        header_deps: u32,
+        seals: Vec<LockSeal>,
+    ) -> Self {
+        self.append_segments.push(OtxAppendSegmentSpec {
+            flags,
+            input_cells,
+            output_cells,
+            cell_deps,
+            header_deps,
+            seals,
+        });
         self
+    }
+
+    pub fn base_seals(mut self, seals: Vec<LockSeal>) -> Self {
+        self.base_seals = seals;
+        self
+    }
+
+    fn first_append_segment_mut(&mut self) -> &mut OtxAppendSegmentSpec {
+        if self.append_segments.is_empty() {
+            self.append_segments.push(OtxAppendSegmentSpec::default());
+        }
+        &mut self.append_segments[0]
     }
 
     pub fn allow_append_inputs(mut self) -> Self {
@@ -261,10 +305,62 @@ impl OtxBuilder {
         let base_output_cells = self.base_output_cells;
         let base_cell_deps = self.base_cell_deps;
         let base_header_deps = self.base_header_deps;
-        let append_input_cells = self.append_input_cells;
-        let append_output_cells = self.append_output_cells;
-        let append_cell_deps = self.append_cell_deps;
-        let append_header_deps = self.append_header_deps;
+        let append_input_cells = self
+            .append_segments
+            .iter()
+            .map(|segment| segment.input_cells)
+            .sum();
+        let append_output_cells = self
+            .append_segments
+            .iter()
+            .map(|segment| segment.output_cells)
+            .sum();
+        let append_cell_deps = self
+            .append_segments
+            .iter()
+            .map(|segment| segment.cell_deps)
+            .sum();
+        let append_header_deps = self
+            .append_segments
+            .iter()
+            .map(|segment| segment.header_deps)
+            .sum();
+        let append_segment_count = self.append_segments.len();
+        let append_segments: Vec<_> = self
+            .append_segments
+            .into_iter()
+            .enumerate()
+            .map(|(index, segment)| {
+                let flags = if self.auto_allow_more_after && index + 1 < append_segment_count {
+                    segment.flags | 0x01
+                } else {
+                    segment.flags
+                };
+                let built = OtxAppendSegment::new_builder()
+                    .segment_flags(flags)
+                    .input_cells(segment.input_cells.to_le_bytes())
+                    .output_cells(segment.output_cells.to_le_bytes())
+                    .cell_deps(segment.cell_deps.to_le_bytes())
+                    .header_deps(segment.header_deps.to_le_bytes())
+                    .seals(LockSealVec::new_builder().extend(segment.seals).build())
+                    .build();
+                (
+                    BuiltOtxAppendSegmentSpec {
+                        flags,
+                        input_cells: segment.input_cells,
+                        output_cells: segment.output_cells,
+                        cell_deps: segment.cell_deps,
+                        header_deps: segment.header_deps,
+                    },
+                    built,
+                )
+            })
+            .collect();
+        let append_segment_facts = append_segments
+            .iter()
+            .map(|(facts, _)| facts.clone())
+            .collect();
+        let append_segment_entities = append_segments.into_iter().map(|(_, segment)| segment);
         let otx = Otx::new_builder()
             .message(self.message)
             .append_permissions(self.append_permissions)
@@ -276,11 +372,12 @@ impl OtxBuilder {
             .base_cell_dep_masks(self.base_cell_dep_masks)
             .base_header_deps(self.base_header_deps.to_le_bytes())
             .base_header_dep_masks(self.base_header_dep_masks)
-            .append_input_cells(self.append_input_cells.to_le_bytes())
-            .append_output_cells(self.append_output_cells.to_le_bytes())
-            .append_cell_deps(self.append_cell_deps.to_le_bytes())
-            .append_header_deps(self.append_header_deps.to_le_bytes())
-            .seals(SealPairVec::new_builder().extend(self.seals).build())
+            .append_segments(
+                OtxAppendSegmentVec::new_builder()
+                    .extend(append_segment_entities)
+                    .build(),
+            )
+            .base_seals(LockSealVec::new_builder().extend(self.base_seals).build())
             .build();
         BuiltOtxSpec {
             otx,
@@ -292,6 +389,7 @@ impl OtxBuilder {
             append_output_cells,
             append_cell_deps,
             append_header_deps,
+            append_segments: append_segment_facts,
         }
     }
 }
@@ -304,9 +402,9 @@ impl Default for OtxBuilder {
 
 impl RawOtxBuilder {
     pub fn new() -> Self {
-        Self {
-            inner: OtxBuilder::new(),
-        }
+        let mut inner = OtxBuilder::new();
+        inner.auto_allow_more_after = false;
+        Self { inner }
     }
 
     pub fn message(mut self, message: CobuildMessage) -> Self {
@@ -360,27 +458,47 @@ impl RawOtxBuilder {
     }
 
     pub fn append_input_cells(mut self, value: u32) -> Self {
-        self.inner.append_input_cells = value;
+        self.inner = self.inner.append_input_cells(value);
         self
     }
 
     pub fn append_output_cells(mut self, value: u32) -> Self {
-        self.inner.append_output_cells = value;
+        self.inner = self.inner.append_output_cells(value);
         self
     }
 
     pub fn append_cell_deps(mut self, value: u32) -> Self {
-        self.inner.append_cell_deps = value;
+        self.inner = self.inner.append_cell_deps(value);
         self
     }
 
     pub fn append_header_deps(mut self, value: u32) -> Self {
-        self.inner.append_header_deps = value;
+        self.inner = self.inner.append_header_deps(value);
         self
     }
 
-    pub fn seals(mut self, seals: Vec<SealPair>) -> Self {
-        self.inner = self.inner.seals(seals);
+    pub fn base_seals(mut self, seals: Vec<LockSeal>) -> Self {
+        self.inner = self.inner.base_seals(seals);
+        self
+    }
+
+    pub fn append_segment(
+        mut self,
+        flags: u8,
+        input_cells: u32,
+        output_cells: u32,
+        cell_deps: u32,
+        header_deps: u32,
+        seals: Vec<LockSeal>,
+    ) -> Self {
+        self.inner = self.inner.append_segment(
+            flags,
+            input_cells,
+            output_cells,
+            cell_deps,
+            header_deps,
+            seals,
+        );
         self
     }
 

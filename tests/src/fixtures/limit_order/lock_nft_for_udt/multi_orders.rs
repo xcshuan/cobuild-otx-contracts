@@ -87,12 +87,15 @@ fn two_lock_orders_case(case: TwoLockOrdersCase) -> BuiltLimitOrderCase {
     );
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![nft_input_a, nft_input_b],
-        append_inputs: vec![udt_input],
         base_outputs: vec![nft_output_a, nft_output_b],
-        append_outputs: vec![payment_output_a, payment_output_b],
-        seals: vec![
-            empty_seal_pair(order_lock_hash_a, 0),
-            empty_seal_pair(order_lock_hash_b, 0),
+        append_segments: vec![
+            append_segment_spec(0x00)
+                .with_inputs(vec![udt_input])
+                .with_outputs(vec![payment_output_a, payment_output_b]),
+        ],
+        base_seals: vec![
+            empty_lock_seal(order_lock_hash_a),
+            empty_lock_seal(order_lock_hash_b),
         ],
         ..Default::default()
     });

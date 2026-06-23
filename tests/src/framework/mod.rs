@@ -16,14 +16,14 @@ mod tests {
             TestCellOutput, TestResolvedInput, live_resolved_facts, live_resolved_typed_input,
             normal_output, typed_output,
         },
-        cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, seal_pair},
+        cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, lock_seal},
         contracts::{DeployedScript, deploy_loader_binary, deploy_script_bytes},
         fixture::CobuildTestFixture,
         scripts::script_hash,
         signing::{
             fixed_secret_key, public_key_hash20, sighash_all_only_witness, sign_recoverable,
         },
-        tx::{OtxSegment, TxShape, otx_start_witness},
+        tx::{OtxSegment, TxShape, append_segment_spec, otx_start_witness},
     };
     use ckb_testtool::{
         ckb_script::ScriptError,
@@ -44,7 +44,7 @@ mod tests {
         let message = empty_message();
         assert_eq!(message.actions().len(), 0);
 
-        let seal = seal_pair([9u8; 32], 0, vec![1, 2, 3]);
+        let seal = lock_seal([9u8; 32], vec![1, 2, 3]);
         assert_eq!(seal.script_hash().raw_data().as_ref(), &[9u8; 32]);
 
         let witness = otx_start_witness(1, 2, 3, 4);
@@ -254,9 +254,12 @@ mod tests {
         let mut shape = TxShape::new();
         shape.push_otx(OtxSegment {
             base_inputs: vec![base_input],
-            append_inputs: vec![append_input],
             base_outputs: vec![base_output],
-            append_outputs: vec![append_output],
+            append_segments: vec![
+                append_segment_spec(0x00)
+                    .with_inputs(vec![append_input])
+                    .with_outputs(vec![append_output]),
+            ],
             ..Default::default()
         });
         shape.push_remainder_output(remainder_output);
