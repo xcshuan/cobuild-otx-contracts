@@ -40,14 +40,6 @@ impl AppendPermissions {
         };
         self.raw & mask != 0
     }
-
-    pub fn require_allowed(self, bit: u8, count: usize) -> Result<(), CoreError> {
-        if count > 0 && !self.allows(bit) {
-            Err(CoreError::InvalidOtxLayout)
-        } else {
-            Ok(())
-        }
-    }
 }
 
 impl TryFrom<u8> for AppendPermissions {
@@ -124,17 +116,6 @@ mod tests {
         );
         assert_eq!(
             AppendPermissions::try_from(0x80),
-            Err(CoreError::InvalidOtxLayout)
-        );
-    }
-
-    #[test]
-    fn append_permissions_treat_out_of_range_bits_as_disallowed() {
-        let permissions = AppendPermissions::try_from(0x0f).unwrap();
-
-        assert!(!permissions.allows(8));
-        assert_eq!(
-            permissions.require_allowed(8, 1),
             Err(CoreError::InvalidOtxLayout)
         );
     }

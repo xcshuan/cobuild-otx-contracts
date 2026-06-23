@@ -330,16 +330,26 @@ fn validate_otx_view(data: &OtxView) -> Result<(), CoreError> {
         return Err(CoreError::InvalidOtxLayout);
     }
     let append_permissions = AppendPermissions::try_from(data.append_permissions)?;
+    let mut appends_inputs = false;
+    let mut appends_outputs = false;
+    let mut appends_cell_deps = false;
+    let mut appends_header_deps = false;
     for (index, segment) in data.append_segments.iter().enumerate() {
         let flags = SegmentFlags::try_from(segment.segment_flags)?;
         if index + 1 != data.append_segments.len() && !flags.allow_more_segments_after() {
             return Err(CoreError::InvalidOtxLayout);
         }
-        append_permissions.require_allowed(APPEND_PERMISSION_INPUTS_BIT, segment.input_cells)?;
-        append_permissions.require_allowed(APPEND_PERMISSION_OUTPUTS_BIT, segment.output_cells)?;
-        append_permissions.require_allowed(APPEND_PERMISSION_CELL_DEPS_BIT, segment.cell_deps)?;
-        append_permissions
-            .require_allowed(APPEND_PERMISSION_HEADER_DEPS_BIT, segment.header_deps)?;
+        appends_inputs |= segment.input_cells > 0;
+        appends_outputs |= segment.output_cells > 0;
+        appends_cell_deps |= segment.cell_deps > 0;
+        appends_header_deps |= segment.header_deps > 0;
+    }
+    if (appends_inputs && !append_permissions.allows(APPEND_PERMISSION_INPUTS_BIT))
+        || (appends_outputs && !append_permissions.allows(APPEND_PERMISSION_OUTPUTS_BIT))
+        || (appends_cell_deps && !append_permissions.allows(APPEND_PERMISSION_CELL_DEPS_BIT))
+        || (appends_header_deps && !append_permissions.allows(APPEND_PERMISSION_HEADER_DEPS_BIT))
+    {
+        return Err(CoreError::InvalidOtxLayout);
     }
     data.base_input_masks.validate(data.base_input_cells * 2)?;
     data.base_output_masks

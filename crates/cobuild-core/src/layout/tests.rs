@@ -692,7 +692,7 @@ fn witness_scanner_derived_layout_changes_when_append_entities_are_repartitioned
 }
 
 #[test]
-fn append_entity_permissions_are_checked_for_each_segment() {
+fn append_entity_permissions_cover_all_segments() {
     assert_invalid(
         build_layout(
             vec![
