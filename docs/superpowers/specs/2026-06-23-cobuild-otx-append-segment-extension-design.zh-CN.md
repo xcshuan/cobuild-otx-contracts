@@ -1,17 +1,20 @@
-# Cobuild OTX Append Segment Extension Design
+# Cobuild OTX Append Segment Replacement Design
 
 ## Status
 
-本文是一个探索性设计草案，用于评估在 Cobuild Core v1 之外增加
-`append segment` 扩展是否值得。
+本文是一个探索性设计草案，用于评估用 `append segment` 替代当前
+Cobuild OTX 单一 append scope 语义是否值得。
 
-本文不修改 `2026-05-28-cobuild-core-community-redraft-design.md` 定义的
-Core v1 baseline。当前建议是：
+本文修订目标不是在 Core v1 旁边长期保留一套 extension，而是为下一版 OTX
+语义提供替代路线。当前建议是：
 
-- Core v1 继续保持一个 OTX 内只有 `base scope + append scope`；
+- 现有 Core v1 可以作为兼容期实现继续存在；
+- 下一版 OTX schema 使用 `base scope + append_segments`；
+- 旧的单一 append scope、`append_*_cells` 字段和整体 `OtxAppend` hash
+  最终删除；
 - 多人独立拼接优先使用多个 OTX；
-- 只有当应用确实需要“一个 base intent 下的多段 append contribution”时，
-  才考虑本扩展。
+- 当应用需要“一个 base intent 下的多段 append contribution”时，使用新的
+  append segment 语义。
 
 ## Motivation
 
@@ -32,7 +35,7 @@ append inputs、outputs、cell deps 和 header deps。
 ## Non-Goals
 
 - 不替代多个 OTX 的常规聚合模型。
-- 不在 Core v1 中增加新的 witness variant。
+- 不新增长期并行的 `SegmentedOtx` witness variant。
 - 不提供通用业务约束语言。
 - 不让 segment 签名隐式保证最终交易的全局经济正确性。
 - 不支持第一版中的复杂 coverage commitment，例如签后续 segment count 或
@@ -62,21 +65,15 @@ append segment 适合更窄的场景：
 - 每个 contributor 只愿意签自己的 contribution，但仍愿意绑定同一个
   `base_hash`。
 
-如果应用安全性要求每个 contributor 都确认最终完整 append 内容，则不应使用
-本扩展，应继续使用 Core v1 的整体 append scope。
+如果应用安全性要求每个 contributor 都确认最终完整 append 内容，可以要求每个
+segment 设置 `coverage_previous_segments=1`，或在业务层要求最后一段覆盖全部
+前序 segment。旧的整体 append scope 不作为长期保留方案。
 
 ## Data Model
 
-扩展不新增 `WitnessLayout` variant，而是定义一个新的 OTX-compatible witness
-schema。具体接入方式可以是 Core v2，或一个明确标记的 extension OTX variant。
-
-这意味着当前 Core v1 实现不能只靠解释现有 `Otx` 字段来获得 segment 语义。
-落地时必须二选一：
-
-- 在 Core v2 中替换或扩展 `Otx` schema；
-- 在标准扩展中定义新的 witness envelope，并让支持该扩展的脚本显式识别它。
-
-本文只评估链上语义和 hash 规则，不要求当前 Core v1 代码立即支持该 schema。
+下一版 OTX 直接修改 `Otx` schema，不新增长期并行 witness envelope。
+兼容期可以在实现分支中短暂保留旧 helper 和测试，但协议目标是删除旧 append
+字段和旧 `OtxAppend` 语义。
 
 概念 schema：
 
@@ -101,7 +98,7 @@ table OtxAppendSegment {
 
 vector OtxAppendSegmentVec <OtxAppendSegment>;
 
-table SegmentedOtx {
+table Otx {
   message: Message,
 
   append_permissions: byte,
@@ -124,8 +121,9 @@ table SegmentedOtx {
 }
 ```
 
-`base_*` 字段沿用 Core v1 的 base coverage 规则。`append_segments` 替代 Core
-v1 的单组 `append_*_cells`。
+`base_*` 字段沿用 Core v1 的 base coverage 规则。`append_segments` 替代旧的
+单组 `append_*_cells`。`base_seals` 替代旧的 `seals`，append seal 移到每个
+`OtxAppendSegment.seals` 中。
 
 ## Segment Flags
 
@@ -163,7 +161,7 @@ bit 0 给 contributor 一个最低限度的 finality 控制。bit 1 允许同一
 
 最终交易中的实体仍然只出现一次。segment 只提供 witness 中的分段边界。
 
-对一个 `SegmentedOtx`，实体排列为：
+对一个新版 `Otx`，实体排列为：
 
 ```text
 inputs:
@@ -206,7 +204,9 @@ layout scanner 先读取 base counts，再按 `append_segments` 顺序累加 cou
 OtxAppendSegment
 ```
 
-`OtxBase` 仍按 Core v1 计算。
+`OtxBase` 沿用旧 base coverage 规则，但 preimage 中不再包含旧的
+`append_*_cells`。它继续覆盖 `message`、`append_permissions` 和 base scope，
+用于把所有 append segment 绑定到同一个 base intent。
 
 每个 segment 的签名 hash 覆盖范围由 `coverage_previous_segments` 决定。
 
@@ -331,23 +331,23 @@ off-chain builder 需要把 bit 1 展示为签名覆盖差异，而不是普通 
 
 ## Recommendation
 
-不要把 append segment 加入 Core v1。
+不要把 append segment 作为长期并行 extension 加入 Core v1。
 
 当前推荐路线：
 
-1. Core v1 继续保留单 append scope；
-2. 多人独立聚合继续使用多个 OTX；
-3. 只有当真实应用反复需要“一个 base intent 下的多个独立 contribution”时，
-   再把本文设计推进为标准扩展或 Core v2 proposal。
+1. 现有 Core v1 在兼容期继续保留单 append scope；
+2. 下一版 OTX 用 `append_segments` 替代旧单 append scope；
+3. 实现分支先迁移 schema、hash、layout、签名规划和测试框架；
+4. 迁移完成后删除旧 `append_*_cells`、`SealScope::Append` 和整体
+   `OtxAppend` hash 路径。
 
-append segment 的价值是真实的，但覆盖面较窄。它更像 shared-base fulfillment
-扩展，而不是 Cobuild Core 的基础能力。
+append segment 的价值是真实的，但覆盖面较窄。它不应和旧 append 语义长期并存；
+否则钱包、builder 和脚本都需要同时解释两套 append 签名模型。
 
 ## Open Design Questions
 
 如果该扩展继续推进，下一轮设计需要回答：
 
-- 是否采用 Core v2 schema，还是定义独立 extension envelope；
 - `message` 是否由所有 segment hash 直接覆盖，还是改为覆盖 message
   commitment；
 - 业务脚本如何枚举同一个 base intent 下的 segment actions；
