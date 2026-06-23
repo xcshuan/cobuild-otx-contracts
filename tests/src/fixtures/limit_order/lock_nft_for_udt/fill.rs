@@ -480,7 +480,7 @@ fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
         ],
     );
     let otx = match scenario.order_input_scope {
-        OrderInputScope::Append => shape.push_otx(OtxSegment {
+        OrderInputScope::Append => shape.push_otx(OtxSpec {
             base_inputs: vec![dummy_base_input.clone().expect("dummy base input")],
             base_outputs: vec![nft_output],
             append_segments: vec![
@@ -491,7 +491,7 @@ fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
             ],
             ..Default::default()
         }),
-        OrderInputScope::Base => shape.push_otx(OtxSegment {
+        OrderInputScope::Base => shape.push_otx(OtxSpec {
             base_inputs: vec![nft_input],
             base_outputs: vec![nft_output],
             append_segments: vec![
@@ -518,7 +518,7 @@ fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
     let remainder_payment =
         remainder_payment_output.map(|output| shape.push_remainder_output(output));
     let other_payment = if let Some(output) = other_otx_payment_output {
-        let other_otx = shape.push_otx(OtxSegment {
+        let other_otx = shape.push_otx(OtxSpec {
             base_inputs: vec![dummy_base_input.expect("dummy base input")],
             append_segments: vec![append_segment_spec(0x00).with_outputs(vec![output])],
             ..Default::default()

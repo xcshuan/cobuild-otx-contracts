@@ -5,7 +5,7 @@ pub use cases::{BuiltCobuildOtxLockCase, TwoUdtTransferFacts, cases, two_udt_tra
 pub use errors::CobuildOtxLockError;
 
 pub fn assert_coverage_manifest(cases: &[BuiltCobuildOtxLockCase]) {
-    assert_eq!(cases.len(), 30, "cobuild otx lock case coverage count");
+    assert_eq!(cases.len(), 34, "cobuild otx lock case coverage count");
     assert!(
         cases.iter().any(|case| case.name
             == "contract_accepts_other_lock_outside_otx_without_tx_level_signature"),

@@ -11,7 +11,8 @@ use crate::{
         cobuild::{
             BaseInputMaskField, BaseOutputMaskField, CobuildMessageBuilder, OtxStartSpec,
             RawOtxBuilder, base_cell_dep_item_mask, base_header_dep_item_mask, base_input_mask,
-            base_output_mask, lock_seal,
+            base_output_mask, full_base_cell_dep_masks, full_base_header_dep_masks,
+            full_base_input_masks, full_base_output_masks, lock_seal,
         },
         scenario::{ExpectedOutcome, ScriptLocation},
         scripts::packed_hash_to_array,
@@ -21,7 +22,7 @@ use crate::{
             tx_without_message_hash_for_inputs,
         },
         tx::{
-            BuiltTxShape, HeaderDepHandle, OtxSegment, ProtocolMutation, TxShape, TxShapeMutation,
+            BuiltTxShape, HeaderDepHandle, OtxSpec, ProtocolMutation, TxShape, TxShapeMutation,
             WitnessHandle, append_segment_spec,
         },
     },
@@ -172,7 +173,7 @@ fn signing_replace_otx_witness(mut built: BuiltTxShape, otx_witness: Bytes) -> B
 fn signing_otx_witness_with_append_output_count(append_output_cells: u32) -> Bytes {
     let otx = RawOtxBuilder::new()
         .base_input_cells(1)
-        .append_output_cells(append_output_cells)
+        .append_segment(0, 0, append_output_cells, 0, 0, Vec::new())
         .allow_append_outputs()
         .build();
     let witness = WitnessLayout::from(otx);
@@ -211,6 +212,17 @@ fn signing_otx_witness_with_previous_segment_flags(segment_flags: u8) -> Bytes {
     Bytes::copy_from_slice(witness.as_slice())
 }
 
+fn signing_otx_witness_with_append_permissions(append_permissions: u8) -> Bytes {
+    let otx = RawOtxBuilder::new()
+        .base_input_cells(1)
+        .base_input_masks(vec![0])
+        .append_permissions(append_permissions)
+        .append_segment(0x00, 0, 1, 0, 0, Vec::new())
+        .build();
+    let witness = WitnessLayout::from(otx);
+    Bytes::copy_from_slice(witness.as_slice())
+}
+
 fn signing_otx_witness_with_message_and_seal() -> (Bytes, Otx) {
     signing_otx_witness_with_message_seal_and_outputs(2, 2)
 }
@@ -231,8 +243,7 @@ fn signing_otx_witness_with_message_seal_and_outputs(
         .base_input_masks(vec![0x03])
         .base_output_cells(base_output_cells)
         .base_output_masks(vec![0xa5])
-        .append_input_cells(1)
-        .append_output_cells(append_output_cells)
+        .append_segment(0, 1, append_output_cells, 0, 0, Vec::new())
         .base_seals(vec![seal])
         .build();
     let witness = WitnessLayout::from(otx.clone());

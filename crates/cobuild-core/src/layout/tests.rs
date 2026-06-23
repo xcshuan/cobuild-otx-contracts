@@ -550,6 +550,184 @@ fn otx_layout_tracks_each_append_segment_range() {
 }
 
 #[test]
+fn witness_scanner_derived_layout_tracks_two_append_segments() {
+    let layout = build_layout(
+        vec![
+            otx_start_witness_with_starts(5, 7, 11, 13),
+            otx_witness_custom(OtxWitnessCustom {
+                append_permissions: append_permissions(&[
+                    APPEND_PERMISSION_INPUTS_BIT,
+                    APPEND_PERMISSION_OUTPUTS_BIT,
+                ]),
+                base_inputs: 2,
+                base_input_mask: &[0],
+                base_outputs: 1,
+                base_output_mask: &[0],
+                append_segments: Some(&dynvec(&[
+                    append_segment(OtxAppendSegmentCustom {
+                        segment_flags: SEGMENT_FLAG_ALLOW_MORE_AFTER,
+                        input_cells: 1,
+                        output_cells: 2,
+                        cell_deps: 0,
+                        header_deps: 0,
+                    }),
+                    append_segment(OtxAppendSegmentCustom {
+                        segment_flags: 0,
+                        input_cells: 3,
+                        output_cells: 1,
+                        cell_deps: 0,
+                        header_deps: 0,
+                    }),
+                ])),
+                ..OtxWitnessCustom::default()
+            }),
+        ],
+        11,
+        11,
+        11,
+        13,
+    )
+    .unwrap();
+
+    let entry = &layout.otx_entries[0].layout;
+    assert_eq!(entry.base_inputs, Range { start: 5, count: 2 });
+    assert_eq!(entry.append_inputs, Range { start: 7, count: 4 });
+    assert_eq!(entry.base_outputs, Range { start: 7, count: 1 });
+    assert_eq!(entry.append_outputs, Range { start: 8, count: 3 });
+    assert_eq!(
+        entry.append_segments[0].inputs,
+        Range { start: 7, count: 1 }
+    );
+    assert_eq!(
+        entry.append_segments[1].inputs,
+        Range { start: 8, count: 3 }
+    );
+    assert_eq!(
+        entry.append_segments[0].outputs,
+        Range { start: 8, count: 2 }
+    );
+    assert_eq!(
+        entry.append_segments[1].outputs,
+        Range {
+            start: 10,
+            count: 1
+        }
+    );
+}
+
+#[test]
+fn witness_scanner_derived_layout_changes_when_append_entities_are_repartitioned() {
+    let first = build_layout(
+        vec![
+            otx_start_witness(),
+            otx_witness_custom(OtxWitnessCustom {
+                append_permissions: append_permissions(&[APPEND_PERMISSION_INPUTS_BIT]),
+                append_segments: Some(&dynvec(&[
+                    append_segment(OtxAppendSegmentCustom {
+                        segment_flags: SEGMENT_FLAG_ALLOW_MORE_AFTER,
+                        input_cells: 1,
+                        output_cells: 0,
+                        cell_deps: 0,
+                        header_deps: 0,
+                    }),
+                    append_segment(OtxAppendSegmentCustom {
+                        segment_flags: 0,
+                        input_cells: 3,
+                        output_cells: 0,
+                        cell_deps: 0,
+                        header_deps: 0,
+                    }),
+                ])),
+                ..OtxWitnessCustom::default()
+            }),
+        ],
+        5,
+        0,
+        0,
+        0,
+    )
+    .unwrap();
+    let second = build_layout(
+        vec![
+            otx_start_witness(),
+            otx_witness_custom(OtxWitnessCustom {
+                append_permissions: append_permissions(&[APPEND_PERMISSION_INPUTS_BIT]),
+                append_segments: Some(&dynvec(&[
+                    append_segment(OtxAppendSegmentCustom {
+                        segment_flags: SEGMENT_FLAG_ALLOW_MORE_AFTER,
+                        input_cells: 2,
+                        output_cells: 0,
+                        cell_deps: 0,
+                        header_deps: 0,
+                    }),
+                    append_segment(OtxAppendSegmentCustom {
+                        segment_flags: 0,
+                        input_cells: 2,
+                        output_cells: 0,
+                        cell_deps: 0,
+                        header_deps: 0,
+                    }),
+                ])),
+                ..OtxWitnessCustom::default()
+            }),
+        ],
+        5,
+        0,
+        0,
+        0,
+    )
+    .unwrap();
+    let first_entry = &first.otx_entries[0].layout;
+    let second_entry = &second.otx_entries[0].layout;
+
+    assert_eq!(first_entry.append_inputs, second_entry.append_inputs);
+    assert_ne!(
+        first_entry.append_segments[0].inputs,
+        second_entry.append_segments[0].inputs
+    );
+    assert_ne!(
+        first_entry.append_segments[1].inputs,
+        second_entry.append_segments[1].inputs
+    );
+}
+
+#[test]
+fn append_entity_permissions_are_checked_for_each_segment() {
+    assert_invalid(
+        build_layout(
+            vec![
+                otx_start_witness(),
+                otx_witness_custom(OtxWitnessCustom {
+                    append_permissions: append_permissions(&[APPEND_PERMISSION_INPUTS_BIT]),
+                    append_segments: Some(&dynvec(&[
+                        append_segment(OtxAppendSegmentCustom {
+                            segment_flags: SEGMENT_FLAG_ALLOW_MORE_AFTER,
+                            input_cells: 1,
+                            output_cells: 0,
+                            cell_deps: 0,
+                            header_deps: 0,
+                        }),
+                        append_segment(OtxAppendSegmentCustom {
+                            segment_flags: 0,
+                            input_cells: 0,
+                            output_cells: 1,
+                            cell_deps: 0,
+                            header_deps: 0,
+                        }),
+                    ])),
+                    ..OtxWitnessCustom::default()
+                }),
+            ],
+            2,
+            1,
+            0,
+            0,
+        ),
+        CoreError::InvalidOtxLayout,
+    );
+}
+
+#[test]
 fn otx_layout_rejects_closed_segment_before_final_segment() {
     assert_invalid(
         build_layout(

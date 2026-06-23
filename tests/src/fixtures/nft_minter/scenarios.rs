@@ -25,8 +25,7 @@ use crate::{
             public_key_hash20, sign_recoverable, sign_scope,
         },
         tx::{
-            BuiltTxShape, OtxSegment, ProtocolMutation, TxShape, TxShapeMutation,
-            append_segment_spec,
+            BuiltTxShape, OtxSpec, ProtocolMutation, TxShape, TxShapeMutation, append_segment_spec,
         },
     },
 };

@@ -227,7 +227,7 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
             &wrong_udt,
         ],
     );
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![order_input, nft_input],
         base_outputs: vec![nft_output],
         append_segments: vec![
@@ -248,7 +248,7 @@ fn nft_for_udt_case(scenario: NftForUdtScenario) -> BuiltLimitOrderCase {
             normal_output(owner_success.script.clone(), 100_000_000_000),
             Vec::new(),
         );
-        let other_otx = shape.push_otx(OtxSegment {
+        let other_otx = shape.push_otx(OtxSpec {
             base_inputs: vec![dummy_input],
             append_segments: vec![append_segment_spec(0x00).with_outputs(vec![output])],
             ..Default::default()
@@ -466,7 +466,7 @@ fn two_type_orders_case(case: FillActionCase) -> BuiltLimitOrderCase {
             &udt,
         ],
     );
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![order_input_a, nft_input_a, order_input_b, nft_input_b],
         base_outputs: vec![nft_output_a, nft_output_b],
         append_segments: vec![

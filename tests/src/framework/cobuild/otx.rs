@@ -1,4 +1,8 @@
 use ckb_testtool::ckb_types::prelude::{Builder, Entity};
+use cobuild_core::protocol::{
+    APPEND_PERMISSION_CELL_DEPS_BIT, APPEND_PERMISSION_HEADER_DEPS_BIT,
+    APPEND_PERMISSION_INPUTS_BIT, APPEND_PERMISSION_OUTPUTS_BIT,
+};
 use cobuild_types::entity::core::{
     ActionVec, LockSeal, LockSealVec, Message as CobuildMessage, Otx, OtxAppendSegment,
     OtxAppendSegmentVec,
@@ -142,11 +146,6 @@ impl OtxBuilder {
         self
     }
 
-    pub fn append_output_cells(mut self, count: u32) -> Self {
-        self.first_append_segment_mut().output_cells = count;
-        self
-    }
-
     pub fn base_output_cells(mut self, count: u32) -> Self {
         self.base_output_cells = count;
         self.base_output_masks = if count == 0 {
@@ -166,21 +165,6 @@ impl OtxBuilder {
     pub fn base_header_deps(mut self, count: u32) -> Self {
         self.base_header_deps = count;
         self.base_header_dep_masks = zero_masks(count as usize);
-        self
-    }
-
-    pub fn append_input_cells(mut self, count: u32) -> Self {
-        self.first_append_segment_mut().input_cells = count;
-        self
-    }
-
-    pub fn append_cell_deps(mut self, count: u32) -> Self {
-        self.first_append_segment_mut().cell_deps = count;
-        self
-    }
-
-    pub fn append_header_deps(mut self, count: u32) -> Self {
-        self.first_append_segment_mut().header_deps = count;
         self
     }
 
@@ -209,30 +193,23 @@ impl OtxBuilder {
         self
     }
 
-    fn first_append_segment_mut(&mut self) -> &mut OtxAppendSegmentSpec {
-        if self.append_segments.is_empty() {
-            self.append_segments.push(OtxAppendSegmentSpec::default());
-        }
-        &mut self.append_segments[0]
-    }
-
     pub fn allow_append_inputs(mut self) -> Self {
-        self.append_permissions |= 0b0001;
+        self.append_permissions |= 1 << APPEND_PERMISSION_INPUTS_BIT;
         self
     }
 
     pub fn allow_append_outputs(mut self) -> Self {
-        self.append_permissions |= 0b0010;
+        self.append_permissions |= 1 << APPEND_PERMISSION_OUTPUTS_BIT;
         self
     }
 
     pub fn allow_append_cell_deps(mut self) -> Self {
-        self.append_permissions |= 0b0100;
+        self.append_permissions |= 1 << APPEND_PERMISSION_CELL_DEPS_BIT;
         self
     }
 
     pub fn allow_append_header_deps(mut self) -> Self {
-        self.append_permissions |= 0b1000;
+        self.append_permissions |= 1 << APPEND_PERMISSION_HEADER_DEPS_BIT;
         self
     }
 
@@ -454,26 +431,6 @@ impl RawOtxBuilder {
 
     pub fn base_header_dep_masks(mut self, masks: Vec<u8>) -> Self {
         self.inner.base_header_dep_masks = masks;
-        self
-    }
-
-    pub fn append_input_cells(mut self, value: u32) -> Self {
-        self.inner = self.inner.append_input_cells(value);
-        self
-    }
-
-    pub fn append_output_cells(mut self, value: u32) -> Self {
-        self.inner = self.inner.append_output_cells(value);
-        self
-    }
-
-    pub fn append_cell_deps(mut self, value: u32) -> Self {
-        self.inner = self.inner.append_cell_deps(value);
-        self
-    }
-
-    pub fn append_header_deps(mut self, value: u32) -> Self {
-        self.inner = self.inner.append_header_deps(value);
         self
     }
 

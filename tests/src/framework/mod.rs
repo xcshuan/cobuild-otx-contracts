@@ -23,7 +23,7 @@ mod tests {
         signing::{
             fixed_secret_key, public_key_hash20, sighash_all_only_witness, sign_recoverable,
         },
-        tx::{OtxSegment, TxShape, append_segment_spec, otx_start_witness},
+        tx::{OtxSpec, TxShape, append_segment_spec, otx_start_witness},
     };
     use ckb_testtool::{
         ckb_script::ScriptError,
@@ -56,8 +56,7 @@ mod tests {
         let otx = OtxBuilder::new()
             .base_input_cells(2)
             .base_output_cells(1)
-            .append_input_cells(1)
-            .append_output_cells(2)
+            .append_segment(0, 1, 2, 0, 0, Vec::new())
             .allow_append_inputs()
             .allow_append_outputs()
             .build_with_layout();
@@ -66,6 +65,8 @@ mod tests {
         assert_eq!(otx.base_output_cells, 1);
         assert_eq!(otx.append_input_cells, 1);
         assert_eq!(otx.append_output_cells, 2);
+        assert_eq!(otx.append_segments[0].input_cells, 1);
+        assert_eq!(otx.append_segments[0].output_cells, 2);
         assert_eq!(otx.otx.append_permissions().as_slice(), &[0b0011]);
     }
 
@@ -202,7 +203,7 @@ mod tests {
     #[should_panic(expected = "OTX segment requires non-zero base inputs")]
     fn tx_shape_rejects_zero_base_inputs_in_any_otx() {
         let mut shape = TxShape::new();
-        shape.push_otx(OtxSegment::default());
+        shape.push_otx(OtxSpec::default());
     }
 
     #[test]
@@ -252,7 +253,7 @@ mod tests {
         let remainder_output = TestCellOutput::new(normal_output(lock.script, 1_000), Vec::new());
 
         let mut shape = TxShape::new();
-        shape.push_otx(OtxSegment {
+        shape.push_otx(OtxSpec {
             base_inputs: vec![base_input],
             base_outputs: vec![base_output],
             append_segments: vec![

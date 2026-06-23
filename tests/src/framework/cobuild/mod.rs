@@ -3,7 +3,7 @@ pub mod message;
 pub mod otx;
 pub mod witness;
 
-pub use layout::{OtxRangeFacts, OtxSegment};
+pub use layout::OtxRangeFacts;
 pub use message::{
     ActionRole, ActionSpec, CobuildActionSpec, CobuildMessageBuilder, MessageBuilder, empty_message,
 };

@@ -82,7 +82,7 @@ fn mixed_type_lock_duplicate_payment_case() -> BuiltLimitOrderCase {
             &udt,
         ],
     );
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![type_order_input, type_nft_input, lock_nft_input],
         base_outputs: vec![type_nft_output, lock_nft_output],
         append_segments: vec![

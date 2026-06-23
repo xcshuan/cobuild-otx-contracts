@@ -268,7 +268,7 @@ mod tests {
         let append_output =
             always_success_output(fixture.context_mut(), 90_000_000_000, Bytes::new());
         let mut shape = TxShape::new();
-        let otx = shape.push_otx(OtxSegment {
+        let otx = shape.push_otx(OtxSpec {
             base_inputs: vec![base_input],
             append_segments: vec![append_segment_spec(0x00).with_outputs(vec![append_output])],
             ..Default::default()

@@ -19,8 +19,7 @@ use crate::framework::{
     scripts::script_hash,
     signing::{SignatureScope, SignerId, SigningFacts, SigningHashOracle, TestSigningHashOracle},
     tx::{
-        BuiltTxShape, InputHandle, OtxHandle, OtxSegment, TxShape, WitnessHandle,
-        append_segment_spec,
+        BuiltTxShape, InputHandle, OtxHandle, OtxSpec, TxShape, WitnessHandle, append_segment_spec,
     },
 };
 

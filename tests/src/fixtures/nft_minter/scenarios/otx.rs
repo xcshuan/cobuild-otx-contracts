@@ -41,7 +41,7 @@ pub fn mint_mixed_tx_and_otx_order_case() -> NftMinterCase {
             .action_data(mint_nft_action_data([6u8; 32], script_hash(&lock.script)))
             .build(),
     );
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
@@ -112,7 +112,7 @@ pub fn mint_otx_output_in_base_range_case() -> NftMinterCase {
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
     shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
     shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
@@ -169,7 +169,7 @@ pub fn mint_otx_output_in_remainder_case() -> NftMinterCase {
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
     shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
     shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
@@ -239,7 +239,7 @@ pub fn mint_otx_output_in_other_otx_append_range_case() -> NftMinterCase {
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
     shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
     shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
@@ -251,7 +251,7 @@ pub fn mint_otx_output_in_other_otx_append_range_case() -> NftMinterCase {
         ..Default::default()
     });
     let minter_input = shape.otx_base_input(otx, 0);
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         base_inputs: vec![unrelated_input],
         append_segments: vec![
             append_segment_spec(0x00).with_outputs(vec![minted_nft_output(
@@ -350,7 +350,7 @@ fn real_otx_lock_base_nft_output_case(
     shape.push_prefix_cell_dep(lock_code.cell_dep.clone());
     shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
     shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
@@ -513,7 +513,7 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> Nft
     shape.push_prefix_cell_dep(nft_6_code.cell_dep.clone());
     shape.push_prefix_cell_dep(nft_7_code.cell_dep.clone());
     shape.push_prefix_cell_dep(nft_8_code.cell_dep.clone());
-    let otx_a = shape.push_otx(OtxSegment {
+    let otx_a = shape.push_otx(OtxSpec {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
@@ -536,7 +536,7 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> Nft
         ],
         ..Default::default()
     });
-    let otx_b = shape.push_otx(OtxSegment {
+    let otx_b = shape.push_otx(OtxSpec {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
@@ -558,7 +558,7 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> Nft
         ],
         ..Default::default()
     });
-    let otx_c = shape.push_otx(OtxSegment {
+    let otx_c = shape.push_otx(OtxSpec {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)
@@ -685,7 +685,7 @@ fn real_otx_lock_mint_case(name: &'static str, mode: RealOtxLockMintMode) -> Nft
     shape.push_prefix_cell_dep(lock_code.cell_dep.clone());
     shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
     shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         message: Some(
             CobuildMessageBuilder::new()
                 .input_type_action(minter_hash)

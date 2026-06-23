@@ -33,7 +33,7 @@ use crate::{
             fixed_secret_key, public_key_hash20, sighash_all_only_witness, sign_scope,
         },
         tx::{
-            BuiltTxShape, InputHandle, OtxHandle, OtxSegment, ProtocolMutation, TxShape,
+            BuiltTxShape, InputHandle, OtxHandle, OtxSpec, ProtocolMutation, TxShape,
             TxShapeMutation, WitnessHandle, append_segment_spec,
         },
     },
@@ -79,6 +79,9 @@ pub fn cases() -> Vec<BuiltCobuildOtxLockCase> {
         otx_signatures::signed_otx_missing_base_seal_case(),
         otx_signatures::signed_otx_missing_append_seal_case(),
         otx_signatures::signed_otx_duplicate_base_seal_case(),
+        otx_signatures::signed_otx_duplicate_append_seal_case(),
+        otx_signatures::signed_otx_two_append_segments_case(),
+        otx_signatures::signed_otx_missing_second_append_seal_case(),
         otx_signatures::signed_otx_wrong_script_hash_seal_case(),
         otx_signatures::signed_otx_invalid_action_target_case(),
         otx_signatures::malformed_otx_duplicate_start_case(),
@@ -95,6 +98,7 @@ pub fn cases() -> Vec<BuiltCobuildOtxLockCase> {
         multi_otx::nft_for_udt_swap_otxs_case(),
         otx_signatures::mixed_sighash_all_and_otx_case(),
         otx_signatures::bad_seal_case(),
+        otx_signatures::corrupt_second_append_seal_case(),
         basic::malformed_cobuild_witness_case(),
         otx_signatures::malformed_otx_layout_case(),
     ]

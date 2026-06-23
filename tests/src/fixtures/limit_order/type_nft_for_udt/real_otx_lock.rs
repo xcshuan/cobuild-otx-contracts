@@ -105,7 +105,7 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
             &udt,
         ],
     );
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![otx_lock_input, order_input, nft_input],
         base_outputs: vec![otx_lock_change, nft_output],
         append_segments: vec![

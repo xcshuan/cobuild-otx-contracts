@@ -2,7 +2,7 @@ use super::*;
 #[test]
 fn mutation_move_output_to_remainder_keeps_output_handle_stable() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         base_outputs: vec![signing_output(2, vec![0xbb])],
         append_segments: vec![append_segment_spec(0x00).with_outputs(vec![
@@ -36,7 +36,7 @@ fn mutation_move_output_to_remainder_keeps_output_handle_stable() {
 #[test]
 fn mutation_move_append_output_to_remainder_updates_otx_witness_count_for_signing_oracle() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         append_segments: vec![append_segment_spec(0x00).with_outputs(vec![
             signing_output(3, vec![0xcc]),
@@ -70,7 +70,7 @@ fn mutation_move_append_output_to_remainder_updates_otx_witness_count_for_signin
 #[test]
 fn mutation_move_second_append_segment_output_updates_segment_range_and_witness_count() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         append_segments: vec![
             append_segment_spec(0x01).with_outputs(vec![signing_output(2, vec![0xbb])]),
@@ -123,7 +123,7 @@ fn mutation_move_second_append_segment_output_updates_segment_range_and_witness_
 #[test]
 fn mutation_move_base_output_to_remainder_updates_otx_witness_count_and_mask() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         base_outputs: vec![signing_output(2, vec![0xbb]), signing_output(3, vec![0xcc])],
         ..Default::default()
@@ -144,7 +144,7 @@ fn mutation_move_base_output_to_remainder_updates_otx_witness_count_and_mask() {
 #[test]
 fn mutation_seal_raw_scope_one_patches_append_segment_seal_without_touching_base_seal() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         base_seals: vec![lock_seal([1; 32], vec![0xaa])],
         append_segments: vec![
@@ -183,7 +183,7 @@ fn mutation_seal_raw_scope_one_patches_append_segment_seal_without_touching_base
 #[test]
 fn tx_shape_auto_sets_allow_more_after_on_non_final_append_segments() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         append_segments: vec![
             append_segment_spec(0x00).with_outputs(vec![signing_output(2, vec![0xbb])]),
@@ -219,7 +219,7 @@ fn tx_shape_auto_sets_allow_more_after_on_non_final_append_segments() {
 #[test]
 fn mutation_move_append_output_to_remainder_preserves_non_target_otx_witness_fields() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         base_outputs: vec![signing_output(2, vec![0xbb]), signing_output(3, vec![0xcc])],
         append_segments: vec![
@@ -265,7 +265,7 @@ fn mutation_move_append_output_to_remainder_preserves_non_target_otx_witness_fie
 #[test]
 fn mutation_move_base_output_to_remainder_preserves_non_target_otx_witness_fields() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         base_outputs: vec![signing_output(2, vec![0xbb]), signing_output(3, vec![0xcc])],
         append_segments: vec![
@@ -297,7 +297,7 @@ fn mutation_move_base_output_to_remainder_preserves_non_target_otx_witness_field
 #[test]
 fn expected_outcome_output_type_resolves_moved_output_after_mutation() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         base_outputs: vec![signing_output(2, vec![0xbb])],
         append_segments: vec![append_segment_spec(0x00).with_outputs(vec![
@@ -326,7 +326,7 @@ fn expected_outcome_output_type_resolves_moved_output_after_mutation() {
 #[test]
 fn mutation_replace_witness_updates_bytes_through_witness_handle() {
     let mut shape = TxShape::new();
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -345,7 +345,7 @@ fn mutation_replace_witness_updates_bytes_through_witness_handle() {
 #[test]
 fn mutation_otx_start_raw_replaces_start_witness_bytes() {
     let mut shape = TxShape::new();
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -378,7 +378,7 @@ fn mutation_otx_start_raw_uses_start_handle_after_tx_level_witness() {
             .action_data(vec![1])
             .build(),
     );
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -408,7 +408,7 @@ fn mutation_otx_start_raw_uses_start_handle_after_tx_level_witness() {
 #[test]
 fn mutation_duplicate_sighash_all_inserts_two_sighash_witnesses() {
     let mut shape = TxShape::new();
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -439,7 +439,7 @@ fn mutation_duplicate_sighash_all_inserts_two_sighash_witnesses() {
 #[test]
 fn mutation_duplicate_otx_start_inserts_second_start_before_original() {
     let mut shape = TxShape::new();
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -470,7 +470,7 @@ fn mutation_duplicate_otx_start_inserts_second_start_before_original() {
 #[test]
 fn mutation_non_contiguous_otx_witness_inserts_gap_after_start() {
     let mut shape = TxShape::new();
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -499,7 +499,7 @@ fn mutation_non_contiguous_otx_witness_inserts_gap_after_start() {
 #[test]
 fn mutation_otx_before_otx_start_swaps_witness_handles() {
     let mut shape = TxShape::new();
-    shape.push_otx(OtxSegment {
+    shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -530,7 +530,7 @@ fn mutation_otx_before_otx_start_swaps_witness_handles() {
 #[test]
 fn mutation_base_seal_raw_ensures_base_seal() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -563,7 +563,7 @@ fn mutation_base_seal_raw_ensures_base_seal() {
 #[test]
 fn mutation_seal_raw_patches_matching_otx_seal_bytes() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -592,7 +592,7 @@ fn mutation_seal_raw_patches_matching_otx_seal_bytes() {
 #[test]
 fn mutation_otx_raw_permission_changes_witness_bytes_and_signing_hash() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -614,7 +614,7 @@ fn mutation_otx_raw_permission_changes_witness_bytes_and_signing_hash() {
 #[test]
 fn mutation_otx_raw_permission_preserves_existing_message_and_seals() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         base_outputs: vec![signing_output(2, vec![0xbb])],
         append_segments: vec![
@@ -648,7 +648,7 @@ fn mutation_otx_raw_permission_preserves_existing_message_and_seals() {
 #[test]
 fn mutation_otx_raw_base_input_masks_changes_witness_bytes_and_signing_hash() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         ..Default::default()
     });
@@ -670,7 +670,7 @@ fn mutation_otx_raw_base_input_masks_changes_witness_bytes_and_signing_hash() {
 #[test]
 fn mutation_otx_raw_base_input_masks_preserves_existing_message_and_seals() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         base_outputs: vec![signing_output(2, vec![0xbb])],
         append_segments: vec![

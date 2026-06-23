@@ -2,7 +2,7 @@ use super::*;
 #[test]
 fn limit_order_fill_action_encodes_payment_output_handle_tx_index() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, Bytes::new())],
         base_outputs: vec![signing_output(2, Bytes::new())],
         append_segments: vec![append_segment_spec(0x00).with_outputs(vec![
@@ -56,7 +56,7 @@ fn limit_order_unknown_action_uses_unknown_tag() {
 #[test]
 fn limit_order_duplicate_payment_is_expressed_by_reusing_the_same_output_handle() {
     let mut shape = TxShape::new();
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, Bytes::new())],
         append_segments: vec![
             append_segment_spec(0x00).with_outputs(vec![signing_output(2, Bytes::new())]),
@@ -91,7 +91,7 @@ fn limit_order_duplicate_payment_is_expressed_by_reusing_the_same_output_handle(
 #[test]
 fn limit_order_payment_handles_can_point_outside_current_otx_output_range() {
     let mut shape = TxShape::new();
-    let current_otx = shape.push_otx(OtxSegment {
+    let current_otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(1, Bytes::new())],
         append_segments: vec![
             append_segment_spec(0x00).with_outputs(vec![signing_output(2, Bytes::new())]),
@@ -99,7 +99,7 @@ fn limit_order_payment_handles_can_point_outside_current_otx_output_range() {
         ..Default::default()
     });
     let current_payment = shape.otx_append_output(current_otx, 0);
-    let other_otx = shape.push_otx(OtxSegment {
+    let other_otx = shape.push_otx(OtxSpec {
         base_inputs: vec![signing_resolved_input(3, Bytes::new())],
         append_segments: vec![
             append_segment_spec(0x00).with_outputs(vec![signing_output(4, Bytes::new())]),

@@ -170,7 +170,7 @@ fn partial_mask_case(name: &'static str, config: PartialMaskConfig) -> BuiltCobu
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(code.cell_dep.clone());
-    let otx = shape.push_otx(OtxSegment {
+    let otx = shape.push_otx(OtxSpec {
         base_inputs: vec![base_input],
         base_outputs: vec![base_output],
         base_cell_deps: vec![base_cell_dep],

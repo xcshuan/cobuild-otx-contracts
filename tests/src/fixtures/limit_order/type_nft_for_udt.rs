@@ -19,7 +19,7 @@ use crate::framework::{
     scenario::{ExpectedOutcome, ScriptLocation},
     scripts::script_hash,
     tx::{
-        BuiltTxShape, InputHandle, OtxHandle, OtxSegment, OutputHandle, TxShape, WitnessHandle,
+        BuiltTxShape, InputHandle, OtxHandle, OtxSpec, OutputHandle, TxShape, WitnessHandle,
         append_segment_spec,
     },
 };

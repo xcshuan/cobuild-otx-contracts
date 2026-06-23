@@ -40,6 +40,12 @@ impl OtxCaseConfig {
         self
     }
 
+    fn with_corrupt_second_append_seal(mut self) -> Self {
+        self.tamper = OtxTamper::CorruptSecondAppendSeal;
+        self.seal_shape = OtxSealShape::TwoAppendSegments;
+        self
+    }
+
     fn with_malformed_permissions(mut self) -> Self {
         self.tamper = OtxTamper::MalformedPermissions;
         self
@@ -96,13 +102,26 @@ enum OtxSealShape {
     MissingBase,
     MissingAppend,
     DuplicateBase,
+    DuplicateAppend,
+    TwoAppendSegments,
+    MissingSecondAppend,
     WrongScriptHash,
+}
+
+impl OtxSealShape {
+    fn needs_second_append_segment(self) -> bool {
+        matches!(
+            self,
+            OtxSealShape::TwoAppendSegments | OtxSealShape::MissingSecondAppend
+        )
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum OtxTamper {
     None,
     CorruptAppendSeal,
+    CorruptSecondAppendSeal,
     MalformedPermissions,
     InvalidActionTarget,
 }
@@ -165,6 +184,27 @@ pub(super) fn signed_otx_duplicate_base_seal_case() -> BuiltCobuildOtxLockCase {
     )
 }
 
+pub(super) fn signed_otx_duplicate_append_seal_case() -> BuiltCobuildOtxLockCase {
+    signed_otx_case(
+        "contract_rejects_otx_duplicate_append_seal",
+        OtxCaseConfig::default().with_seal_shape(OtxSealShape::DuplicateAppend),
+    )
+}
+
+pub(super) fn signed_otx_two_append_segments_case() -> BuiltCobuildOtxLockCase {
+    signed_otx_case(
+        "contract_accepts_otx_two_append_segment_signatures",
+        OtxCaseConfig::default().with_seal_shape(OtxSealShape::TwoAppendSegments),
+    )
+}
+
+pub(super) fn signed_otx_missing_second_append_seal_case() -> BuiltCobuildOtxLockCase {
+    signed_otx_case(
+        "contract_rejects_otx_missing_second_append_seal",
+        OtxCaseConfig::default().with_seal_shape(OtxSealShape::MissingSecondAppend),
+    )
+}
+
 pub(super) fn signed_otx_wrong_script_hash_seal_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_otx_wrong_script_hash_seal",
@@ -190,6 +230,13 @@ pub(super) fn bad_seal_case() -> BuiltCobuildOtxLockCase {
     signed_otx_case(
         "contract_rejects_bad_seal",
         OtxCaseConfig::default().with_corrupt_append_seal(),
+    )
+}
+
+pub(super) fn corrupt_second_append_seal_case() -> BuiltCobuildOtxLockCase {
+    signed_otx_case(
+        "contract_rejects_corrupt_second_append_seal",
+        OtxCaseConfig::default().with_corrupt_second_append_seal(),
     )
 }
 
@@ -257,7 +304,12 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
     });
 
     let base_input = live_resolved_facts(fixture.context_mut(), lock_output.clone(), Bytes::new());
-    let append_input = live_resolved_facts(fixture.context_mut(), lock_output, Bytes::new());
+    let append_input =
+        live_resolved_facts(fixture.context_mut(), lock_output.clone(), Bytes::new());
+    let second_append_input = config
+        .seal_shape
+        .needs_second_append_segment()
+        .then(|| live_resolved_facts(fixture.context_mut(), lock_output, Bytes::new()));
     let (
         base_outputs,
         append_outputs,
@@ -295,20 +347,33 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         )
     };
 
-    let otx = shape.push_otx(OtxSegment {
+    let mut append_segments = vec![
+        append_segment_spec(0x00)
+            .with_inputs(vec![append_input])
+            .with_outputs(append_outputs)
+            .with_cell_deps(append_cell_deps)
+            .with_header_deps(append_header_deps),
+    ];
+    if let Some(input) = second_append_input {
+        append_segments.push(
+            append_segment_spec(0x00)
+                .with_inputs(vec![input])
+                .with_outputs(vec![always_success_output(
+                    fixture.context_mut(),
+                    94_000_000_000,
+                    Bytes::from(vec![0xa1, 0xa2]),
+                )]),
+        );
+    }
+
+    let otx = shape.push_otx(OtxSpec {
         message: (config.tamper == OtxTamper::InvalidActionTarget)
             .then(invalid_action_target_message),
         base_inputs: vec![base_input],
         base_outputs,
         base_cell_deps,
         base_header_deps,
-        append_segments: vec![
-            append_segment_spec(0x00)
-                .with_inputs(vec![append_input])
-                .with_outputs(append_outputs)
-                .with_cell_deps(append_cell_deps)
-                .with_header_deps(append_header_deps),
-        ],
+        append_segments,
         base_input_masks: Some(full_base_input_masks(1)),
         base_cell_dep_masks: config
             .preimage_shape
@@ -348,9 +413,37 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
             segment_index: 0,
         },
     );
+    let second_append_facts = config.seal_shape.needs_second_append_segment().then(|| {
+        sign_scope(
+            &built,
+            &oracle,
+            SignerId("owner"),
+            &secret_key,
+            contract.script_hash,
+            built.otx_witness(otx),
+            SignatureScope::OtxAppendSegment {
+                otx,
+                segment_index: 1,
+            },
+        )
+    });
     match config.seal_shape {
         OtxSealShape::Valid => {
             fill_otx_seals(&mut built, otx, &[base_facts.clone(), append_facts.clone()]);
+        }
+        OtxSealShape::TwoAppendSegments => {
+            let second_append_facts = second_append_facts
+                .as_ref()
+                .expect("second append facts for two-segment case");
+            fill_otx_seals(
+                &mut built,
+                otx,
+                &[
+                    base_facts.clone(),
+                    append_facts.clone(),
+                    second_append_facts.clone(),
+                ],
+            );
         }
         OtxSealShape::MissingBase => {
             fill_otx_seals(&mut built, otx, std::slice::from_ref(&append_facts));
@@ -365,6 +458,20 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
                 &[base_facts.clone(), base_facts.clone(), append_facts.clone()],
             );
         }
+        OtxSealShape::DuplicateAppend => {
+            fill_otx_seals(
+                &mut built,
+                otx,
+                &[
+                    base_facts.clone(),
+                    append_facts.clone(),
+                    append_facts.clone(),
+                ],
+            );
+        }
+        OtxSealShape::MissingSecondAppend => {
+            fill_otx_seals(&mut built, otx, &[base_facts.clone(), append_facts.clone()]);
+        }
         OtxSealShape::WrongScriptHash => {
             fill_otx_seals_with(
                 &mut built,
@@ -375,6 +482,9 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         }
     }
     let mut signing_facts = vec![base_facts, append_facts.clone()];
+    if let Some(facts) = second_append_facts.clone() {
+        signing_facts.push(facts);
+    }
 
     if let Some(input) = tx_input {
         let tx_facts = sign_and_fill_tx_level_lock_group(
@@ -393,6 +503,19 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         built.apply_protocol_mutation(ProtocolMutation::AppendSegmentSealRaw {
             otx,
             segment_index: 0,
+            script_hash: contract.script_hash,
+            seal: Some(bad_seal),
+        });
+    }
+    if config.tamper == OtxTamper::CorruptSecondAppendSeal {
+        let append_facts = second_append_facts
+            .as_ref()
+            .expect("second append facts for corrupt second append seal");
+        let mut bad_seal = append_facts.seal.clone();
+        bad_seal[0] ^= 0x01;
+        built.apply_protocol_mutation(ProtocolMutation::AppendSegmentSealRaw {
+            otx,
+            segment_index: 1,
             script_hash: contract.script_hash,
             seal: Some(bad_seal),
         });
@@ -423,12 +546,19 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
         lock_exit(base_input_handle, CobuildOtxLockError::InvalidMessageTarget)
     } else if matches!(
         config.seal_shape,
-        OtxSealShape::MissingBase | OtxSealShape::MissingAppend | OtxSealShape::WrongScriptHash
+        OtxSealShape::MissingBase
+            | OtxSealShape::MissingAppend
+            | OtxSealShape::WrongScriptHash
+            | OtxSealShape::MissingSecondAppend
     ) {
         lock_exit(base_input_handle, CobuildOtxLockError::MissingLockSeal)
-    } else if config.seal_shape == OtxSealShape::DuplicateBase {
+    } else if matches!(
+        config.seal_shape,
+        OtxSealShape::DuplicateBase | OtxSealShape::DuplicateAppend
+    ) {
         lock_exit(base_input_handle, CobuildOtxLockError::DuplicateLockSeal)
     } else if config.tamper == OtxTamper::CorruptAppendSeal
+        || config.tamper == OtxTamper::CorruptSecondAppendSeal
         || config.preimage_shape == OtxPreimageShape::FullWithSignedAppendOutputMutation
     {
         lock_exit(base_input_handle, CobuildOtxLockError::BadSeal)

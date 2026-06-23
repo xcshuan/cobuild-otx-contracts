@@ -748,16 +748,59 @@ mod tests {
         base_start: usize,
         append_start: usize,
     ) -> crate::layout::OtxLayoutEntry {
+        test_otx_with_append_segments(message_bytes, base_start, 1, append_start, &[1])
+    }
+
+    fn test_otx_with_append_segments(
+        message_bytes: &[u8],
+        base_start: usize,
+        base_inputs: u32,
+        append_start: usize,
+        append_inputs_per_segment: &[u32],
+    ) -> crate::layout::OtxLayoutEntry {
+        let append_input_count: u32 = append_inputs_per_segment.iter().copied().sum();
+        let mut next_append_input = append_start;
+        let append_segments = append_inputs_per_segment
+            .iter()
+            .copied()
+            .map(|input_cells| {
+                let start = next_append_input;
+                next_append_input += input_cells as usize;
+                crate::layout::OtxAppendSegmentLayout {
+                    flags: crate::protocol::SegmentFlags::try_from(0).unwrap(),
+                    inputs: crate::layout::Range {
+                        start,
+                        count: input_cells as usize,
+                    },
+                    outputs: crate::layout::Range { start: 1, count: 0 },
+                    cell_deps: crate::layout::Range { start: 0, count: 0 },
+                    header_deps: crate::layout::Range { start: 0, count: 0 },
+                }
+            })
+            .collect();
+        let append_segment_views = append_inputs_per_segment
+            .iter()
+            .copied()
+            .map(|input_cells| crate::view::OtxAppendSegmentView {
+                segment_flags: 0,
+                input_cells: input_cells as usize,
+                output_cells: 0,
+                cell_deps: 0,
+                header_deps: 0,
+                seals: Vec::new(),
+            })
+            .collect();
+
         crate::layout::OtxLayoutEntry {
             layout: crate::layout::OtxLayout {
                 witness_index: 7,
                 base_inputs: crate::layout::Range {
                     start: base_start,
-                    count: 1,
+                    count: base_inputs as usize,
                 },
                 append_inputs: crate::layout::Range {
                     start: append_start,
-                    count: 1,
+                    count: append_input_count as usize,
                 },
                 base_outputs: crate::layout::Range { start: 0, count: 1 },
                 append_outputs: crate::layout::Range { start: 1, count: 0 },
@@ -765,36 +808,24 @@ mod tests {
                 append_cell_deps: crate::layout::Range { start: 0, count: 0 },
                 base_header_deps: crate::layout::Range { start: 0, count: 0 },
                 append_header_deps: crate::layout::Range { start: 0, count: 0 },
-                append_segments: vec![crate::layout::OtxAppendSegmentLayout {
-                    flags: crate::protocol::SegmentFlags::try_from(0).unwrap(),
-                    inputs: crate::layout::Range {
-                        start: append_start,
-                        count: 1,
-                    },
-                    outputs: crate::layout::Range { start: 1, count: 0 },
-                    cell_deps: crate::layout::Range { start: 0, count: 0 },
-                    header_deps: crate::layout::Range { start: 0, count: 0 },
-                }],
+                append_segments,
             },
             witness: crate::view::OtxView {
                 message: crate::reader::cursor_from_slice(message_bytes),
                 append_permissions: 0,
-                base_input_cells: 1,
-                base_input_masks: crate::view::MaskView::new(vec![0]),
+                base_input_cells: base_inputs as usize,
+                base_input_masks: crate::view::MaskView::new(if base_inputs == 0 {
+                    Vec::new()
+                } else {
+                    vec![0]
+                }),
                 base_output_cells: 0,
                 base_output_masks: crate::view::MaskView::new(Vec::new()),
                 base_cell_deps: 0,
                 base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
                 base_header_deps: 0,
                 base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
-                append_segments: vec![crate::view::OtxAppendSegmentView {
-                    segment_flags: 0,
-                    input_cells: 1,
-                    output_cells: 0,
-                    cell_deps: 0,
-                    header_deps: 0,
-                    seals: Vec::new(),
-                }],
+                append_segments: append_segment_views,
                 base_seals: Vec::new(),
             },
         }
@@ -807,6 +838,13 @@ mod tests {
             script_role: role,
             script_hash,
             data: crate::reader::cursor_from_slice(data),
+        }
+    }
+
+    fn test_lock_seal(script_hash: [u8; 32], seal: &[u8]) -> crate::view::LockSealView {
+        crate::view::LockSealView {
+            script_hash,
+            seal: crate::reader::cursor_from_slice(seal),
         }
     }
 
@@ -849,6 +887,31 @@ mod tests {
             witnesses: crate::witness::WitnessScan::with_capacity(0),
             otx_layouts: crate::layout::OtxLayouts::Complete(crate::layout::BuiltLayout {
                 input_range: crate::layout::Range { start: 0, count: 0 },
+                output_range: crate::layout::Range { start: 0, count: 0 },
+                otx_entries,
+            }),
+        }
+    }
+
+    fn lock_context_with_otx_entries_and_input_range(
+        current_lock_hash: [u8; 32],
+        input_locks: Vec<[u8; 32]>,
+        input_range: crate::layout::Range,
+        otx_entries: Vec<crate::layout::OtxLayoutEntry>,
+    ) -> CobuildContext {
+        CobuildContext {
+            tx: crate::syscalls::SyscallTxReader::from_cached_parts_for_tests(
+                crate::syscalls::TxCounts::default(),
+                crate::reader::cursor_from_slice(&empty_transaction()),
+                [0u8; 32],
+            ),
+            script_context: crate::context::CurrentScriptContext::input_lock_for_tests(
+                current_lock_hash,
+                input_locks,
+            ),
+            witnesses: crate::witness::WitnessScan::with_capacity(0),
+            otx_layouts: crate::layout::OtxLayouts::Complete(crate::layout::BuiltLayout {
+                input_range,
                 output_range: crate::layout::Range { start: 0, count: 0 },
                 otx_entries,
             }),
@@ -1116,6 +1179,85 @@ mod tests {
                 .required_append_segment_indices(&layout.otx_entries[0])
                 .unwrap(),
             vec![0]
+        );
+    }
+
+    #[test]
+    fn same_lock_in_two_append_segments_requires_both_segment_signatures() {
+        let lock_hash = [0x44; 32];
+        let otx = test_otx_with_append_segments(&message_with_actions(&[]), 0, 0, 0, &[1, 1]);
+        let context =
+            lock_context_with_otx_entries(lock_hash, vec![lock_hash, lock_hash], vec![otx]);
+        let builder = LockPlanBuilder {
+            context: &context,
+            lock_script_hash: lock_hash,
+            required_signatures: Vec::new(),
+            related_actions: Vec::new(),
+            tx_level_action_cache: None,
+        };
+        let OtxLayouts::Complete(layout) = &context.otx_layouts else {
+            panic!("expected complete OTX layouts");
+        };
+
+        assert_eq!(
+            builder
+                .required_append_segment_indices(&layout.otx_entries[0])
+                .unwrap(),
+            vec![0, 1]
+        );
+        assert!(!context
+            .script_context
+            .input_range_contains_current_lock(layout.otx_entries[0].layout.base_inputs)
+            .unwrap());
+        assert!(context
+            .script_context
+            .input_range_contains_current_lock(layout.otx_entries[0].layout.append_inputs)
+            .unwrap());
+    }
+
+    #[test]
+    fn base_and_two_append_segments_require_base_and_both_segment_signatures() {
+        let lock_hash = [0x44; 32];
+        let mut otx = test_otx_with_append_segments(&message_with_actions(&[]), 0, 1, 1, &[1, 1]);
+        otx.witness.base_input_cells = 0;
+        otx.witness.base_input_masks = crate::view::MaskView::new(Vec::new());
+        otx.witness.append_segments[0].input_cells = 0;
+        otx.witness.append_segments[1].input_cells = 0;
+        otx.witness.base_seals = vec![test_lock_seal(lock_hash, &[0xb0])];
+        otx.witness.append_segments[0].seals = vec![test_lock_seal(lock_hash, &[0xa0])];
+        otx.witness.append_segments[1].seals = vec![test_lock_seal(lock_hash, &[0xa1])];
+        let context = lock_context_with_otx_entries_and_input_range(
+            lock_hash,
+            vec![lock_hash, lock_hash, lock_hash],
+            crate::layout::Range { start: 0, count: 3 },
+            vec![otx],
+        );
+        let builder = LockPlanBuilder {
+            context: &context,
+            lock_script_hash: lock_hash,
+            required_signatures: Vec::new(),
+            related_actions: Vec::new(),
+            tx_level_action_cache: None,
+        };
+        let plan = builder.build().unwrap();
+
+        assert_eq!(
+            plan.required_signatures
+                .iter()
+                .map(|requirement| requirement.origin)
+                .collect::<Vec<_>>(),
+            vec![
+                SignatureOrigin::OtxBase,
+                SignatureOrigin::OtxAppendSegment { segment_index: 0 },
+                SignatureOrigin::OtxAppendSegment { segment_index: 1 },
+            ]
+        );
+        assert_eq!(
+            plan.required_signatures
+                .iter()
+                .map(|requirement| requirement.seal.clone())
+                .collect::<Vec<_>>(),
+            vec![vec![0xb0], vec![0xa0], vec![0xa1]]
         );
     }
 

@@ -11,7 +11,7 @@ pub mod malformed;
 pub mod mutate;
 
 pub use builder::{
-    AppendSegmentRangeFacts, AppendSegmentSpec, BuiltTxShape, OtxRangeFacts, OtxSegment, TxShape,
+    AppendSegmentRangeFacts, AppendSegmentSpec, BuiltTxShape, OtxRangeFacts, OtxSpec, TxShape,
     append_segment_spec,
 };
 pub use handles::{
@@ -50,7 +50,7 @@ mod tests {
         witness::{WitnessLayout, WitnessLayoutUnion},
     };
 
-    use super::{BuiltTxShape, OtxSegment, TxShape, append_segment_spec};
+    use super::{BuiltTxShape, OtxSpec, TxShape, append_segment_spec};
     use crate::framework::cells::{ResolvedInputFacts, TestCellOutput, normal_output};
 
     fn empty_script() -> Script {
@@ -113,7 +113,7 @@ mod tests {
         let prefix = shape.push_prefix_input(resolved_input(1));
         let prefix_dep = shape.push_prefix_cell_dep(cell_dep(9));
 
-        let first_otx = shape.push_otx(OtxSegment {
+        let first_otx = shape.push_otx(OtxSpec {
             base_inputs: vec![resolved_input(2)],
             base_outputs: vec![output(10)],
             base_cell_deps: vec![cell_dep(10)],
@@ -127,7 +127,7 @@ mod tests {
             ],
             ..Default::default()
         });
-        let second_otx = shape.push_otx(OtxSegment {
+        let second_otx = shape.push_otx(OtxSpec {
             base_inputs: vec![resolved_input(4)],
             base_outputs: vec![output(20)],
             base_cell_deps: vec![cell_dep(20)],
@@ -198,6 +198,6 @@ mod tests {
     #[should_panic(expected = "OTX segment requires non-zero base inputs")]
     fn tx_shape_rejects_zero_base_input_otx_segments() {
         let mut shape = TxShape::new();
-        shape.push_otx(OtxSegment::default());
+        shape.push_otx(OtxSpec::default());
     }
 }

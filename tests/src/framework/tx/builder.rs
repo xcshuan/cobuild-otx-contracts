@@ -25,7 +25,7 @@ use super::{
 };
 
 #[derive(Clone, Debug, Default)]
-pub struct OtxSegment {
+pub struct OtxSpec {
     pub message: Option<CobuildMessage>,
     pub base_inputs: Vec<ResolvedInputFacts>,
     pub base_outputs: Vec<TestCellOutput>,
@@ -124,7 +124,7 @@ pub struct BuiltTxShape {
 pub struct TxShape {
     prefix_inputs: Vec<(InputHandle, ResolvedInputFacts)>,
     prefix_cell_deps: Vec<(CellDepHandle, CellDep)>,
-    otxs: Vec<TrackedOtxSegment>,
+    otxs: Vec<TrackedOtx>,
     remainder_outputs: Vec<(OutputHandle, TestCellOutput)>,
     tx_level_message: Option<CobuildMessage>,
     next_input: usize,
@@ -134,9 +134,9 @@ pub struct TxShape {
 }
 
 #[derive(Clone, Debug)]
-struct TrackedOtxSegment {
+struct TrackedOtx {
     handle: OtxHandle,
-    segment: OtxSegment,
+    segment: OtxSpec,
     base_input_handles: Vec<InputHandle>,
     append_input_handles: Vec<Vec<InputHandle>>,
     base_output_handles: Vec<OutputHandle>,
@@ -164,7 +164,7 @@ impl TxShape {
         handle
     }
 
-    pub fn push_otx(&mut self, segment: OtxSegment) -> OtxHandle {
+    pub fn push_otx(&mut self, segment: OtxSpec) -> OtxHandle {
         assert!(
             !segment.base_inputs.is_empty(),
             "OTX segment requires non-zero base inputs"
@@ -196,7 +196,7 @@ impl TxShape {
             .map(|append| self.header_dep_handles(append.header_deps.len()))
             .collect();
 
-        self.otxs.push(TrackedOtxSegment {
+        self.otxs.push(TrackedOtx {
             handle,
             segment,
             base_input_handles,
@@ -586,7 +586,7 @@ impl TxShape {
         }
     }
 
-    fn otx(&self, otx: OtxHandle) -> &TrackedOtxSegment {
+    fn otx(&self, otx: OtxHandle) -> &TrackedOtx {
         &self.otxs[otx.0]
     }
 
@@ -631,7 +631,7 @@ impl TxShape {
     }
 }
 
-fn total_otx_inputs(otxs: &[TrackedOtxSegment]) -> usize {
+fn total_otx_inputs(otxs: &[TrackedOtx]) -> usize {
     otxs.iter()
         .map(|otx| {
             otx.segment.base_inputs.len()
