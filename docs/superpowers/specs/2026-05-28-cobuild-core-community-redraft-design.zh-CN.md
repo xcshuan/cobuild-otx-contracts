@@ -98,7 +98,8 @@ Cobuild Core 不是应用 action 标准。
 - `Tx-level flow`：使用 transaction-level witness 的非 OTX Cobuild 签名流程。
 - `OTX flow`：使用 `OtxStart` 与一个或多个 `Otx` witness 的 Cobuild 流程。
 - `Base scope`：由原始 OTX 创建者签名的 OTX 部分。
-- `Append scope`：后续追加并由追加范围 input owner 单独签名的 OTX 部分。
+- `Append segment`：后续追加的一个有序贡献片段。每个 segment 有自己的实体计数、
+  flags 和 seals；append input owner 按 segment 签名。
 - `TxWithMessage`：文档术语，表示 tx-level flow 中存在且仅存在一个有效的
   `SighashAll` witness，且其中携带唯一的 transaction `Message`。
 - `TxWithoutMessage`：文档术语，表示 tx-level flow 中不存在有效的
@@ -185,28 +186,26 @@ table SighashAllOnly {
 的签名者仍然签与 transaction-level 相同的签名消息哈希，该哈希覆盖唯一的
 `SighashAll.message`。
 
-### SealPair
+### LockSeal
 
-`SealPair` 用于 OTX witness 内部，并显式标记某个 seal 属于哪个 OTX scope。
+`LockSeal` 用于 OTX witness 内部，将一个 lock script hash 绑定到一个加密 seal。
 
 ```text
-table SealPair {
+table LockSeal {
   script_hash: Byte32,
-  scope: byte,   // 0=base, 1=append
   seal: Bytes,
 }
-vector SealPairVec <SealPair>;
+vector LockSealVec <LockSeal>;
 ```
 
-Core v1 规定：
+`LockSeal` 自身不携带 scope byte。它所在的位置决定签名来源：
 
-- `0`：`base`
-- `1`：`append`
+- `Otx.base_seals` 中的 seal 用于 OTX base signing hash。
+- `OtxAppendSegment.seals` 中的 seal 用于该 append segment 的 signing hash。
 
-其他值在 Core v1 中均非法。
-
-同一个 lock script 可以同时出现在 base 与 append input scope 中。
-在这种情况下，该 lock 必须使用两个不同的 `SealPair`，每个 scope 一个。
+同一个 lock script 可以同时出现在 base input range 和一个或多个 append
+segment input range 中。在这种情况下，该 lock 必须在每个相关 seal vector 中
+分别提供一个独立的 `LockSeal`。
 
 ### OtxStart
 
@@ -223,7 +222,7 @@ table OtxStart {
 `OtxStart` 自身的 witness 索引则标记 OTX witness 序列的起点。
 
 `OtxStart` 是最终聚合交易的运行时分区元数据，
-不属于创建者签名覆盖的 `OtxBase` 或 `OtxAppend` 哈希域。
+不属于创建者签名覆盖的 `OtxBase` 或 `OtxAppendSegment` 哈希域。
 
 ### Otx
 
@@ -247,23 +246,37 @@ table Otx {
   base_header_deps: Uint32,
   base_header_dep_masks: Bytes,
 
-  append_input_cells: Uint32,
-  append_output_cells: Uint32,
-  append_cell_deps: Uint32,
-  append_header_deps: Uint32,
+  append_segments: OtxAppendSegmentVec,
 
-  seals: SealPairVec,
+  base_seals: LockSealVec,
 }
+```
+
+每个 append segment 有自己的计数、flags 和 seals：
+
+```text
+table OtxAppendSegment {
+  segment_flags: byte,
+
+  input_cells: Uint32,
+  output_cells: Uint32,
+  cell_deps: Uint32,
+  header_deps: Uint32,
+
+  seals: LockSealVec,
+}
+vector OtxAppendSegmentVec <OtxAppendSegment>;
 ```
 
 设计意图：
 
-- `append_permissions` 是创建者签下的权限位图，用于表示 append scope
+- `append_permissions` 是创建者签下的权限位图，用于表示 append segments
   是否允许包含额外 input、output、cell dep 或 header dep。
 - `base_*` 字段定义原始创建者签名的 OTX 范围。
-- `append_*` 字段定义后续追加的尾部实体，并由其自身另行签名。
+- `append_segments` 定义有序的追加实体范围。每个 segment 携带自己的
+  finality/coverage flags 和 append seals。
 - 细粒度覆盖只作用于 base scope。
-- append scope 在 Core v1 中使用全字段覆盖。
+- append segments 在 Core v1 中使用全字段覆盖。
 
 对于一个合法的 `Otx`，`base_input_cells` 必须大于 0。
 
@@ -271,7 +284,7 @@ table Otx {
 
 - base scope 携带创建者授权的 `Message` 与 `append_permissions`；
 - 如果没有至少一个 base input，就没有任何 lock owner 对 base scope 进行签名；
-- 因此 Core v1 禁止“只有 append 授权、但 base 本身无人签名”的空壳 OTX。
+- 因此 Core v1 禁止“只有 append segment 授权、但 base 本身无人签名”的空壳 OTX。
 
 Core v1 中 `append_permissions` 的 bit 定义为：
 
@@ -282,28 +295,42 @@ Core v1 中 `append_permissions` 的 bit 定义为：
 
 bit 4 到 bit 7 为保留位，必须为 0。
 
-如果某个 append count 非 0，但对应 permission bit 为 0，则该 `Otx` 非法。
+如果任何 append segment 在某类实体上的 count 非 0，但对应 permission bit 为 0，
+则该 `Otx` 非法。这个检查针对“某类实体是否至少被追加过”的聚合事实，而不是
+每个 segment 的计数策略。
 
 ## OTX Scope 模型
 
-对于每个 `Otx`，Core 定义两个连续的子范围：
+对于每个 `Otx`，Core 定义一个 base scope 和零个或多个有序 append segments：
 
 - `base scope`
-- `append scope`
+- `append segment 0`
+- `append segment 1`
+- ...
 
 单个 `Otx` 覆盖的实体按以下顺序布局：
 
 - base inputs
-- append inputs
+- append segment 0 inputs
+- append segment 1 inputs
+- ...
 - base outputs
-- append outputs
+- append segment 0 outputs
+- append segment 1 outputs
+- ...
 - base cell deps
-- append cell deps
+- append segment 0 cell deps
+- append segment 1 cell deps
+- ...
 - base header deps
-- append header deps
+- append segment 0 header deps
+- append segment 1 header deps
+- ...
 
 每个 OTX 在每类实体上都消费交易中的一个连续切片。
 不同 OTX 依据 `OtxStart` 锚点以及遍历 `Otx` 序列时累加的计数连续排布。
+实现可以缓存一个 OTX 的 aggregate append ranges，但这些 ranges 必须由有序
+segment counts 派生，不是独立的 witness schema。
 
 Core 不定义任何“全局 transaction mode”。scope 只由消费相关 OTX witness
 的脚本在本地解释。
@@ -406,9 +433,19 @@ Core v1 使用四个签名域：
 - `TxWithMessage`
 - `TxWithoutMessage`
 - `OtxBase`
-- `OtxAppend`
+- `OtxAppendSegment`
 
 这些只是哈希规则名称，不是独立的 witness variant。
+
+Core v1 同时固定以下 16-byte BLAKE2b personalization 常量：
+
+- `TxWithMessage`：`b"ckbcb_twm_core1\0"`
+- `TxWithoutMessage`：`b"ckbcb_tnm_core1\0"`
+- `OtxBase`：`b"ckbcb_otb_core1\0"`
+- `OtxAppendSegment`：`b"ckbcb_ots_core1\0"`
+
+这些 byte string 是规范内容。实现必须精确使用它们，不得在运行时替换为更长的
+人类可读名称。
 
 ### TxWithMessage
 
@@ -449,8 +486,9 @@ Core v1 使用四个签名域：
 5. `base_input_masks` bytes
 6. 对每个 base input slot `i`：
    - OTX-local slot index `i`，little-endian `u32`
-   - 若 mask bit 0 为 `1`，则加入 `since`，little-endian `u64`
-   - 若 mask bit 1 为 `1`，则加入 `previous_output` 的 canonical Molecule bytes
+   - 若 mask bit 0 为 `1`，则加入 `since`，little-endian `u64`，否则加入零值
+   - 若 mask bit 1 为 `1`，则加入 `previous_output` 的 canonical Molecule bytes，
+     否则加入默认 out point bytes
    - resolved input `CellOutput` 的 Molecule bytes
    - resolved input data 长度，little-endian `u32`
    - resolved input data bytes
@@ -459,35 +497,37 @@ Core v1 使用四个签名域：
 9. `base_output_masks` bytes
 10. 对每个 base output slot `i`：
    - OTX-local slot index `i`，little-endian `u32`
-   - 对每个被覆盖字段，按以下顺序追加：
-     - `capacity`，little-endian `u64`
-     - `lock` 的 canonical Molecule bytes
-     - `type` 的 canonical Molecule option bytes
-     - output data 长度，little-endian `u32`，随后是 data bytes
+   - 对以下每个 output 字段位置，若被覆盖则追加真实值，否则追加 canonical 默认值：
+     - `capacity`，little-endian `u64`，或零值
+     - `lock` 的 canonical Molecule bytes，或默认 script
+     - `type` 的 canonical Molecule option bytes，或 empty option
+     - output data 长度，little-endian `u32`，随后是 data bytes，或零长度
 11. `base_cell_deps`，little-endian `u32`
 12. `base_cell_dep_masks` 长度，little-endian `u32`
 13. `base_cell_dep_masks` bytes
-14. 对每个被覆盖的 base cell dep slot `i`：
+14. 对每个 base cell dep slot `i`：
    - OTX-local slot index `i`，little-endian `u32`
-   - `CellDep` 的 canonical Molecule bytes
+   - 若被覆盖则加入 `CellDep` 的 canonical Molecule bytes，否则加入默认 cell dep bytes
 15. `base_header_deps`，little-endian `u32`
 16. `base_header_dep_masks` 长度，little-endian `u32`
 17. `base_header_dep_masks` bytes
-18. 对每个被覆盖的 base header dep slot `i`：
+18. 对每个 base header dep slot `i`：
    - OTX-local slot index `i`，little-endian `u32`
-   - header dep `Byte32`
+   - 若被覆盖则加入 header dep `Byte32`，否则加入 32 个零字节
 
 这样设计的原因是：
 
 - mask 自身被哈进前像，避免不同覆盖策略共享同一语义前像；
 - OTX-local slot index 被哈进前像，避免在 OTX scope 内通过字段省略制造重排歧义，
   同时不把 OTX 绑定到完整交易里的绝对位置；
+- 未覆盖的 base 字段用确定性的默认值表示，而不是直接省略，因此每个 slot 都有稳定的
+  字段位置前像；
 - resolved input cell 与 input data 始终被完整覆盖；
-- append 权限被哈进前像，使 append-scope 的可用性由创建者显式授权，而不是默认存在。
+- append 权限被哈进前像，使 append segment 的可用性由创建者显式授权，而不是默认存在。
 
-### OtxAppend
+### OtxAppendSegment
 
-`OtxAppend` 只覆盖 append scope，并将其绑定到一个特定的 base scope。
+`OtxAppendSegment` 覆盖一个 append segment，并将它绑定到一个特定的 base scope。
 
 定义：
 
@@ -502,33 +542,52 @@ Core v1 使用四个签名域：
 
 Core v1 不会在这个 digest 之上再做第二次额外哈希。
 
-`OtxAppend` 的前像为：
+每个 append segment 的 hash 都从 base scope commitment 开始。后续前像取决于
+`segment_flags`。
 
-1. 当前 `Otx` 中 `Message` 的 Molecule bytes
-2. `base scope commitment`
-3. `append_input_cells`，little-endian `u32`
-4. 对每个 append input slot `i`：
+如果 `coverage_previous_segments` 未设置，前像为：
+
+1. `base scope commitment`
+2. 自身 `segment_flags`
+3. 自身 segment input count，little-endian `u32`
+4. 对每个自身 segment input slot `i`：
    - OTX-local slot index `i`，little-endian `u32`
    - 完整 `CellInput` 的 canonical Molecule bytes
    - resolved input `CellOutput` 的 Molecule bytes
    - resolved input data 长度，little-endian `u32`
    - resolved input data bytes
-5. `append_output_cells`，little-endian `u32`
-6. 对每个 append output slot `i`：
+5. 自身 segment output count，little-endian `u32`
+6. 对每个自身 segment output slot `i`：
    - OTX-local slot index `i`，little-endian `u32`
    - 完整 output `CellOutput` 的 Molecule bytes
    - output data 长度，little-endian `u32`
    - output data bytes
-7. `append_cell_deps`，little-endian `u32`
-8. 对每个 append cell dep slot `i`：
+7. 自身 segment cell dep count，little-endian `u32`
+8. 对每个自身 segment cell dep slot `i`：
    - OTX-local slot index `i`，little-endian `u32`
    - 完整 `CellDep` 的 Molecule bytes
-9. `append_header_deps`，little-endian `u32`
-10. 对每个 append header dep slot `i`：
+9. 自身 segment header dep count，little-endian `u32`
+10. 对每个自身 segment header dep slot `i`：
    - OTX-local slot index `i`，little-endian `u32`
    - 完整 header dep `Byte32`
 
-Core v1 有意不支持 append scope 上的细粒度 mask。
+如果 `coverage_previous_segments` 已设置，前像为：
+
+1. `base scope commitment`
+2. previous segment count，little-endian `u32`
+3. 对每个 previous segment，按顺序写入：
+   - previous `segment_flags`
+   - previous segment inputs、outputs、cell deps、header deps，使用上面相同的
+     full-field count-and-item 编码
+4. 自身 `segment_flags`
+5. 自身 segment inputs、outputs、cell deps、header deps，使用上面相同的
+   full-field count-and-item 编码
+
+`Message` 已经被 `OtxBase` 覆盖；`OtxAppendSegment` 不再重复写入它。own-only
+segment hash 不编码自身 segment index。previous-coverage segment hash 通过 previous
+segment 的数量和有序内容绑定位置，而不是通过额外的 `previous_segment_index` 字段。
+
+Core v1 有意不支持 append segment 上的细粒度 mask。
 
 ## Cobuild 激活与局部验证
 
@@ -556,8 +615,8 @@ Cobuild 激活后，每个 Cobuild-aware 脚本具体承担哪些验证义务，
   `SighashAllOnly`，则该脚本必须对不属于任何相关 OTX-covered input 的那部分
   交易进入 tx-level Cobuild flow。
 - 如果交易包含一个有效的 OTX 序列，且当前 lock 出现在一个或多个 OTX 的
-  base 或 append input scope 中，则该脚本也必须对这些 OTX scope 进入对应的
-  OTX flow。
+  base input scope 或 append segment input scope 中，则该脚本也必须对这些 OTX
+  signing origins 进入对应的 OTX flow。
 - 若两者都不成立，该脚本在本次执行中没有 Cobuild 签名验证义务。它仍然不得仅为
   绕过已激活的 Cobuild 规则集，而将整笔交易当作 legacy-only 交易处理。
 
@@ -585,8 +644,8 @@ Cobuild 激活后，每个 Cobuild-aware 脚本具体承担哪些验证义务，
 
 - 存在且仅存在一个有效 `OtxStart`；
 - 从 `OtxStart` 后一个 witness 开始，存在一段连续的有效 `Otx` witness 序列；
-- 按 inputs、outputs、cell deps、header deps 累积得到的 OTX scope 划分
-  无溢出、无重叠、且彼此一致。
+- 按 inputs、outputs、cell deps、header deps 累积得到的 OTX base 和 append
+  segment 划分无溢出、无重叠、且彼此一致。
 
 ### 验证流程
 
@@ -607,8 +666,8 @@ Cobuild 激活后，每个 Cobuild-aware 脚本具体承担哪些验证义务，
      OTX anchor；
    - 从 `OtxStart` 后一个 witness 开始，收集连续的有效 `Otx` witness 序列；
    - 任何有效 `Otx` witness 都不得出现在这段连续序列之外；
-   - 从 anchor 开始，按收集到的 OTX 序列累积计数，计算每个 OTX 的 base 与
-     append scope。
+   - 从 anchor 开始，按收集到的 OTX 序列累积计数，计算每个 OTX 的 base scope 与
+     append segment scopes。
    对每类实体，transaction remainder 是 `OtxStart` anchor 之前的范围，与该类实体
    最后一个累积 OTX scope 之后的范围的并集。
 4. 构建 tx-level message 视图：
@@ -626,18 +685,20 @@ Cobuild 激活后，每个 Cobuild-aware 脚本具体承担哪些验证义务，
 Cobuild-aware lock script 随后按以下流程验证 owner 授权：
 
 1. 对每个与当前 lock script 相关的 OTX：
-   - 判断当前 lock script hash 是否出现在该 OTX 的 base input scope、append input
-     scope，或两者都出现；
+   - 判断当前 lock script hash 是否出现在该 OTX 的 base input scope、任意 append
+     segment input scope，或两者都出现；
    - 如果 OTX `Message` 中存在指向当前 lock script hash 的 `input_lock` action，
      即使该 lock hash 不在当前 OTX local input scopes 中，该 OTX `Message` 也与当前
      lock 相关；
-   - 如果出现在 base scope，必须为 `(current_lock_hash, base)` 找到且仅找到一个
-     `SealPair`，计算 `OtxBase`，并按该 lock 自己的加密规则验证 seal；
-   - 如果出现在 append scope，必须为 `(current_lock_hash, append)` 找到且仅找到一个
-     `SealPair`，计算 `OtxAppend`，并按该 lock 自己的加密规则验证 seal；
-   - 相关 OTX scope 内缺少 seal、重复 seal、seal 结构错误或签名无效，都必须失败。
+   - 如果出现在 base scope，必须在 `Otx.base_seals` 中为 `current_lock_hash`
+     找到且仅找到一个 `LockSeal`，计算 `OtxBase`，并按该 lock 自己的加密规则验证 seal；
+   - 对每个包含该 lock hash 的 append segment input scope，必须在该 segment 的
+     `seals` 中为 `current_lock_hash` 找到且仅找到一个 `LockSeal`，计算
+     `OtxAppendSegment`，并按该 lock 自己的加密规则验证 seal；
+   - 相关 OTX base 或 append segment 中缺少 seal、重复 seal、seal 结构错误或签名
+     无效，都必须失败。
    指向当前 lock 的 action 本身不会创建 OTX 签名要求；只有 lock hash 真实出现在
-   OTX base 或 append input scope 中时，才要求对应的 OTX lock 签名。
+   OTX base 或 append segment input scope 中时，才要求对应的 OTX lock 签名。
 2. 判断当前 lock 是否存在不属于任何相关 OTX-covered input scope 的 tx-level
    remainder inputs。若不存在，本次 lock 执行不需要 tx-level seal。
 3. 如果存在 tx-level remainder inputs：
@@ -650,8 +711,10 @@ Cobuild-aware lock script 随后按以下流程验证 owner 授权：
      选择 `TxWithoutMessage`；
    - 计算所选 tx-level 签名哈希，并按该 lock 自己的加密规则验证 group-leading seal。
 4. 如果交易已激活 Cobuild，但 OTX 验证和 tx-level remainder 验证都与当前 lock
-   无关，则该 lock 本次执行没有 Cobuild 签名验证义务。它仍然不得仅为了忽略相关
-   Cobuild 错误而把交易当成 legacy-only 交易处理。
+   无关，则 generic Core planning 对本次执行没有 Cobuild 签名验证义务。具体参考
+   lock contract 可以更严格；`cobuild-otx-lock` 在 planned signature requirement
+   set 为空时会失败。Cobuild-aware lock 仍然不得仅为了忽略相关 Cobuild 错误而把交易
+   当成 legacy-only 交易处理。
 
 Cobuild-aware type script 随后按以下流程验证 message consistency：
 
@@ -695,9 +758,9 @@ lock script 不负责解释应用特定的 `Action.data` 业务语义。
 
 在 OTX flow 中，lock script 必须：
 
-- 判断自己是否出现在 base input scope、append input scope 或两者皆有；
-- 对每个所需的 `(script_hash, scope)` 找到且仅找到一个 `SealPair`；
-- 按需计算 `OtxBase` 和 / 或 `OtxAppend`；
+- 判断自己是否出现在 base input scope、append segment input scope 或两者皆有；
+- 在每个相关 seal vector 中为该 script hash 找到且仅找到一个 `LockSeal`；
+- 按需计算 `OtxBase` 和 / 或 `OtxAppendSegment`；
 - 按其自身加密逻辑验证对应的 seal。
 
 如果存在 tx-level 或 OTX-level 的非空 `Message`，lock script 必须验证其中每个
@@ -749,13 +812,16 @@ Core 标准化失败类别，但不标准化全网统一 numeric error code。
 - `Otx` witness 序列不连续或结构非法；
 - `Otx` 满足 `base_input_cells == 0`；
 - OTX scope 划分溢出、重叠或不一致；
-- `script_role` 或 `scope` 的值非法；
+- `script_role` 的值非法；
 - `append_permissions` 的保留位非法；
-- 某个 append count 非 0，但对应 append-permission bit 为 0；
+- append segment flags 的保留位非法；
+- 非最后一个 append segment 没有设置 `allow_more_segments_after`；
+- 任一 append segment 在某类实体上的 count 非 0，但对应 append-permission bit 为 0；
 - mask 长度非法；
 - mask 中保留 padding bit 非 0；
-- 缺少所需的 `SealPair`；
-- 同一 `Otx` 内，同一 `(script_hash, scope)` 存在重复 `SealPair`；
+- 缺少所需的 `LockSeal`；
+- `Otx.base_seals` 内或同一个 `OtxAppendSegment.seals` 内，对同一 `script_hash`
+  存在重复 `LockSeal`；
 - 签名本身非法或验签失败；
 - 在要求唯一性的上下文中出现多个 `SighashAll`；
 - 当前脚本所选择消费的精确 Core 哈希 / 选择规则的其他任何失败。
@@ -844,11 +910,11 @@ Approved-action 被明确放在 Core 之外，属于标准扩展层。
 - 在 Core 中保留 `Action`，但不把 action 存在性设为 Core 级强制项。
 - 给 `Action` 添加 `script_role`，以消除 action 目标位置歧义。
 - 将 dynamic OTX 与细粒度签名控制放入 Core。
-- 将 OTX 建模为 `base scope + append scope`。
-- 强制使用创建者签下的 `append_permissions`，使 append scope 的可用性变成
+- 将 OTX 建模为 `base scope + ordered append segments`。
+- 强制使用创建者签下的 `append_permissions`，使 append segments 的可用性变成
   明确授权，而不是默认存在。
 - 在 Core v1 中只对 base scope 应用细粒度 mask。
-- 使用显式的 `SealPair.scope`，而不是依赖位置搜索技巧。
+- 使用 seal vector 的位置（`base_seals` 或 segment `seals`）决定签名来源。
 - 标准化精确的签名前像构造，并使用 BLAKE2b personalization 进行域隔离。
 - 保留 `TxWithMessage` 与 `TxWithoutMessage` 作为哈希规则说明术语，而不是
   链上字段。

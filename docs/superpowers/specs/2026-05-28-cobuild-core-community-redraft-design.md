@@ -107,8 +107,9 @@ Reference flows are not part of chain-level validity.
   witnesses.
 - `OTX flow`: a Cobuild flow using `OtxStart` and one or more `Otx` witnesses.
 - `Base scope`: the part of an OTX signed by the original OTX creator.
-- `Append scope`: the part of an OTX appended later and signed separately by
-  append-scope input owners.
+- `Append segment`: one ordered contribution appended after the base. Each
+  segment has its own entity counts, flags, and seals; append input owners sign
+  per segment.
 - `TxWithMessage`: a document term meaning a tx-level flow in which the
   transaction contains exactly one valid `SighashAll` witness carrying the
   unique transaction `Message`.
@@ -201,29 +202,29 @@ It does not carry its own `Message`. In `TxWithMessage`, a signer using
 `SighashAllOnly` still signs the same transaction-level signing hash that
 covers the unique `SighashAll.message`.
 
-### SealPair
+### LockSeal
 
-`SealPair` is used inside OTX witnesses and explicitly labels which OTX scope a
-seal belongs to.
+`LockSeal` is used inside OTX witnesses to bind one lock script hash to one
+cryptographic seal.
 
 ```text
-table SealPair {
+table LockSeal {
   script_hash: Byte32,
-  scope: byte,   // 0=base, 1=append
   seal: Bytes,
 }
-vector SealPairVec <SealPair>;
+vector LockSealVec <LockSeal>;
 ```
 
-Core v1 assigns:
+`LockSeal` does not carry a scope byte. Placement determines the signing
+origin:
 
-- `0`: `base`
-- `1`: `append`
+- `Otx.base_seals` contains seals for the OTX base signing hash.
+- `OtxAppendSegment.seals` contains seals for that append segment's signing
+  hash.
 
-All other values are invalid in Core v1.
-
-The same lock script may appear in both base and append input scopes. In that
-case the lock MUST use two distinct `SealPair`s, one per scope.
+The same lock script may appear in the base input range and in one or more
+append segment input ranges. In that case the lock MUST provide one distinct
+`LockSeal` in each relevant seal vector.
 
 ### OtxStart
 
@@ -241,7 +242,8 @@ first OTX in the transaction. The witness index of `OtxStart` itself marks the
 start of the OTX witness sequence.
 
 `OtxStart` is runtime partition metadata for the final aggregated transaction.
-It is not part of the creator-signed `OtxBase` or `OtxAppend` hash domain.
+It is not part of the creator-signed `OtxBase` or `OtxAppendSegment` hash
+domain.
 
 ### Otx
 
@@ -266,24 +268,38 @@ table Otx {
   base_header_deps: Uint32,
   base_header_dep_masks: Bytes,
 
-  append_input_cells: Uint32,
-  append_output_cells: Uint32,
-  append_cell_deps: Uint32,
-  append_header_deps: Uint32,
+  append_segments: OtxAppendSegmentVec,
 
-  seals: SealPairVec,
+  base_seals: LockSealVec,
 }
+```
+
+Each append segment has its own counts, flags, and seals:
+
+```text
+table OtxAppendSegment {
+  segment_flags: byte,
+
+  input_cells: Uint32,
+  output_cells: Uint32,
+  cell_deps: Uint32,
+  header_deps: Uint32,
+
+  seals: LockSealVec,
+}
+vector OtxAppendSegmentVec <OtxAppendSegment>;
 ```
 
 Design intent:
 
 - `append_permissions` is the creator-signed permission map for whether append
-  scope is allowed to contain additional inputs, outputs, cell deps, or header
-  deps.
+  segments are allowed to contain additional inputs, outputs, cell deps, or
+  header deps.
 - `base_*` fields define the original creator-signed OTX scope.
-- `append_*` fields define tail entities appended later and signed separately.
+- `append_segments` defines the ordered appended entity ranges. Each segment
+  carries its own finality/coverage flags and its own append seals.
 - Fine-grained coverage applies only to the base scope in Core v1.
-- Append scope uses full-field coverage in Core v1.
+- Append segments use full-field coverage in Core v1.
 
 `base_input_cells` MUST be greater than zero for a valid `Otx`.
 
@@ -292,7 +308,7 @@ Rationale:
 - the base scope carries the creator-authorized `Message` and
   `append_permissions`;
 - without at least one base input, no lock owner signs the base scope;
-- Core v1 therefore disallows unsigned "base shells" with only append-scope
+- Core v1 therefore disallows unsigned "base shells" with only append-segment
   authorization following them.
 
 Core v1 assigns `append_permissions` bits as:
@@ -304,30 +320,45 @@ Core v1 assigns `append_permissions` bits as:
 
 Bits 4 through 7 are reserved and MUST be zero.
 
-If an append count is non-zero while its corresponding permission bit is zero,
-the `Otx` is invalid.
+If any append segment has a non-zero count for an entity type while the
+corresponding permission bit is zero, the `Otx` is invalid. The check is made
+over the aggregate fact that an entity type is appended at least once; it is
+not a per-segment count policy.
 
 ## OTX Scope Model
 
-For each `Otx`, Core defines two contiguous sub-scopes:
+For each `Otx`, Core defines one base scope and zero or more ordered append
+segments:
 
 - `base scope`
-- `append scope`
+- `append segment 0`
+- `append segment 1`
+- ...
 
 The entities covered by one `Otx` are laid out in this order:
 
 - base inputs
-- append inputs
+- append segment 0 inputs
+- append segment 1 inputs
+- ...
 - base outputs
-- append outputs
+- append segment 0 outputs
+- append segment 1 outputs
+- ...
 - base cell deps
-- append cell deps
+- append segment 0 cell deps
+- append segment 1 cell deps
+- ...
 - base header deps
-- append header deps
+- append segment 0 header deps
+- append segment 1 header deps
+- ...
 
 Each OTX consumes a contiguous slice of the transaction for each entity type.
 Different OTXs are laid out consecutively according to the `OtxStart` anchor
-and the counts accumulated while iterating the `Otx` sequence.
+and the counts accumulated while iterating the `Otx` sequence. Implementations
+may cache aggregate append ranges for one OTX, but those ranges are derived from
+the ordered segment counts and are not an independent witness schema.
 
 Core does not define any "global transaction mode". Scope is interpreted
 locally by scripts that consume the relevant OTX witnesses.
@@ -443,7 +474,7 @@ Core v1 uses four signature domains:
 - `TxWithMessage`
 - `TxWithoutMessage`
 - `OtxBase`
-- `OtxAppend`
+- `OtxAppendSegment`
 
 These are hash-rule names only. They are not standalone witness variants.
 
@@ -452,7 +483,7 @@ Core v1 also fixes the exact 16-byte BLAKE2b personalization constants:
 - `TxWithMessage`: `b"ckbcb_twm_core1\0"`
 - `TxWithoutMessage`: `b"ckbcb_tnm_core1\0"`
 - `OtxBase`: `b"ckbcb_otb_core1\0"`
-- `OtxAppend`: `b"ckbcb_ota_core1\0"`
+- `OtxAppendSegment`: `b"ckbcb_ots_core1\0"`
 
 These byte strings are normative. Implementations MUST use them exactly and
 MUST NOT substitute longer human-readable names at runtime.
@@ -497,8 +528,9 @@ Its preimage is:
 5. `base_input_masks` bytes
 6. for each base input slot `i`:
    - OTX-local slot index `i` as little-endian `u32`
-   - if mask bit 0 is `1`, `since` as little-endian `u64`
-   - if mask bit 1 is `1`, `previous_output` in canonical Molecule bytes
+   - `since` as little-endian `u64` if mask bit 0 is `1`, otherwise zero
+   - `previous_output` in canonical Molecule bytes if mask bit 1 is `1`,
+     otherwise the default out point bytes
    - resolved input `CellOutput` in Molecule bytes
    - resolved input data length as little-endian `u32`
    - resolved input data bytes
@@ -507,23 +539,26 @@ Its preimage is:
 9. `base_output_masks` bytes
 10. for each base output slot `i`:
    - OTX-local slot index `i` as little-endian `u32`
-   - for each covered field, append the field in this order:
-     - `capacity` as little-endian `u64`
-     - `lock` in canonical Molecule bytes
-     - `type` as canonical Molecule option bytes
-     - output data length as little-endian `u32`, then data bytes
+   - for each output field position in this order, append the actual value
+     when covered and the canonical default value when uncovered:
+     - `capacity` as little-endian `u64`, or zero
+     - `lock` in canonical Molecule bytes, or the default script
+     - `type` as canonical Molecule option bytes, or the empty option
+     - output data length as little-endian `u32` followed by data bytes, or
+       zero length
 11. `base_cell_deps` as little-endian `u32`
 12. `base_cell_dep_masks` length as little-endian `u32`
 13. `base_cell_dep_masks` bytes
-14. for each covered base cell dep slot `i`:
+14. for each base cell dep slot `i`:
    - OTX-local slot index `i` as little-endian `u32`
-   - `CellDep` in canonical Molecule bytes
+   - `CellDep` in canonical Molecule bytes when covered, otherwise the default
+     cell dep bytes
 15. `base_header_deps` as little-endian `u32`
 16. `base_header_dep_masks` length as little-endian `u32`
 17. `base_header_dep_masks` bytes
-18. for each covered base header dep slot `i`:
+18. for each base header dep slot `i`:
    - OTX-local slot index `i` as little-endian `u32`
-   - header dep `Byte32`
+   - header dep `Byte32` when covered, otherwise 32 zero bytes
 
 Rationale:
 
@@ -532,13 +567,15 @@ Rationale:
 - OTX-local slot indices are hashed so that omitted fields cannot create
   ambiguity via reordering within the OTX scope, without binding the OTX to an
   absolute transaction position;
+- uncovered base fields are represented by deterministic defaults rather than
+  by being omitted, so every slot has a stable field-position preimage;
 - resolved input cells and input data remain fully covered.
-- append permissions are hashed so that append-scope availability is creator
+- append permissions are hashed so that append-segment availability is creator
   authorized rather than implicitly assumed.
 
-### OtxAppend
+### OtxAppendSegment
 
-`OtxAppend` covers only append scope and binds itself to one specific base
+`OtxAppendSegment` covers one append segment and binds it to one specific base
 scope.
 
 Define:
@@ -556,33 +593,53 @@ The resulting 32-byte digest is the `base scope commitment`.
 
 Core v1 does not apply an additional second hash on top of this digest.
 
-The `OtxAppend` preimage is:
+Each append segment's hash starts with the base scope commitment. The remaining
+preimage depends on `segment_flags`.
 
-1. `Message` in Molecule bytes from the current `Otx`
-2. `base scope commitment`
-3. `append_input_cells` as little-endian `u32`
-4. for each append input slot `i`:
+If `coverage_previous_segments` is clear, the preimage is:
+
+1. `base scope commitment`
+2. own `segment_flags`
+3. own segment input count as little-endian `u32`
+4. for each own segment input slot `i`:
    - OTX-local slot index `i` as little-endian `u32`
    - full `CellInput` in canonical Molecule bytes
    - resolved input `CellOutput` in Molecule bytes
    - resolved input data length as little-endian `u32`
    - resolved input data bytes
-5. `append_output_cells` as little-endian `u32`
-6. for each append output slot `i`:
+5. own segment output count as little-endian `u32`
+6. for each own segment output slot `i`:
    - OTX-local slot index `i` as little-endian `u32`
    - full output `CellOutput` in Molecule bytes
    - output data length as little-endian `u32`
    - output data bytes
-7. `append_cell_deps` as little-endian `u32`
-8. for each append cell dep slot `i`:
+7. own segment cell dep count as little-endian `u32`
+8. for each own segment cell dep slot `i`:
    - OTX-local slot index `i` as little-endian `u32`
    - full `CellDep` in Molecule bytes
-9. `append_header_deps` as little-endian `u32`
-10. for each append header dep slot `i`:
+9. own segment header dep count as little-endian `u32`
+10. for each own segment header dep slot `i`:
    - OTX-local slot index `i` as little-endian `u32`
    - full header dep `Byte32`
 
-Core v1 deliberately does not support fine-grained masks for append scope.
+If `coverage_previous_segments` is set, the preimage is:
+
+1. `base scope commitment`
+2. previous segment count as little-endian `u32`
+3. for each previous segment in order:
+   - previous `segment_flags`
+   - previous segment inputs, outputs, cell deps, and header deps using the
+     same full-field count-and-item encoding above
+4. own `segment_flags`
+5. own segment inputs, outputs, cell deps, and header deps using the same
+   full-field count-and-item encoding above
+
+The `Message` is already covered by `OtxBase`; `OtxAppendSegment` does not write
+it again. Own-only segment hashes do not encode an own segment index. Previous-
+coverage segment hashes bind position through the number and ordered content of
+previous segments, not through a separate `previous_segment_index` field.
+
+Core v1 deliberately does not support fine-grained masks for append segments.
 
 ## Cobuild Activation and Local Validation
 
@@ -613,8 +670,9 @@ For a Cobuild-aware lock script in an activated Cobuild transaction:
   `SighashAllOnly`, the script MUST enter tx-level Cobuild flow for the part of
   the transaction outside any relevant OTX-covered inputs.
 - If the transaction contains a valid OTX sequence and the current lock appears
-  in the base or append input scope of one or more OTXs, the script MUST also
-  enter the corresponding OTX flow for those OTX scopes.
+  in the base input scope or any append segment input scope of one or more
+  OTXs, the script MUST also enter the corresponding OTX flow for those OTX
+  signing origins.
 - If neither condition applies, the script has no Cobuild signature obligation
   for that execution. It still MUST NOT treat the transaction as legacy-only
   solely to bypass the activated Cobuild rule set.
@@ -646,8 +704,9 @@ An OTX flow exists only when all of the following are true:
 - exactly one valid `OtxStart` exists;
 - starting from the witness immediately after `OtxStart`, there is a contiguous
   sequence of valid `Otx` witnesses;
-- the accumulated OTX scope partition over inputs, outputs, cell deps, and
-  header deps is non-overflowing, non-overlapping, and consistent.
+- the accumulated OTX base and append segment partition over inputs, outputs,
+  cell deps, and header deps is non-overflowing, non-overlapping, and
+  consistent.
 
 ### Validation Procedure
 
@@ -671,8 +730,8 @@ the shared Cobuild view:
    - starting at the witness immediately after `OtxStart`, collect the
      contiguous run of valid `Otx` witnesses;
    - no valid `Otx` witness may appear outside this contiguous run;
-   - compute every OTX's base and append scopes by accumulating counts from the
-     anchor through the collected OTX sequence.
+   - compute every OTX's base scope and append segment scopes by accumulating
+     counts from the anchor through the collected OTX sequence.
    For each entity type, the transaction remainder is the union of the range
    before the `OtxStart` anchor and the range after the final accumulated OTX
    scope for that entity type.
@@ -693,21 +752,22 @@ A Cobuild-aware lock script then validates lock ownership as follows:
 
 1. For each collected OTX relevant to the current lock script:
    - determine whether the current lock script hash appears in the OTX base
-     input scope, append input scope, or both;
+     input scope, in any append segment input scope, or both;
    - the OTX `Message` is also related to the current lock when it contains an
      `input_lock` action targeting the current lock script hash, even if that
      lock hash is outside the OTX's local input scopes;
-   - if it appears in base scope, find exactly one `SealPair` for
-     `(current_lock_hash, base)`, compute `OtxBase`, and verify the seal using
-     the lock's own cryptographic rules;
-   - if it appears in append scope, find exactly one `SealPair` for
-     `(current_lock_hash, append)`, compute `OtxAppend`, and verify the seal
-     using the lock's own cryptographic rules;
-   - missing, duplicate, malformed, or invalid seals in a relevant OTX scope
-     MUST fail.
+   - if it appears in base scope, find exactly one `LockSeal` for
+     `current_lock_hash` in `Otx.base_seals`, compute `OtxBase`, and verify the
+     seal using the lock's own cryptographic rules;
+   - for each append segment whose input scope contains the lock hash, find
+     exactly one `LockSeal` for `current_lock_hash` in that segment's `seals`,
+     compute `OtxAppendSegment`, and verify the seal using the lock's own
+     cryptographic rules;
+   - missing, duplicate, malformed, or invalid seals in a relevant OTX base or
+     append segment MUST fail.
    An action targeting the current lock does not by itself create an OTX
    signing requirement; OTX lock signatures are required only for lock hashes
-   present in the OTX base or append input scope.
+   present in the OTX base or append segment input scope.
 2. Determine whether the current lock has tx-level remainder inputs outside all
    relevant OTX-covered input scopes. If it does not, no tx-level seal is
    required for this lock execution.
@@ -723,9 +783,12 @@ A Cobuild-aware lock script then validates lock ownership as follows:
    - compute the selected tx-level signing hash and verify the group-leading
      seal using the lock's own cryptographic rules.
 4. If the transaction is Cobuild-activated but neither OTX nor tx-level
-   remainder validation is relevant to the current lock, the lock has no
-   Cobuild signature obligation for this execution. It still MUST NOT treat the
-   transaction as legacy-only merely to ignore a relevant Cobuild error.
+   remainder validation is relevant to the current lock, generic Core planning
+   has no Cobuild signature obligation for this execution. A concrete reference
+   lock contract MAY be stricter; `cobuild-otx-lock` fails when its planned
+   signature requirement set is empty. A Cobuild-aware lock still MUST NOT
+   treat the transaction as legacy-only merely to ignore a relevant Cobuild
+   error.
 
 A Cobuild-aware type script then validates message consistency as follows:
 
@@ -779,10 +842,10 @@ In tx-level Cobuild flow, a lock script MUST:
 
 In OTX flow, a lock script MUST:
 
-- determine whether it appears in base input scope, append input scope, or
-  both;
-- find exactly one `SealPair` for each required `(script_hash, scope)` pair;
-- compute `OtxBase` and/or `OtxAppend` as required;
+- determine whether it appears in base input scope, in append segment input
+  scopes, or both;
+- find exactly one `LockSeal` for the script hash in each relevant seal vector;
+- compute `OtxBase` and/or `OtxAppendSegment` as required;
 - verify the corresponding seals according to its own cryptographic logic.
 
 If a tx-level or OTX-level `Message` is present and non-empty, a lock script
@@ -839,14 +902,17 @@ The following OTX layout conditions MUST fail:
 - non-contiguous or malformed `Otx` witness sequence;
 - `Otx` with `base_input_cells == 0`;
 - overflow, overlap, or inconsistent OTX scope partitioning;
-- invalid `script_role` or `scope` values;
+- invalid `script_role` values;
 - invalid `append_permissions` reserved bits;
-- append counts that are non-zero when the corresponding append-permission bit
-  is zero;
+- invalid append segment flag reserved bits;
+- a non-final append segment that does not set `allow_more_segments_after`;
+- any append segment contains a non-zero count for an entity type whose
+  append-permission bit is zero;
 - invalid mask length;
 - non-zero reserved padding bits in masks;
-- missing required `SealPair`;
-- duplicate `SealPair` for the same `(script_hash, scope)` within one `Otx`;
+- missing required `LockSeal`;
+- duplicate `LockSeal` for the same `script_hash` within `Otx.base_seals` or
+  within one `OtxAppendSegment.seals`;
 - invalid or failed signature verification;
 - multiple `SighashAll` witnesses where uniqueness is required;
 - any other failure in the exact Core hashing/selection rules the script chose
@@ -1031,11 +1097,12 @@ For future implementation work based on this document:
 - Keep `Action` in Core but make action presence optional at the Core level.
 - Add `script_role` to `Action` so the action target is unambiguous.
 - Put dynamic OTX and fine-grained signing control into Core.
-- Model OTX as `base scope + append scope`.
-- Require creator-signed `append_permissions` so append scope is explicitly
+- Model OTX as `base scope + ordered append segments`.
+- Require creator-signed `append_permissions` so append segments are explicitly
   authorized.
 - Apply fine-grained masks only to base scope in Core v1.
-- Use explicit `SealPair.scope` instead of positional seal-search tricks.
+- Use seal vector placement (`base_seals` or segment `seals`) to determine the
+  signing origin.
 - Standardize exact preimage construction and use BLAKE2b personalization for
   domain separation.
 - Keep `TxWithMessage` and `TxWithoutMessage` as document terms for hash-rule
