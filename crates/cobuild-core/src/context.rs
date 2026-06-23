@@ -212,10 +212,10 @@ impl CurrentScriptContext {
     ) -> Result<OtxTypeRelation, CoreError> {
         Ok(OtxTypeRelation {
             input_type_in_base: self.type_in_input_range(otx.layout.base_inputs)?,
-            input_type_in_append: self.type_in_input_range(otx.layout.append_inputs())?,
+            input_type_in_append: self.type_in_input_range(otx.layout.append_inputs)?,
             output_type_in_base: self.type_in_output_range(otx.layout.base_outputs)?,
             output_type_in_base_covered: self.covered_current_type_in_base_outputs(otx)?,
-            output_type_in_append: self.type_in_output_range(otx.layout.append_outputs())?,
+            output_type_in_append: self.type_in_output_range(otx.layout.append_outputs)?,
         })
     }
 
@@ -625,9 +625,13 @@ mod tests {
             layout: crate::layout::OtxLayout {
                 witness_index: 0,
                 base_inputs,
+                append_inputs,
                 base_outputs,
+                append_outputs,
                 base_cell_deps: range(0, 0),
+                append_cell_deps: range(0, 0),
                 base_header_deps: range(0, 0),
+                append_header_deps: range(0, 0),
                 append_segments: alloc::vec![crate::layout::OtxAppendSegmentLayout {
                     flags: crate::protocol::SegmentFlags::try_from(0).unwrap(),
                     inputs: append_inputs,

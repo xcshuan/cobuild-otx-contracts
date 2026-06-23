@@ -78,53 +78,14 @@ pub struct OtxAppendSegmentLayout {
 pub struct OtxLayout {
     pub witness_index: usize,
     pub base_inputs: Range,
+    pub append_inputs: Range,
     pub base_outputs: Range,
+    pub append_outputs: Range,
     pub base_cell_deps: Range,
+    pub append_cell_deps: Range,
     pub base_header_deps: Range,
+    pub append_header_deps: Range,
     pub append_segments: Vec<OtxAppendSegmentLayout>,
-}
-
-impl OtxLayout {
-    pub fn append_inputs(&self) -> Range {
-        append_range_after(self.base_inputs, &self.append_segments, |segment| {
-            segment.inputs
-        })
-    }
-
-    pub fn append_outputs(&self) -> Range {
-        append_range_after(self.base_outputs, &self.append_segments, |segment| {
-            segment.outputs
-        })
-    }
-
-    pub fn append_cell_deps(&self) -> Range {
-        append_range_after(self.base_cell_deps, &self.append_segments, |segment| {
-            segment.cell_deps
-        })
-    }
-
-    pub fn append_header_deps(&self) -> Range {
-        append_range_after(self.base_header_deps, &self.append_segments, |segment| {
-            segment.header_deps
-        })
-    }
-}
-
-fn append_range_after<F>(base: Range, append_segments: &[OtxAppendSegmentLayout], range: F) -> Range
-where
-    F: Fn(&OtxAppendSegmentLayout) -> Range,
-{
-    let start = base.end();
-    let end = append_segments
-        .last()
-        .map(|segment| range(segment).end())
-        .unwrap_or(start);
-    Range {
-        start,
-        count: end
-            .checked_sub(start)
-            .expect("valid cobuild append segment range"),
-    }
 }
 
 #[derive(Clone)]
@@ -291,6 +252,10 @@ impl LayoutRangeCursor {
         let base_header_deps =
             Self::take_range(&mut self.next_header_dep, otx_view.base_header_deps)?;
 
+        let append_input_start = self.next_input;
+        let append_output_start = self.next_output;
+        let append_cell_dep_start = self.next_cell_dep;
+        let append_header_dep_start = self.next_header_dep;
         let mut append_segments = Vec::with_capacity(otx_view.append_segments.len());
         for segment in otx_view.append_segments.iter() {
             append_segments.push(OtxAppendSegmentLayout {
@@ -305,9 +270,25 @@ impl LayoutRangeCursor {
         Ok(OtxLayout {
             witness_index,
             base_inputs,
+            append_inputs: Range {
+                start: append_input_start,
+                count: self.next_input - append_input_start,
+            },
             base_outputs,
+            append_outputs: Range {
+                start: append_output_start,
+                count: self.next_output - append_output_start,
+            },
             base_cell_deps,
+            append_cell_deps: Range {
+                start: append_cell_dep_start,
+                count: self.next_cell_dep - append_cell_dep_start,
+            },
             base_header_deps,
+            append_header_deps: Range {
+                start: append_header_dep_start,
+                count: self.next_header_dep - append_header_dep_start,
+            },
             append_segments,
         })
     }

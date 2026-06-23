@@ -434,7 +434,7 @@ fn otx_layout_tracks_each_append_segment_range() {
         }
     );
     assert_eq!(
-        entry.append_inputs(),
+        entry.append_inputs,
         Range {
             start: 12,
             count: 4
@@ -448,7 +448,7 @@ fn otx_layout_tracks_each_append_segment_range() {
         }
     );
     assert_eq!(
-        entry.append_outputs(),
+        entry.append_outputs,
         Range {
             start: 23,
             count: 2
@@ -462,7 +462,7 @@ fn otx_layout_tracks_each_append_segment_range() {
         }
     );
     assert_eq!(
-        entry.append_cell_deps(),
+        entry.append_cell_deps,
         Range {
             start: 31,
             count: 2
@@ -476,7 +476,7 @@ fn otx_layout_tracks_each_append_segment_range() {
         }
     );
     assert_eq!(
-        entry.append_header_deps(),
+        entry.append_header_deps,
         Range {
             start: 41,
             count: 1

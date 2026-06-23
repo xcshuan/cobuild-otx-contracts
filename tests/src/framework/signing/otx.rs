@@ -361,23 +361,40 @@ fn otx_hash_inputs(built: &BuiltTxShape, otx: OtxHandle) -> (OtxView, OtxLayout)
     let mut next_output = base_outputs.end();
     let mut next_cell_dep = base_cell_deps.end();
     let mut next_header_dep = base_header_deps.end();
+    let append_segments = view
+        .append_segments
+        .iter()
+        .map(|segment| OtxAppendSegmentLayout {
+            flags: SegmentFlags::try_from(segment.segment_flags).expect("append segment flags"),
+            inputs: take_range(&mut next_input, segment.input_cells),
+            outputs: take_range(&mut next_output, segment.output_cells),
+            cell_deps: take_range(&mut next_cell_dep, segment.cell_deps),
+            header_deps: take_range(&mut next_header_dep, segment.header_deps),
+        })
+        .collect();
     let layout = OtxLayout {
         witness_index,
         base_inputs,
+        append_inputs: Range {
+            start: base_inputs.end(),
+            count: next_input - base_inputs.end(),
+        },
         base_outputs,
+        append_outputs: Range {
+            start: base_outputs.end(),
+            count: next_output - base_outputs.end(),
+        },
         base_cell_deps,
+        append_cell_deps: Range {
+            start: base_cell_deps.end(),
+            count: next_cell_dep - base_cell_deps.end(),
+        },
         base_header_deps,
-        append_segments: view
-            .append_segments
-            .iter()
-            .map(|segment| OtxAppendSegmentLayout {
-                flags: SegmentFlags::try_from(segment.segment_flags).expect("append segment flags"),
-                inputs: take_range(&mut next_input, segment.input_cells),
-                outputs: take_range(&mut next_output, segment.output_cells),
-                cell_deps: take_range(&mut next_cell_dep, segment.cell_deps),
-                header_deps: take_range(&mut next_header_dep, segment.header_deps),
-            })
-            .collect(),
+        append_header_deps: Range {
+            start: base_header_deps.end(),
+            count: next_header_dep - base_header_deps.end(),
+        },
+        append_segments,
     };
     (view, layout)
 }

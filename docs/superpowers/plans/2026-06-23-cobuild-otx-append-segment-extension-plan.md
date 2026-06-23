@@ -459,7 +459,7 @@ fn otx_layout_tracks_each_append_segment_range() {
     let entry = &layout.otx_entries[0];
 
     assert_eq!(entry.layout.base_inputs, Range { start: 2, count: 1 });
-    assert_eq!(entry.layout.append_inputs(), Range { start: 3, count: 3 });
+    assert_eq!(entry.layout.append_inputs, Range { start: 3, count: 3 });
     assert_eq!(entry.layout.append_segments[0].inputs, Range { start: 3, count: 1 });
     assert_eq!(entry.layout.append_segments[1].inputs, Range { start: 4, count: 2 });
     assert_eq!(entry.layout.append_segments[0].outputs, Range { start: 4, count: 2 });
@@ -512,10 +512,11 @@ Add to `OtxLayout`:
 pub append_segments: Vec<OtxAppendSegmentLayout>,
 ```
 
-Do not store aggregate append ranges on `OtxLayout`. Keep only `base_*` ranges and
-per-segment ranges; expose `append_inputs()`, `append_outputs()`, `append_cell_deps()`,
-and `append_header_deps()` as derived helpers. The segment position is the vector index;
-do not duplicate it as a `segment_index` field in `OtxAppendSegmentLayout`.
+Store aggregate append ranges on `OtxLayout` as cached fields for reuse, but compute them
+from the same `LayoutRangeCursor::take_layout` pass that allocates per-segment ranges.
+Do not derive them later from stale builder facts or a second source of truth. The segment
+position is the vector index; do not duplicate it as a `segment_index` field in
+`OtxAppendSegmentLayout`.
 
 - [ ] **Step 4: Allocate segment ranges**
 
@@ -541,8 +542,7 @@ for segment in otx_view.append_segments.iter() {
 }
 ```
 
-Then implement aggregate append range helpers by deriving them from `base_*` and the
-last segment range for each entity kind.
+Then set aggregate append range fields from the saved starts to the new cursors.
 
 - [ ] **Step 5: Validate flags and permissions**
 
@@ -717,7 +717,7 @@ Replace old single append detection:
 let append_signature = self
     .context
     .script_context
-    .input_range_contains_current_lock(otx.layout.append_inputs())?;
+    .input_range_contains_current_lock(otx.layout.append_inputs)?;
 ```
 
 with per-segment detection:
