@@ -183,7 +183,7 @@ pub struct BuiltTxShape {
     pub header_deps: EntityIndexMap<HeaderDepHandle>,
     pub resolved_inputs: Vec<ResolvedInputFacts>,
     pub otx_ranges: Vec<OtxRangeFacts>,
-    otx_witness_start: usize,
+    pub(crate) otx_witness_start: usize,
 }
 
 #[derive(Clone, Debug, Default)]

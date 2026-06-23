@@ -65,6 +65,20 @@ fn limit_order_type_contract_build_enables_official_type_id_without_default_feat
         makefile.contains("$(CONTRACT_FEATURES)"),
         "limit-order-type Makefile must pass contract features to cargo build"
     );
+    assert!(
+        makefile.contains("build/$(MODE)/input-type-proxy-lock"),
+        "limit-order-type Makefile must generate proxy lock hash from the active MODE build"
+    );
+    assert!(
+        makefile.contains(
+            "MODE=\"$(MODE)\" cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type"
+        ),
+        "limit-order-type Makefile must pass the active MODE to proxy lock hash generation"
+    );
+    assert!(
+        !makefile.contains("build/debug/input-type-proxy-lock"),
+        "limit-order-type Makefile must not hard-code debug proxy lock hash generation"
+    );
 }
 
 #[test]

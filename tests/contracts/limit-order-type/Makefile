@@ -36,10 +36,10 @@ endif
 default: build test
 
 build:
-	@if [ -f "$(TOP)/build/debug/input-type-proxy-lock" ]; then \
-		cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type; \
+	@if [ -f "$(TOP)/build/$(MODE)/input-type-proxy-lock" ]; then \
+		MODE="$(MODE)" cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type; \
 	else \
-		echo "Skipping proxy lock hash generation; $(TOP)/build/debug/input-type-proxy-lock is missing"; \
+		echo "Skipping proxy lock hash generation; $(TOP)/build/$(MODE)/input-type-proxy-lock is missing"; \
 	fi
 	RUSTFLAGS="$(FULL_RUSTFLAGS)" TARGET_CC="$(CLANG)" TARGET_AR="$(AR)" \
 		cargo build --target=riscv64imac-unknown-none-elf $(MODE_ARGS) $(CONTRACT_FEATURES) $(CARGO_ARGS)

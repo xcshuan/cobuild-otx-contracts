@@ -1,6 +1,9 @@
 use ckb_hash::new_blake2b;
 use ckb_testtool::ckb_types::{bytes::Bytes, packed::CellInput, prelude::*};
-use cobuild_types::entity::{core::SighashAll, witness::WitnessLayout};
+use cobuild_types::entity::{
+    core::{Message as CobuildMessage, SighashAll},
+    witness::WitnessLayout,
+};
 
 use crate::{
     fixtures::{
@@ -23,10 +26,11 @@ use crate::{
         scripts::script_hash,
         signing::{
             SignatureScope, SignerId, SigningHashOracle, TestSigningHashOracle, fixed_secret_key,
-            public_key_hash20, sign_recoverable, sign_scope,
+            public_key_hash20, sighash_all_only_witness, sign_recoverable, sign_scope,
         },
         tx::{
-            BuiltTxShape, OtxSpec, ProtocolMutation, TxShape, TxShapeMutation, append_segment_spec,
+            BuiltTxShape, InputHandle, OtxSpec, ProtocolMutation, TxShape, TxShapeMutation,
+            WitnessHandle, append_segment_spec,
         },
     },
 };
@@ -61,12 +65,13 @@ pub use minter_lifecycle::{
 pub use otx::{
     mint_mixed_tx_and_otx_order_case, mint_otx_output_in_base_range_case,
     mint_otx_output_in_other_otx_append_range_case, mint_otx_output_in_remainder_case,
-    mint_real_otx_lock_bad_base_seal_case,
+    mint_real_otx_lock_bad_append_seal_case, mint_real_otx_lock_bad_base_seal_case,
     mint_real_otx_lock_base_nft_output_lock_capacity_mask_case,
     mint_real_otx_lock_base_nft_output_tampered_capacity_case,
     mint_real_otx_lock_missing_base_seal_case, mint_real_otx_lock_signed_base_case,
     mint_real_otx_lock_tampered_append_nft_output_signed_base_case,
     mint_real_otx_lock_tampered_base_output_case,
+    mint_three_otx_actions_single_minter_transition_signed_append_case,
     mint_three_otx_actions_single_minter_transition_signed_base_case,
 };
 
@@ -113,6 +118,90 @@ fn minted_nft_output(
             attributes_hash: attributes_hash(minter_hash, serial, rarity, seed),
         }),
     )
+}
+
+fn minter_transition(
+    fixture: &mut CobuildTestFixture,
+    lock_script: &ckb_testtool::ckb_types::packed::Script,
+    minter_script: &ckb_testtool::ckb_types::packed::Script,
+    input_counter: u64,
+    output_counter: u64,
+) -> (crate::framework::cells::ResolvedInputFacts, TestCellOutput) {
+    minter_transition_with_supply_cap(
+        fixture,
+        lock_script,
+        minter_script,
+        input_counter,
+        100,
+        output_counter,
+        100,
+    )
+}
+
+fn minter_transition_with_supply_cap(
+    fixture: &mut CobuildTestFixture,
+    lock_script: &ckb_testtool::ckb_types::packed::Script,
+    minter_script: &ckb_testtool::ckb_types::packed::Script,
+    input_counter: u64,
+    input_supply_cap: u64,
+    output_counter: u64,
+    output_supply_cap: u64,
+) -> (crate::framework::cells::ResolvedInputFacts, TestCellOutput) {
+    let minter_cell = typed_output(lock_script.clone(), minter_script.clone(), 200_000_000_000);
+    let minter_input = live_resolved_facts(
+        fixture.context_mut(),
+        minter_cell.clone(),
+        minter_data(MinterState {
+            mint_counter: input_counter,
+            supply_cap: input_supply_cap,
+        }),
+    );
+    let minter_output = TestCellOutput::new(
+        minter_cell,
+        minter_data(MinterState {
+            mint_counter: output_counter,
+            supply_cap: output_supply_cap,
+        }),
+    );
+    (minter_input, minter_output)
+}
+
+fn sign_tx_without_message_input(
+    built: &mut BuiltTxShape,
+    input: InputHandle,
+    secret_key: &crate::framework::signing::SecretKey,
+    script_hash: [u8; 32],
+    signer: SignerId,
+) {
+    let witness = tx_input_witness(built, input);
+    let facts = sign_scope(
+        built,
+        &TestSigningHashOracle,
+        signer,
+        secret_key,
+        script_hash,
+        witness,
+        SignatureScope::TxWithoutMessage,
+    );
+    built.replace_witness(witness, sighash_all_only_witness(facts.seal));
+}
+
+fn sign_tx_with_message_input(
+    built: &mut BuiltTxShape,
+    input: InputHandle,
+    message: &CobuildMessage,
+    secret_key: &crate::framework::signing::SecretKey,
+) {
+    let witness = tx_input_witness(built, input);
+    let signing_hash = TestSigningHashOracle.tx_with_message(built, message);
+    let seal = sign_recoverable(secret_key, signing_hash);
+    built.replace_witness(witness, sighash_all_only_witness(seal));
+}
+
+fn tx_input_witness(built: &mut BuiltTxShape, input: InputHandle) -> WitnessHandle {
+    let input_tx_index = built.inputs.tx_index(input);
+    let witnesses = built.insert_leading_witness_placeholders(built.resolved_inputs.len());
+    witnesses[input_tx_index]
 }
 
 fn type_id_args(first_input: &CellInput, output_index: u64) -> [u8; 32] {

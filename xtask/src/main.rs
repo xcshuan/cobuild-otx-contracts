@@ -29,7 +29,8 @@ fn main() -> Result<()> {
 
 fn write_limit_order_proxy_lock_hash() -> Result<()> {
     let root = workspace_root()?;
-    let binary = root.join("build/debug/input-type-proxy-lock");
+    let mode = env::var("MODE").unwrap_or_else(|_| "debug".to_owned());
+    let binary = root.join("build").join(&mode).join("input-type-proxy-lock");
     let output = root.join("tests/contracts/limit-order-type/src/generated_proxy_lock.rs");
     let data = fs::read(&binary)
         .with_context(|| format!("read proxy lock binary {}", binary.display()))?;
@@ -108,9 +109,7 @@ fn generate_family(
     support_source: Option<&Path>,
 ) -> Result<()> {
     let support_contents = support_source
-        .map(|path| {
-            fs::read(path).with_context(|| format!("failed to read {}", path.display()))
-        })
+        .map(|path| fs::read(path).with_context(|| format!("failed to read {}", path.display())))
         .transpose()?;
 
     fs::create_dir_all(out_dir)

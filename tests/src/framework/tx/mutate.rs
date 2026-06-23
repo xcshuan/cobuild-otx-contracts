@@ -79,6 +79,30 @@ pub enum TxShapeMutation {
 }
 
 impl BuiltTxShape {
+    pub fn insert_leading_witness_placeholders(&mut self, count: usize) -> Vec<WitnessHandle> {
+        let mut witnesses = vec![Bytes::new().pack(); count];
+        witnesses.extend(self.tx.witnesses());
+        self.witnesses.remap_tx_indexes(|index| index + count);
+        self.otx_witness_start += count;
+
+        let handles = (0..count)
+            .map(WitnessHandle::synthetic_input)
+            .collect::<Vec<_>>();
+        for (index, handle) in handles.iter().copied().enumerate() {
+            self.witnesses.set_tx_index(handle, index);
+        }
+        self.tx = self
+            .tx
+            .as_advanced_builder()
+            .set_witnesses(witnesses)
+            .build();
+        handles
+    }
+
+    pub fn replace_witness(&mut self, witness: WitnessHandle, replacement: Bytes) {
+        self.replace_witness_bytes(witness, replacement);
+    }
+
     pub fn apply_protocol_mutation(&mut self, mutation: ProtocolMutation) {
         match mutation {
             ProtocolMutation::OtxStartRaw(spec) => {
