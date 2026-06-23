@@ -22,13 +22,23 @@ table SighashAllOnly {
   seal: Bytes,
 }
 
-table SealPair {
+table LockSeal {
   script_hash: Byte32,
-  scope: byte,
   seal: Bytes,
 }
 
-vector SealPairVec <SealPair>;
+vector LockSealVec <LockSeal>;
+
+table OtxAppendSegment {
+  segment_flags: byte,
+  input_cells: Uint32,
+  output_cells: Uint32,
+  cell_deps: Uint32,
+  header_deps: Uint32,
+  seals: LockSealVec,
+}
+
+vector OtxAppendSegmentVec <OtxAppendSegment>;
 
 table OtxStart {
   start_input_cell: Uint32,
@@ -48,9 +58,6 @@ table Otx {
   base_cell_dep_masks: Bytes,
   base_header_deps: Uint32,
   base_header_dep_masks: Bytes,
-  append_input_cells: Uint32,
-  append_output_cells: Uint32,
-  append_cell_deps: Uint32,
-  append_header_deps: Uint32,
-  seals: SealPairVec,
+  append_segments: OtxAppendSegmentVec,
+  base_seals: LockSealVec,
 }

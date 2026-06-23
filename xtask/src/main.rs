@@ -107,6 +107,12 @@ fn generate_family(
     uses_lazy_support: bool,
     support_source: Option<&Path>,
 ) -> Result<()> {
+    let support_contents = support_source
+        .map(|path| {
+            fs::read(path).with_context(|| format!("failed to read {}", path.display()))
+        })
+        .transpose()?;
+
     fs::create_dir_all(out_dir)
         .with_context(|| format!("failed to create {}", out_dir.display()))?;
     prune_rs_files(out_dir)?;
@@ -122,8 +128,8 @@ fn generate_family(
         }
     }
 
-    if let Some(support_source) = support_source {
-        fs::copy(support_source, out_dir.join("support.rs"))
+    if let Some(support_contents) = support_contents {
+        fs::write(out_dir.join("support.rs"), support_contents)
             .with_context(|| format!("failed to write {}", out_dir.join("support.rs").display()))?;
     }
 
@@ -215,8 +221,9 @@ fn explicit_iterator_ref_lifetimes(text: &str) -> String {
         "CellDepVecIteratorRef",
         "CellInputVecIteratorRef",
         "CellOutputVecIteratorRef",
+        "LockSealVecIteratorRef",
+        "OtxAppendSegmentVecIteratorRef",
         "ProposalShortIdVecIteratorRef",
-        "SealPairVecIteratorRef",
         "TransactionVecIteratorRef",
         "UncleBlockVecIteratorRef",
     ] {

@@ -200,66 +200,60 @@ impl SighashAllOnly {
     }
 }
 #[derive(Clone)]
-pub struct SealPair {
+pub struct LockSeal {
     pub cursor: Cursor,
 }
-impl From<Cursor> for SealPair {
+impl From<Cursor> for LockSeal {
     fn from(cursor: Cursor) -> Self {
-        SealPair { cursor }
+        LockSeal { cursor }
     }
 }
-impl SealPair {
+impl LockSeal {
     pub fn script_hash(&self) -> Result<[u8; 32usize], Error> {
         let cur = self.cursor.table_slice_by_index(0usize)?;
         cur.try_into()
     }
 }
-impl SealPair {
-    pub fn scope(&self) -> Result<u8, Error> {
-        let cur = self.cursor.table_slice_by_index(1usize)?;
-        cur.try_into()
-    }
-}
-impl SealPair {
+impl LockSeal {
     pub fn seal(&self) -> Result<Cursor, Error> {
-        let cur = self.cursor.table_slice_by_index(2usize)?;
+        let cur = self.cursor.table_slice_by_index(1usize)?;
         cur.convert_to_rawbytes()
     }
 }
-impl SealPair {
+impl LockSeal {
     pub fn verify(&self, compatible: bool) -> Result<(), Error> {
-        self.cursor.verify_table(3usize, compatible)?;
+        self.cursor.verify_table(2usize, compatible)?;
         Byte32::from(Cursor::try_from(self.script_hash()?)?).verify(compatible)?;
         Ok(())
     }
 }
 #[derive(Clone)]
-pub struct SealPairVec {
+pub struct LockSealVec {
     pub cursor: Cursor,
 }
-impl From<Cursor> for SealPairVec {
+impl From<Cursor> for LockSealVec {
     fn from(cursor: Cursor) -> Self {
         Self { cursor }
     }
 }
-impl SealPairVec {
+impl LockSealVec {
     pub fn len(&self) -> Result<usize, Error> {
         self.cursor.dynvec_length()
     }
 }
-impl SealPairVec {
-    pub fn get(&self, index: usize) -> Result<SealPair, Error> {
+impl LockSealVec {
+    pub fn get(&self, index: usize) -> Result<LockSeal, Error> {
         let cur = self.cursor.dynvec_slice_by_index(index)?;
         Ok(cur.into())
     }
 }
-pub struct SealPairVecIterator {
-    cur: SealPairVec,
+pub struct LockSealVecIterator {
+    cur: LockSealVec,
     index: usize,
     len: usize,
 }
-impl core::iter::Iterator for SealPairVecIterator {
-    type Item = SealPair;
+impl core::iter::Iterator for LockSealVecIterator {
+    type Item = LockSeal;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.len {
             None
@@ -270,9 +264,9 @@ impl core::iter::Iterator for SealPairVecIterator {
         }
     }
 }
-impl core::iter::IntoIterator for SealPairVec {
-    type Item = SealPair;
-    type IntoIter = SealPairVecIterator;
+impl core::iter::IntoIterator for LockSealVec {
+    type Item = LockSeal;
+    type IntoIter = LockSealVecIterator;
     fn into_iter(self) -> Self::IntoIter {
         let len = self.len().unwrap();
         Self::IntoIter {
@@ -282,13 +276,13 @@ impl core::iter::IntoIterator for SealPairVec {
         }
     }
 }
-pub struct SealPairVecIteratorRef<'a> {
-    cur: &'a SealPairVec,
+pub struct LockSealVecIteratorRef<'a> {
+    cur: &'a LockSealVec,
     index: usize,
     len: usize,
 }
-impl<'a> core::iter::Iterator for SealPairVecIteratorRef<'a> {
-    type Item = SealPair;
+impl<'a> core::iter::Iterator for LockSealVecIteratorRef<'a> {
+    type Item = LockSeal;
     fn next(&mut self) -> Option<Self::Item> {
         if self.index >= self.len {
             None
@@ -299,17 +293,154 @@ impl<'a> core::iter::Iterator for SealPairVecIteratorRef<'a> {
         }
     }
 }
-impl SealPairVec {
-    pub fn iter(&self) -> SealPairVecIteratorRef<'_> {
+impl LockSealVec {
+    pub fn iter(&self) -> LockSealVecIteratorRef<'_> {
         let len = self.len().unwrap();
-        SealPairVecIteratorRef {
+        LockSealVecIteratorRef {
             cur: &self,
             index: 0,
             len,
         }
     }
 }
-impl SealPairVec {
+impl LockSealVec {
+    pub fn verify(&self, compatible: bool) -> Result<(), Error> {
+        self.cursor.verify_dynvec()?;
+        for i in 0..self.len()? {
+            self.get(i)?.verify(compatible)?;
+        }
+        Ok(())
+    }
+}
+#[derive(Clone)]
+pub struct OtxAppendSegment {
+    pub cursor: Cursor,
+}
+impl From<Cursor> for OtxAppendSegment {
+    fn from(cursor: Cursor) -> Self {
+        OtxAppendSegment { cursor }
+    }
+}
+impl OtxAppendSegment {
+    pub fn segment_flags(&self) -> Result<u8, Error> {
+        let cur = self.cursor.table_slice_by_index(0usize)?;
+        cur.try_into()
+    }
+}
+impl OtxAppendSegment {
+    pub fn input_cells(&self) -> Result<u32, Error> {
+        let cur = self.cursor.table_slice_by_index(1usize)?;
+        cur.try_into()
+    }
+}
+impl OtxAppendSegment {
+    pub fn output_cells(&self) -> Result<u32, Error> {
+        let cur = self.cursor.table_slice_by_index(2usize)?;
+        cur.try_into()
+    }
+}
+impl OtxAppendSegment {
+    pub fn cell_deps(&self) -> Result<u32, Error> {
+        let cur = self.cursor.table_slice_by_index(3usize)?;
+        cur.try_into()
+    }
+}
+impl OtxAppendSegment {
+    pub fn header_deps(&self) -> Result<u32, Error> {
+        let cur = self.cursor.table_slice_by_index(4usize)?;
+        cur.try_into()
+    }
+}
+impl OtxAppendSegment {
+    pub fn seals(&self) -> Result<LockSealVec, Error> {
+        let cur = self.cursor.table_slice_by_index(5usize)?;
+        Ok(cur.into())
+    }
+}
+impl OtxAppendSegment {
+    pub fn verify(&self, compatible: bool) -> Result<(), Error> {
+        self.cursor.verify_table(6usize, compatible)?;
+        self.seals()?.verify(compatible)?;
+        Ok(())
+    }
+}
+#[derive(Clone)]
+pub struct OtxAppendSegmentVec {
+    pub cursor: Cursor,
+}
+impl From<Cursor> for OtxAppendSegmentVec {
+    fn from(cursor: Cursor) -> Self {
+        Self { cursor }
+    }
+}
+impl OtxAppendSegmentVec {
+    pub fn len(&self) -> Result<usize, Error> {
+        self.cursor.dynvec_length()
+    }
+}
+impl OtxAppendSegmentVec {
+    pub fn get(&self, index: usize) -> Result<OtxAppendSegment, Error> {
+        let cur = self.cursor.dynvec_slice_by_index(index)?;
+        Ok(cur.into())
+    }
+}
+pub struct OtxAppendSegmentVecIterator {
+    cur: OtxAppendSegmentVec,
+    index: usize,
+    len: usize,
+}
+impl core::iter::Iterator for OtxAppendSegmentVecIterator {
+    type Item = OtxAppendSegment;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.len {
+            None
+        } else {
+            let res = self.cur.get(self.index).unwrap();
+            self.index += 1;
+            Some(res)
+        }
+    }
+}
+impl core::iter::IntoIterator for OtxAppendSegmentVec {
+    type Item = OtxAppendSegment;
+    type IntoIter = OtxAppendSegmentVecIterator;
+    fn into_iter(self) -> Self::IntoIter {
+        let len = self.len().unwrap();
+        Self::IntoIter {
+            cur: self,
+            index: 0,
+            len,
+        }
+    }
+}
+pub struct OtxAppendSegmentVecIteratorRef<'a> {
+    cur: &'a OtxAppendSegmentVec,
+    index: usize,
+    len: usize,
+}
+impl<'a> core::iter::Iterator for OtxAppendSegmentVecIteratorRef<'a> {
+    type Item = OtxAppendSegment;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index >= self.len {
+            None
+        } else {
+            let res = self.cur.get(self.index).unwrap();
+            self.index += 1;
+            Some(res)
+        }
+    }
+}
+impl OtxAppendSegmentVec {
+    pub fn iter(&self) -> OtxAppendSegmentVecIteratorRef<'_> {
+        let len = self.len().unwrap();
+        OtxAppendSegmentVecIteratorRef {
+            cur: &self,
+            index: 0,
+            len,
+        }
+    }
+}
+impl OtxAppendSegmentVec {
     pub fn verify(&self, compatible: bool) -> Result<(), Error> {
         self.cursor.verify_dynvec()?;
         for i in 0..self.len()? {
@@ -427,40 +558,23 @@ impl Otx {
     }
 }
 impl Otx {
-    pub fn append_input_cells(&self) -> Result<u32, Error> {
+    pub fn append_segments(&self) -> Result<OtxAppendSegmentVec, Error> {
         let cur = self.cursor.table_slice_by_index(10usize)?;
-        cur.try_into()
+        Ok(cur.into())
     }
 }
 impl Otx {
-    pub fn append_output_cells(&self) -> Result<u32, Error> {
+    pub fn base_seals(&self) -> Result<LockSealVec, Error> {
         let cur = self.cursor.table_slice_by_index(11usize)?;
-        cur.try_into()
-    }
-}
-impl Otx {
-    pub fn append_cell_deps(&self) -> Result<u32, Error> {
-        let cur = self.cursor.table_slice_by_index(12usize)?;
-        cur.try_into()
-    }
-}
-impl Otx {
-    pub fn append_header_deps(&self) -> Result<u32, Error> {
-        let cur = self.cursor.table_slice_by_index(13usize)?;
-        cur.try_into()
-    }
-}
-impl Otx {
-    pub fn seals(&self) -> Result<SealPairVec, Error> {
-        let cur = self.cursor.table_slice_by_index(14usize)?;
         Ok(cur.into())
     }
 }
 impl Otx {
     pub fn verify(&self, compatible: bool) -> Result<(), Error> {
-        self.cursor.verify_table(15usize, compatible)?;
+        self.cursor.verify_table(12usize, compatible)?;
         self.message()?.verify(compatible)?;
-        self.seals()?.verify(compatible)?;
+        self.append_segments()?.verify(compatible)?;
+        self.base_seals()?.verify(compatible)?;
         Ok(())
     }
 }
