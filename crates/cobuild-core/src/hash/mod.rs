@@ -90,16 +90,16 @@ pub(crate) fn otx_base_hash(
 pub(crate) fn otx_append_segment_hash(
     otx: &OtxView,
     layout: &OtxLayout,
-    segment_index: usize,
+    selected_segment_index: usize,
     reader: &syscalls::SyscallTxReader,
     base_hash: [u8; 32],
 ) -> Result<[u8; 32], CoreError> {
     let segment = layout
         .append_segments
-        .get(segment_index)
+        .get(selected_segment_index)
         .ok_or(CoreError::InvalidOtxLayout)?;
     otx.append_segments
-        .get(segment_index)
+        .get(selected_segment_index)
         .ok_or(CoreError::InvalidOtxLayout)?;
 
     let mut hasher = new_signing_hasher(OTX_APPEND_SEGMENT_PERSONAL);
@@ -107,8 +107,11 @@ pub(crate) fn otx_append_segment_hash(
     hasher.update(&base_hash);
     hasher.update(&[segment.flags.raw()]);
     if segment.flags.coverage_previous_segments() {
-        writer::write_count(&mut hasher, segment_index)?;
-        for previous_segment_index in 0..segment_index {
+        // Own-only segments use selected_segment_index only as a lookup key. Previous-coverage
+        // segments bind their position through the number of previous ordered segments.
+        let previous_segment_count = selected_segment_index;
+        writer::write_count(&mut hasher, previous_segment_count)?;
+        for previous_segment_index in 0..previous_segment_count {
             let previous_segment = layout
                 .append_segments
                 .get(previous_segment_index)
@@ -124,7 +127,7 @@ pub(crate) fn otx_append_segment_hash(
             )?;
         }
     }
-    write_otx_append_segment_entities(&mut hasher, otx, layout, segment_index, reader)?;
+    write_otx_append_segment_entities(&mut hasher, otx, layout, selected_segment_index, reader)?;
 
     Ok(finalize_hash(hasher))
 }

@@ -428,10 +428,10 @@ impl<'a> LockPlanBuilder<'a> {
             .context
             .script_context
             .input_range_contains_current_lock(otx.layout.base_inputs)?;
-        let segment_signatures = self.otx_segment_signature_indexes(otx)?;
+        let append_segment_indices = self.required_append_segment_indices(otx)?;
         let all_actions = message_actions(&otx.witness.message)?;
         let actions = lock_actions_from_actions(&all_actions, self.lock_script_hash);
-        let needs_signature = base_signature || !segment_signatures.is_empty();
+        let needs_signature = base_signature || !append_segment_indices.is_empty();
         if !needs_signature && actions.is_empty() {
             return Ok(());
         }
@@ -441,27 +441,27 @@ impl<'a> LockPlanBuilder<'a> {
             .validate_action_targets(&all_actions)?;
         self.push_otx_actions(otx_index, otx, actions);
         if needs_signature {
-            self.add_otx_signatures(otx, base_signature, &segment_signatures)?;
+            self.add_otx_signatures(otx, base_signature, &append_segment_indices)?;
         }
 
         Ok(())
     }
 
-    fn otx_segment_signature_indexes(
+    fn required_append_segment_indices(
         &self,
         otx: &crate::layout::OtxLayoutEntry,
     ) -> Result<Vec<usize>, CoreError> {
-        let mut segment_signatures = Vec::new();
+        let mut append_segment_indices = Vec::new();
         for (segment_index, segment) in otx.layout.append_segments.iter().enumerate() {
             if self
                 .context
                 .script_context
                 .input_range_contains_current_lock(segment.inputs)?
             {
-                segment_signatures.push(segment_index);
+                append_segment_indices.push(segment_index);
             }
         }
-        Ok(segment_signatures)
+        Ok(append_segment_indices)
     }
 
     fn push_otx_actions(
@@ -480,7 +480,7 @@ impl<'a> LockPlanBuilder<'a> {
         &mut self,
         otx: &crate::layout::OtxLayoutEntry,
         base_signature: bool,
-        segment_signatures: &[usize],
+        append_segment_indices: &[usize],
     ) -> Result<(), CoreError> {
         let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.context.tx)?;
         if base_signature {
@@ -493,7 +493,7 @@ impl<'a> LockPlanBuilder<'a> {
                 signing_message_hash: base_hash,
             });
         }
-        for &segment_index in segment_signatures {
+        for &segment_index in append_segment_indices {
             let segment = otx
                 .witness
                 .append_segments
@@ -1106,7 +1106,7 @@ mod tests {
 
         assert_eq!(
             builder
-                .otx_segment_signature_indexes(&layout.otx_entries[0])
+                .required_append_segment_indices(&layout.otx_entries[0])
                 .unwrap(),
             vec![0]
         );

@@ -882,7 +882,7 @@ fn cobuild_core_lock_plan_exposes_related_actions() {
             && engine_rs.contains("push_otx_actions")
             && engine_rs.contains("add_otx_signatures")
             && engine_rs.contains("input_range_contains_current_lock(otx.layout.base_inputs)")
-            && engine_rs.contains("fn otx_segment_signature_indexes(")
+            && engine_rs.contains("fn required_append_segment_indices(")
             && engine_rs.contains("input_range_contains_current_lock(segment.inputs)")
             && engine_rs.contains("SignatureOrigin::OtxAppendSegment")
             && engine_rs.contains("related_otx_action"),

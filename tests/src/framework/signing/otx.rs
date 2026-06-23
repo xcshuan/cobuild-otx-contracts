@@ -40,16 +40,16 @@ pub(crate) fn otx_base_hash(built: &BuiltTxShape, otx: OtxHandle) -> [u8; 32] {
 pub(crate) fn otx_append_segment_hash(
     built: &BuiltTxShape,
     otx: OtxHandle,
-    segment_index: usize,
+    selected_segment_index: usize,
     base_hash: [u8; 32],
 ) -> [u8; 32] {
     let (view, layout) = otx_hash_inputs(built, otx);
     let segment = layout
         .append_segments
-        .get(segment_index)
+        .get(selected_segment_index)
         .expect("append segment layout");
     view.append_segments
-        .get(segment_index)
+        .get(selected_segment_index)
         .expect("append segment view");
     let mut out = [0u8; 32];
     let mut hasher = new_hasher(OTX_APPEND_SEGMENT_PERSONAL);
@@ -57,8 +57,11 @@ pub(crate) fn otx_append_segment_hash(
     hasher.update(&base_hash);
     hasher.update(&[segment.flags.raw()]);
     if segment.flags.coverage_previous_segments() {
-        write_count(&mut hasher, segment_index);
-        for previous_segment_index in 0..segment_index {
+        // Own-only segments use selected_segment_index only as a lookup key. Previous-coverage
+        // segments bind their position through the number of previous ordered segments.
+        let previous_segment_count = selected_segment_index;
+        write_count(&mut hasher, previous_segment_count);
+        for previous_segment_index in 0..previous_segment_count {
             let previous_segment = layout
                 .append_segments
                 .get(previous_segment_index)
@@ -74,7 +77,7 @@ pub(crate) fn otx_append_segment_hash(
             );
         }
     }
-    write_otx_append_segment_entities(&mut hasher, built, &view, &layout, segment_index);
+    write_otx_append_segment_entities(&mut hasher, built, &view, &layout, selected_segment_index);
 
     hasher.finalize(&mut out);
     out
