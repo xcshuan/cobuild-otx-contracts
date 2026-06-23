@@ -98,9 +98,6 @@ pub(crate) fn otx_append_segment_hash(
         .append_segments
         .get(segment_index)
         .ok_or(CoreError::InvalidOtxLayout)?;
-    if segment.segment_index != segment_index {
-        return Err(CoreError::InvalidOtxLayout);
-    }
     otx.append_segments
         .get(segment_index)
         .ok_or(CoreError::InvalidOtxLayout)?;
@@ -116,9 +113,6 @@ pub(crate) fn otx_append_segment_hash(
                 .append_segments
                 .get(previous_segment_index)
                 .ok_or(CoreError::InvalidOtxLayout)?;
-            if previous_segment.segment_index != previous_segment_index {
-                return Err(CoreError::InvalidOtxLayout);
-            }
             writer::write_count(&mut hasher, previous_segment_index)?;
             hasher.update(&[previous_segment.flags.raw()]);
             write_otx_append_segment_entities(
@@ -324,9 +318,6 @@ fn write_otx_append_segment_entities(
         .append_segments
         .get(segment_index)
         .ok_or(CoreError::InvalidOtxLayout)?;
-    if segment_layout.segment_index != segment_index {
-        return Err(CoreError::InvalidOtxLayout);
-    }
 
     write_otx_append_segment_input_cells(
         hasher,

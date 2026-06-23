@@ -189,11 +189,22 @@ fn signing_otx_witness_with_append_segment_flags(segment_flags: u8) -> Bytes {
     Bytes::copy_from_slice(witness.as_slice())
 }
 
-fn signing_otx_witness_with_two_append_segments() -> Bytes {
+fn signing_otx_witness_with_repartitioned_append_outputs() -> Bytes {
     let otx = RawOtxBuilder::new()
         .base_input_cells(1)
-        .append_segment(0x01, 0, 1, 0, 0, Vec::new())
-        .append_segment(0x00, 0, 1, 0, 0, Vec::new())
+        .append_segment(0x01, 0, 2, 0, 0, Vec::new())
+        .append_segment(0x00, 0, 0, 0, 0, Vec::new())
+        .allow_append_outputs()
+        .build();
+    let witness = WitnessLayout::from(otx);
+    Bytes::copy_from_slice(witness.as_slice())
+}
+
+fn signing_otx_witness_with_previous_segment_flags(segment_flags: u8) -> Bytes {
+    let otx = RawOtxBuilder::new()
+        .base_input_cells(1)
+        .append_segment(segment_flags, 0, 1, 0, 0, Vec::new())
+        .append_segment(0x02, 0, 1, 0, 0, Vec::new())
         .allow_append_outputs()
         .build();
     let witness = WitnessLayout::from(otx);

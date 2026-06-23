@@ -567,13 +567,13 @@ fn related_otx_action(
             otx_index,
             layout: OtxMessageLayout {
                 base_inputs: otx.layout.base_inputs,
-                append_inputs: otx.layout.append_inputs,
+                append_inputs: otx.layout.append_inputs(),
                 base_outputs: otx.layout.base_outputs,
-                append_outputs: otx.layout.append_outputs,
+                append_outputs: otx.layout.append_outputs(),
                 base_cell_deps: otx.layout.base_cell_deps,
-                append_cell_deps: otx.layout.append_cell_deps,
+                append_cell_deps: otx.layout.append_cell_deps(),
                 base_header_deps: otx.layout.base_header_deps,
-                append_header_deps: otx.layout.append_header_deps,
+                append_header_deps: otx.layout.append_header_deps(),
             },
         },
         action,
@@ -755,18 +755,10 @@ mod tests {
                     start: base_start,
                     count: 1,
                 },
-                append_inputs: crate::layout::Range {
-                    start: append_start,
-                    count: 1,
-                },
                 base_outputs: crate::layout::Range { start: 0, count: 1 },
-                append_outputs: crate::layout::Range { start: 1, count: 0 },
                 base_cell_deps: crate::layout::Range { start: 0, count: 0 },
-                append_cell_deps: crate::layout::Range { start: 0, count: 0 },
                 base_header_deps: crate::layout::Range { start: 0, count: 0 },
-                append_header_deps: crate::layout::Range { start: 0, count: 0 },
                 append_segments: vec![crate::layout::OtxAppendSegmentLayout {
-                    segment_index: 0,
                     flags: crate::protocol::SegmentFlags::try_from(0).unwrap(),
                     inputs: crate::layout::Range {
                         start: append_start,
@@ -1051,7 +1043,7 @@ mod tests {
     #[test]
     fn lock_related_otx_action_preserves_origin_layout_and_action_cursor() {
         let message_bytes = [4u8, 0, 0, 0];
-        let otx = test_otx(&message_bytes, 1, 3);
+        let otx = test_otx(&message_bytes, 1, 2);
         let action = test_action(ScriptRole::InputLock, [0x44; 32], &[0x88]);
 
         let related = related_otx_action(3, &otx, action);
@@ -1065,7 +1057,7 @@ mod tests {
                 assert_eq!(witness_index, 7);
                 assert_eq!(otx_index, 3);
                 assert_eq!(layout.base_inputs.start, 1);
-                assert_eq!(layout.append_inputs.start, 3);
+                assert_eq!(layout.append_inputs.start, 2);
             }
             ActionOrigin::TxLevel { .. } => panic!("expected OTX action origin"),
         }

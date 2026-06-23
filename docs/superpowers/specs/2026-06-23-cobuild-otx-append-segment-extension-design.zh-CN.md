@@ -216,7 +216,11 @@ header deps:
 ```
 
 layout scanner 先读取 base counts，再按 `append_segments` 顺序累加 counts，得到
-每个 segment 在最终交易中的实体范围。
+每个 segment 在最终交易中的实体范围。实现中的 runtime layout 只保存 base
+ranges 和每个 segment 的 ranges；整体 append inputs/outputs/cell deps/header deps
+范围必须由 segment ranges 派生，避免 witness counts 和冗余 aggregate range 之间
+出现不一致。segment 的位置由 `append_segments` vector index 表达，不在 segment
+layout 中重复保存 `segment_index`。
 
 ## Signing Domains
 

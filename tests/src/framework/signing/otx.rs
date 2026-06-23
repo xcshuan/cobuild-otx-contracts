@@ -48,10 +48,6 @@ pub(crate) fn otx_append_segment_hash(
         .append_segments
         .get(segment_index)
         .expect("append segment layout");
-    assert_eq!(
-        segment.segment_index, segment_index,
-        "append segment layout index"
-    );
     view.append_segments
         .get(segment_index)
         .expect("append segment view");
@@ -67,10 +63,6 @@ pub(crate) fn otx_append_segment_hash(
                 .append_segments
                 .get(previous_segment_index)
                 .expect("previous append segment layout");
-            assert_eq!(
-                previous_segment.segment_index, previous_segment_index,
-                "previous append segment layout index"
-            );
             write_count(&mut hasher, previous_segment_index);
             hasher.update(&[previous_segment.flags.raw()]);
             write_otx_append_segment_entities(
@@ -271,10 +263,6 @@ fn write_otx_append_segment_entities(
         .append_segments
         .get(segment_index)
         .expect("append segment layout");
-    assert_eq!(
-        segment_layout.segment_index, segment_index,
-        "append segment layout index"
-    );
     write_otx_append_input_cells(hasher, built, segment.input_cells, segment_layout.inputs);
     write_otx_append_output_cells(hasher, built, segment.output_cells, segment_layout.outputs);
     write_otx_append_cell_deps(hasher, built, segment.cell_deps, segment_layout.cell_deps);
@@ -360,38 +348,31 @@ fn otx_hash_inputs(built: &BuiltTxShape, otx: OtxHandle) -> (OtxView, OtxLayout)
             .expect("parse OTX")
             .expect("OTX witness layout");
     let facts = otx_range_facts(built, otx);
-    assert!(
-        view.append_segments.len() <= facts.append_segments.len(),
-        "witness append segment count exceeds built range facts"
-    );
+    let base_inputs = range_from_start_and_count(facts.base_inputs.start, view.base_input_cells);
+    let base_outputs = range_from_start_and_count(facts.base_outputs.start, view.base_output_cells);
+    let base_cell_deps =
+        range_from_start_and_count(facts.base_cell_deps.start, view.base_cell_deps);
+    let base_header_deps =
+        range_from_start_and_count(facts.base_header_deps.start, view.base_header_deps);
+    let mut next_input = base_inputs.end();
+    let mut next_output = base_outputs.end();
+    let mut next_cell_dep = base_cell_deps.end();
+    let mut next_header_dep = base_header_deps.end();
     let layout = OtxLayout {
         witness_index,
-        base_inputs: range(&facts.base_inputs),
-        append_inputs: range(&facts.append_inputs),
-        base_outputs: range(&facts.base_outputs),
-        append_outputs: range(&facts.append_outputs),
-        base_cell_deps: range(&facts.base_cell_deps),
-        append_cell_deps: range(&facts.append_cell_deps),
-        base_header_deps: range(&facts.base_header_deps),
-        append_header_deps: range(&facts.append_header_deps),
-        append_segments: facts
+        base_inputs,
+        base_outputs,
+        base_cell_deps,
+        base_header_deps,
+        append_segments: view
             .append_segments
             .iter()
-            .take(view.append_segments.len())
-            .map(|segment| {
-                let view_segment = view
-                    .append_segments
-                    .get(segment.segment_index)
-                    .expect("append segment view");
-                OtxAppendSegmentLayout {
-                    segment_index: segment.segment_index,
-                    flags: SegmentFlags::try_from(view_segment.segment_flags)
-                        .expect("append segment flags"),
-                    inputs: range(&segment.inputs),
-                    outputs: range(&segment.outputs),
-                    cell_deps: range(&segment.cell_deps),
-                    header_deps: range(&segment.header_deps),
-                }
+            .map(|segment| OtxAppendSegmentLayout {
+                flags: SegmentFlags::try_from(segment.segment_flags).expect("append segment flags"),
+                inputs: take_range(&mut next_input, segment.input_cells),
+                outputs: take_range(&mut next_output, segment.output_cells),
+                cell_deps: take_range(&mut next_cell_dep, segment.cell_deps),
+                header_deps: take_range(&mut next_header_dep, segment.header_deps),
             })
             .collect(),
     };
@@ -406,11 +387,17 @@ fn otx_range_facts(built: &BuiltTxShape, otx: OtxHandle) -> &OtxRangeFacts {
         .expect("unknown OTX handle")
 }
 
-fn range(range: &std::ops::Range<usize>) -> Range {
-    Range {
-        start: range.start,
-        count: range.end.saturating_sub(range.start),
-    }
+fn range_from_start_and_count(start: usize, count: usize) -> Range {
+    Range { start, count }
+}
+
+fn take_range(next: &mut usize, count: usize) -> Range {
+    let range = Range {
+        start: *next,
+        count,
+    };
+    *next = next.checked_add(count).expect("valid OTX layout range");
+    range
 }
 
 fn checked_index(range: Range, local_index: usize) -> usize {

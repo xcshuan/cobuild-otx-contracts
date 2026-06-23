@@ -459,7 +459,7 @@ fn otx_layout_tracks_each_append_segment_range() {
     let entry = &layout.otx_entries[0];
 
     assert_eq!(entry.layout.base_inputs, Range { start: 2, count: 1 });
-    assert_eq!(entry.layout.append_inputs, Range { start: 3, count: 3 });
+    assert_eq!(entry.layout.append_inputs(), Range { start: 3, count: 3 });
     assert_eq!(entry.layout.append_segments[0].inputs, Range { start: 3, count: 1 });
     assert_eq!(entry.layout.append_segments[1].inputs, Range { start: 4, count: 2 });
     assert_eq!(entry.layout.append_segments[0].outputs, Range { start: 4, count: 2 });
@@ -498,7 +498,6 @@ Modify `crates/cobuild-core/src/layout.rs`:
 ```rust
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OtxAppendSegmentLayout {
-    pub segment_index: usize,
     pub flags: crate::protocol::SegmentFlags,
     pub inputs: Range,
     pub outputs: Range,
@@ -513,6 +512,11 @@ Add to `OtxLayout`:
 pub append_segments: Vec<OtxAppendSegmentLayout>,
 ```
 
+Do not store aggregate append ranges on `OtxLayout`. Keep only `base_*` ranges and
+per-segment ranges; expose `append_inputs()`, `append_outputs()`, `append_cell_deps()`,
+and `append_header_deps()` as derived helpers. The segment position is the vector index;
+do not duplicate it as a `segment_index` field in `OtxAppendSegmentLayout`.
+
 - [ ] **Step 4: Allocate segment ranges**
 
 Replace old append range allocation in `LayoutRangeCursor::take_layout` with:
@@ -523,16 +527,11 @@ let base_outputs = Self::take_range(&mut self.next_output, otx_view.base_output_
 let base_cell_deps = Self::take_range(&mut self.next_cell_dep, otx_view.base_cell_deps)?;
 let base_header_deps = Self::take_range(&mut self.next_header_dep, otx_view.base_header_deps)?;
 
-let append_input_start = self.next_input;
-let append_output_start = self.next_output;
-let append_cell_dep_start = self.next_cell_dep;
-let append_header_dep_start = self.next_header_dep;
 let mut append_segments = Vec::with_capacity(otx_view.append_segments.len());
 
-for (segment_index, segment) in otx_view.append_segments.iter().enumerate() {
+for segment in otx_view.append_segments.iter() {
     let flags = crate::protocol::SegmentFlags::try_from(segment.segment_flags)?;
     append_segments.push(OtxAppendSegmentLayout {
-        segment_index,
         flags,
         inputs: Self::take_range(&mut self.next_input, segment.input_cells)?,
         outputs: Self::take_range(&mut self.next_output, segment.output_cells)?,
@@ -542,7 +541,8 @@ for (segment_index, segment) in otx_view.append_segments.iter().enumerate() {
 }
 ```
 
-Then set aggregate append ranges from the saved starts to the new cursors.
+Then implement aggregate append range helpers by deriving them from `base_*` and the
+last segment range for each entity kind.
 
 - [ ] **Step 5: Validate flags and permissions**
 
@@ -717,20 +717,20 @@ Replace old single append detection:
 let append_signature = self
     .context
     .script_context
-    .input_range_contains_current_lock(otx.layout.append_inputs)?;
+    .input_range_contains_current_lock(otx.layout.append_inputs())?;
 ```
 
 with per-segment detection:
 
 ```rust
 let mut segment_signatures = Vec::new();
-for segment in &otx.layout.append_segments {
+for (segment_index, segment) in otx.layout.append_segments.iter().enumerate() {
     if self
         .context
         .script_context
         .input_range_contains_current_lock(segment.inputs)?
     {
-        segment_signatures.push(segment.segment_index);
+        segment_signatures.push(segment_index);
     }
 }
 ```
@@ -794,7 +794,7 @@ fn append_segment_input_requires_segment_signature() {
 ```
 
 Add helper `otx_entry_with_append_segment` near existing OTX test helpers. It must create
-`OtxLayoutEntry` with `layout.append_segments = vec![OtxAppendSegmentLayout { segment_index: 0, flags: SegmentFlags::try_from(0x00).unwrap(), inputs: Range { start: 0, count: 1 }, outputs: Range { start: 0, count: 0 }, cell_deps: Range { start: 0, count: 0 }, header_deps: Range { start: 0, count: 0 } }]`.
+`OtxLayoutEntry` with `layout.append_segments = vec![OtxAppendSegmentLayout { flags: SegmentFlags::try_from(0x00).unwrap(), inputs: Range { start: 0, count: 1 }, outputs: Range { start: 0, count: 0 }, cell_deps: Range { start: 0, count: 0 }, header_deps: Range { start: 0, count: 0 } }]`.
 
 - [ ] **Step 5: Run engine tests**
 

@@ -598,21 +598,28 @@ fn signing_hash_oracle_otx_append_segment_flags_come_from_witness() {
 }
 
 #[test]
-#[should_panic(expected = "witness append segment count exceeds built range facts")]
-fn signing_hash_oracle_rejects_witness_append_segment_count_expansion() {
+fn signing_hash_oracle_otx_append_repartition_comes_from_witness() {
     let mut shape = TxShape::new();
     let otx = shape.push_otx(OtxSegment {
         base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
         append_segments: vec![
-            append_segment_spec(0x00).with_outputs(vec![signing_output(2, vec![0xbb])]),
+            append_segment_spec(0x01).with_outputs(vec![signing_output(2, vec![0xbb])]),
+            append_segment_spec(0x00).with_outputs(vec![signing_output(3, vec![0xcc])]),
         ],
         ..Default::default()
     });
     let built = shape.build();
-    let changed =
-        signing_replace_otx_witness(built, signing_otx_witness_with_two_append_segments());
+    let changed = signing_replace_otx_witness(
+        built.clone(),
+        signing_otx_witness_with_repartitioned_append_outputs(),
+    );
+    let oracle = TestSigningHashOracle;
+    let base_hash = [3; 32];
 
-    TestSigningHashOracle.otx_append_segment(&changed, otx, 1, [3; 32]);
+    assert_hash_changed(
+        oracle.otx_append_segment(&built, otx, 0, base_hash),
+        oracle.otx_append_segment(&changed, otx, 0, base_hash),
+    );
 }
 
 #[test]
@@ -705,6 +712,65 @@ fn signing_hash_oracle_segment_previous_coverage_binds_previous_segment() {
     assert_hash_changed(
         before,
         TestSigningHashOracle.otx_append_segment(&changed, otx, 1, base_hash),
+    );
+}
+
+#[test]
+fn signing_hash_oracle_segment_previous_coverage_binds_previous_flags() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x01).with_outputs(vec![signing_output(2, vec![0xbb])]),
+            append_segment_spec(0x02).with_outputs(vec![signing_output(3, vec![0xcc])]),
+        ],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let changed = signing_replace_otx_witness(
+        built.clone(),
+        signing_otx_witness_with_previous_segment_flags(0x03),
+    );
+    let base_hash = TestSigningHashOracle.otx_base(&built, otx);
+
+    assert_hash_changed(
+        TestSigningHashOracle.otx_append_segment(&built, otx, 1, base_hash),
+        TestSigningHashOracle.otx_append_segment(&changed, otx, 1, base_hash),
+    );
+}
+
+#[test]
+fn signing_hash_oracle_segment_previous_coverage_binds_previous_count_and_position() {
+    let mut first_shape = TxShape::new();
+    let first_otx = first_shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x01).with_outputs(vec![signing_output(2, vec![0xbb])]),
+            append_segment_spec(0x02).with_outputs(vec![signing_output(4, vec![0xdd])]),
+        ],
+        ..Default::default()
+    });
+    let first = first_shape.build();
+
+    let mut second_shape = TxShape::new();
+    let second_otx = second_shape.push_otx(OtxSegment {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x01).with_outputs(vec![signing_output(2, vec![0xbb])]),
+            append_segment_spec(0x01).with_outputs(vec![signing_output(3, vec![0xcc])]),
+            append_segment_spec(0x02).with_outputs(vec![signing_output(4, vec![0xdd])]),
+        ],
+        ..Default::default()
+    });
+    let second = second_shape.build();
+
+    let first_base_hash = TestSigningHashOracle.otx_base(&first, first_otx);
+    let second_base_hash = TestSigningHashOracle.otx_base(&second, second_otx);
+    assert_eq!(first_base_hash, second_base_hash);
+
+    assert_hash_changed(
+        TestSigningHashOracle.otx_append_segment(&first, first_otx, 1, first_base_hash),
+        TestSigningHashOracle.otx_append_segment(&second, second_otx, 2, second_base_hash),
     );
 }
 
