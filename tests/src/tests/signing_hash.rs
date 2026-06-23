@@ -171,6 +171,34 @@ fn signing_hash_oracle_otx_base_and_append_segment_match_golden_vectors() {
 }
 
 #[test]
+fn signing_hash_oracle_previous_coverage_append_segment_matches_no_previous_index_golden_vector() {
+    let mut shape = TxShape::new();
+    let otx = shape.push_otx(OtxSpec {
+        base_inputs: vec![signing_resolved_input(1, vec![0xaa])],
+        append_segments: vec![
+            append_segment_spec(0x01)
+                .with_inputs(vec![signing_resolved_input(2, vec![0xbb])])
+                .with_outputs(vec![signing_output(3, vec![0xcc])]),
+            append_segment_spec(0x02)
+                .with_inputs(vec![signing_resolved_input(4, vec![0xdd])])
+                .with_outputs(vec![signing_output(5, vec![0xee])]),
+        ],
+        ..Default::default()
+    });
+    let built = shape.build();
+    let base_hash = TestSigningHashOracle.otx_base(&built, otx);
+    let append_hash = TestSigningHashOracle.otx_append_segment(&built, otx, 1, base_hash);
+
+    let expected_append_hash = [
+        0x80, 0xf0, 0x34, 0x82, 0xd3, 0xcc, 0xe8, 0x02, 0x3d, 0x2a, 0x9a, 0x65, 0x6d, 0x2b, 0xc5,
+        0x0e, 0x7d, 0xbc, 0x7e, 0x40, 0xc6, 0x4c, 0xe2, 0x4d, 0x3f, 0xf5, 0xac, 0x0c, 0x2b, 0x31,
+        0xa7, 0x66,
+    ];
+
+    assert_eq!(append_hash, expected_append_hash);
+}
+
+#[test]
 fn signing_hash_oracle_default_literals_match_packed_defaults() {
     let default_script = [
         53, 0, 0, 0, 16, 0, 0, 0, 48, 0, 0, 0, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

@@ -257,15 +257,14 @@ OtxAppendSegmentHash =
 OtxAppendSegmentHash =
   hash(
     base_hash,
-    segment_flags,
     previous segment count,
     for each previous segment:
-      previous segment index,
       previous segment flags,
       previous segment input count and full previous segment inputs,
       previous segment output count and full previous segment outputs,
       previous segment cell dep count and full previous segment cell deps,
       previous segment header dep count and full previous segment header deps,
+    own segment flags,
     own segment input count and full own segment inputs,
     own segment output count and full own segment outputs,
     own segment cell dep count and full own segment cell deps,
@@ -283,7 +282,7 @@ OtxAppendSegmentHash =
 
 当 bit 1 为 `1` 时，`previous segment count` 和按顺序写入的 previous segment
 commitments 间接绑定了当前位置；如果前序 segment 的内容或顺序不对，验签无法
-通过。因此不需要额外把 own `segment_index` 写入 hash。
+通过。因此不需要额外把 own `segment_index` 或 previous segment index 写入 hash。
 
 当 bit 1 为 `1` 时，previous segment 的 flags 也必须进入 hash，避免前序段的
 finality 或 coverage 语义在后续接力签名中被替换。
