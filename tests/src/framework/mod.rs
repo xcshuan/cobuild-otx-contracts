@@ -17,7 +17,10 @@ mod tests {
             normal_output, typed_output,
         },
         cobuild::{CobuildMessageBuilder, OtxBuilder, empty_message, lock_seal},
-        contracts::{DeployedScript, deploy_loader_binary, deploy_script_bytes},
+        contracts::{
+            DeployedScript, build_deployed_script, deploy_loader_binary_code,
+            deploy_script_bytes_code,
+        },
         fixture::CobuildTestFixture,
         scripts::script_hash,
         signing::{
@@ -36,7 +39,8 @@ mod tests {
         tag: u8,
         args: Vec<u8>,
     ) -> DeployedScript {
-        deploy_script_bytes(context, Bytes::from(vec![tag]), ScriptHashType::Data, args)
+        let code = deploy_script_bytes_code(context, Bytes::from(vec![tag]), ScriptHashType::Data);
+        build_deployed_script(context, &code, ScriptHashType::Data, args)
     }
 
     #[test]
@@ -92,12 +96,10 @@ mod tests {
     fn contract_helpers_deploy_scripts_and_record_script_hashes() {
         let mut context = Context::default();
 
-        let data2_script = deploy_script_bytes(
-            &mut context,
-            Bytes::from(vec![0x42]),
-            ScriptHashType::Data2,
-            Vec::new(),
-        );
+        let data2_code =
+            deploy_script_bytes_code(&mut context, Bytes::from(vec![0x42]), ScriptHashType::Data2);
+        let data2_script =
+            build_deployed_script(&mut context, &data2_code, ScriptHashType::Data2, Vec::new());
         let dummy_script = deploy_protocol_dummy_script(&mut context, 3, Vec::new());
 
         assert_eq!(data2_script.script_hash, script_hash(&data2_script.script));
@@ -132,9 +134,14 @@ mod tests {
         assert_eq!(facts.lock_hash, script_hash(&lock.script));
         assert_eq!(facts.type_hash, Some(script_hash(&type_script.script)));
 
-        let deployed = deploy_loader_binary(
+        let code = deploy_loader_binary_code(
             fixture.context_mut(),
             "cobuild-otx-lock",
+            ScriptHashType::Data2,
+        );
+        let deployed = build_deployed_script(
+            fixture.context_mut(),
+            &code,
             ScriptHashType::Data2,
             vec![0u8; 21],
         );

@@ -16,7 +16,9 @@ pub fn type_script_legacy_settlement_cases() -> Vec<BuiltLimitOrderCase> {
 fn legacy_settlement_case(case: LegacySettlementCase) -> BuiltLimitOrderCase {
     let mut fixture = CobuildTestFixture::new();
     let limit_order = fixture.deploy_limit_order();
-    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let always_success =
+        build_always_success_script(fixture.context_mut(), &always_success_code, Vec::new());
     let owner_lock = always_success.script.clone();
     let settlement_amount = match case {
         LegacySettlementCase::AtLimitPrice => 30,

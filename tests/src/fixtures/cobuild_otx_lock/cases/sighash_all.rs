@@ -50,7 +50,8 @@ pub(super) fn signed_sighash_all_offset_lock_case() -> BuiltCobuildOtxLockCase {
         &code,
         &public_key_hash20(&secret_key),
     );
-    let other = deploy_always_success(fixture.context_mut(), Vec::new());
+    let other_code = deploy_always_success_code(fixture.context_mut());
+    let other = build_always_success_script(fixture.context_mut(), &other_code, Vec::new());
     let other_input = live_resolved_facts(
         fixture.context_mut(),
         normal_output(other.script, 100_000_000_000),

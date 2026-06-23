@@ -210,7 +210,12 @@ fn partial_mask_case(name: &'static str, config: PartialMaskConfig) -> BuiltCobu
             });
         }
         PartialMaskMutation::OutputLock => {
-            let other_lock = deploy_always_success(fixture.context_mut(), b"partial-mask".to_vec());
+            let other_lock_code = deploy_always_success_code(fixture.context_mut());
+            let other_lock = build_always_success_script(
+                fixture.context_mut(),
+                &other_lock_code,
+                b"partial-mask".to_vec(),
+            );
             built.apply_shape_mutation(TxShapeMutation::ReplaceOutput {
                 output: base_output_handle,
                 replacement: TestCellOutput::new(

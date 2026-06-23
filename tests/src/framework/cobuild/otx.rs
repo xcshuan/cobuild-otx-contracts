@@ -213,6 +213,11 @@ impl OtxBuilder {
         self
     }
 
+    pub(crate) fn append_permissions(mut self, value: u8) -> Self {
+        self.append_permissions = value;
+        self
+    }
+
     pub fn cover_base_input_since(mut self, local_input: usize) -> Self {
         set_mask_bit(&mut self.base_input_masks, local_input * 2, true);
         self

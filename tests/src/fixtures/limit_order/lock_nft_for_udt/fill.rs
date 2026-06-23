@@ -363,18 +363,30 @@ fn base_output_mutation(name: &'static str, mutation: BusinessMutation) -> LockS
 fn lock_nft_for_udt_case(scenario: LockScenario) -> BuiltLimitOrderCase {
     let mut fixture = CobuildTestFixture::new();
     let limit_order_lock_code = deploy_limit_order_lock(fixture.context_mut());
-    let owner_success = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let buyer_success = deploy_always_success(fixture.context_mut(), b"buyer".to_vec());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let nft_code = deploy_test_nft_code(fixture.context_mut());
+    let udt_code = deploy_test_udt_code(fixture.context_mut());
+    let owner_success = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let buyer_success = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"buyer".to_vec(),
+    );
     let owner_lock = owner_success.script.clone();
     let buyer_lock = buyer_success.script.clone();
     let issuer_lock_hash = script_hash(&owner_success.script);
-    let wrong_owner = deploy_wrong_owner_lock(fixture.context_mut());
+    let wrong_owner = build_wrong_owner_lock(fixture.context_mut(), &always_success_code);
     let wrong_owner_lock = wrong_owner.script.clone();
-    let wrong_buyer_lock = deploy_wrong_owner_lock(fixture.context_mut()).script;
-    let nft = deploy_test_nft(fixture.context_mut(), NFT_TYPE_ARGS);
-    let wrong_nft = deploy_test_nft(fixture.context_mut(), [6; 32]);
-    let udt = deploy_test_udt(fixture.context_mut(), issuer_lock_hash);
-    let wrong_udt = deploy_test_udt(fixture.context_mut(), [9; 32]);
+    let wrong_buyer_lock =
+        build_wrong_owner_lock(fixture.context_mut(), &always_success_code).script;
+    let nft = build_test_nft_script(fixture.context_mut(), &nft_code, NFT_TYPE_ARGS);
+    let wrong_nft = build_test_nft_script(fixture.context_mut(), &nft_code, [6; 32]);
+    let udt = build_test_udt_script(fixture.context_mut(), &udt_code, issuer_lock_hash);
+    let wrong_udt = build_test_udt_script(fixture.context_mut(), &udt_code, [9; 32]);
 
     let order = LockOrder {
         owner_lock_hash: script_hash(&owner_lock),

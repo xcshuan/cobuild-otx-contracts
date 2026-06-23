@@ -39,13 +39,24 @@ fn real_otx_lock_case(case: RealOtxLockCase) -> BuiltLimitOrderCase {
         &otx_lock_code,
         &public_key_hash20(&secret_key),
     );
-    let owner_success = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let buyer_success = deploy_always_success(fixture.context_mut(), b"buyer".to_vec());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let nft_code = deploy_test_nft_code(fixture.context_mut());
+    let udt_code = deploy_test_udt_code(fixture.context_mut());
+    let owner_success = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let buyer_success = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"buyer".to_vec(),
+    );
     let owner_lock = owner_success.script.clone();
     let buyer_lock = buyer_success.script.clone();
     let issuer_lock_hash = script_hash(&owner_success.script);
-    let nft = deploy_test_nft(fixture.context_mut(), NFT_TYPE_ARGS);
-    let udt = deploy_test_udt(fixture.context_mut(), issuer_lock_hash);
+    let nft = build_test_nft_script(fixture.context_mut(), &nft_code, NFT_TYPE_ARGS);
+    let udt = build_test_udt_script(fixture.context_mut(), &udt_code, issuer_lock_hash);
 
     let order = LockOrder {
         owner_lock_hash: script_hash(&owner_lock),

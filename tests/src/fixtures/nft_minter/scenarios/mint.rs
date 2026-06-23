@@ -111,16 +111,26 @@ pub fn mint_wrong_attributes_case() -> NftMinterCase {
 
 pub fn mint_duplicate_nft_output_case() -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
-    let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
-    let minter_hash = script_hash(&minter_code.script);
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let minter_type_code = deploy_nft_minter_type_code(fixture.context_mut());
+    let lock = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let minter_script =
+        build_nft_minter_type_script(fixture.context_mut(), &minter_type_code, [1u8; 32].to_vec());
+    let minter_hash = script_hash(&minter_script.script);
     let serial = 6;
     let seed = [6u8; 32];
-    let nft_code =
-        deploy_always_success(fixture.context_mut(), nft_id(minter_hash, serial).to_vec());
+    let nft_script = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        nft_id(minter_hash, serial).to_vec(),
+    );
     let minter_cell = typed_output(
         lock.script.clone(),
-        minter_code.script.clone(),
+        minter_script.script.clone(),
         200_000_000_000,
     );
     let minter_input = live_resolved_facts(
@@ -141,20 +151,20 @@ pub fn mint_duplicate_nft_output_case() -> NftMinterCase {
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
-    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
-    shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_script.cell_dep.clone());
+    shape.push_prefix_cell_dep(nft_script.cell_dep.clone());
     let minter_input = shape.push_prefix_input(minter_input);
     shape.push_remainder_output(minter_output);
     shape.push_remainder_output(minted_nft_output(
         &lock.script,
-        &nft_code.script,
+        &nft_script.script,
         minter_hash,
         serial,
         seed,
     ));
     shape.push_remainder_output(minted_nft_output(
         &lock.script,
-        &nft_code.script,
+        &nft_script.script,
         minter_hash,
         serial,
         seed,
@@ -225,16 +235,26 @@ fn mint_wrong_nft_data_case(
     override_data: MintedNftDataOverride,
 ) -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
-    let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
-    let minter_hash = script_hash(&minter_code.script);
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let minter_type_code = deploy_nft_minter_type_code(fixture.context_mut());
+    let lock = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let minter_script =
+        build_nft_minter_type_script(fixture.context_mut(), &minter_type_code, [1u8; 32].to_vec());
+    let minter_hash = script_hash(&minter_script.script);
     let serial = 6;
     let seed = [6u8; 32];
-    let nft_code =
-        deploy_always_success(fixture.context_mut(), nft_id(minter_hash, serial).to_vec());
+    let nft_script = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        nft_id(minter_hash, serial).to_vec(),
+    );
     let minter_cell = typed_output(
         lock.script.clone(),
-        minter_code.script.clone(),
+        minter_script.script.clone(),
         200_000_000_000,
     );
     let minter_input = live_resolved_facts(
@@ -263,14 +283,14 @@ fn mint_wrong_nft_data_case(
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
-    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
-    shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_script.cell_dep.clone());
+    shape.push_prefix_cell_dep(nft_script.cell_dep.clone());
     let minter_input = shape.push_prefix_input(minter_input);
     shape.push_remainder_output(minter_output);
     shape.push_remainder_output(TestCellOutput::new(
         typed_output(
             lock.script.clone(),
-            nft_code.script.clone(),
+            nft_script.script.clone(),
             200_000_000_000,
         ),
         minted_nft_data(MintedNftData {
@@ -315,22 +335,34 @@ fn mint_from_counter_case_with(
     expected: MintExpected,
 ) -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
-    let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
-    let minter_hash = script_hash(&minter_code.script);
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let minter_type_code = deploy_nft_minter_type_code(fixture.context_mut());
+    let minted_nft_type_code = deploy_minted_nft_type_code(fixture.context_mut());
+    let lock = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let minter_script =
+        build_nft_minter_type_script(fixture.context_mut(), &minter_type_code, [1u8; 32].to_vec());
+    let minter_hash = script_hash(&minter_script.script);
     let serial = old_counter;
     let rarity = rarity_for_serial(serial);
     let nft_id = nft_id(minter_hash, serial);
-    let nft_code = nft_seed.map(|_| {
+    let nft_script = nft_seed.map(|_| {
         if expected == MintExpected::Pass {
-            deploy_minted_nft_type(fixture.context_mut(), nft_id)
+            build_minted_nft_type_script(fixture.context_mut(), &minted_nft_type_code, nft_id)
         } else {
-            deploy_always_success(fixture.context_mut(), nft_id.to_vec())
+            build_always_success_script(
+                fixture.context_mut(),
+                &always_success_code,
+                nft_id.to_vec(),
+            )
         }
     });
     let minter_cell = typed_output(
         lock.script.clone(),
-        minter_code.script.clone(),
+        minter_script.script.clone(),
         200_000_000_000,
     );
     let minter_input = live_resolved_facts(
@@ -350,13 +382,13 @@ fn mint_from_counter_case_with(
     );
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
-    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
-    if let Some(nft_code) = &nft_code {
-        shape.push_prefix_cell_dep(nft_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_script.cell_dep.clone());
+    if let Some(nft_script) = &nft_script {
+        shape.push_prefix_cell_dep(nft_script.cell_dep.clone());
     }
     let minter_input = shape.push_prefix_input(minter_input);
     shape.push_remainder_output(minter_output);
-    if let (Some(nft_code), Some(nft_seed)) = (&nft_code, nft_seed) {
+    if let (Some(nft_script), Some(nft_seed)) = (&nft_script, nft_seed) {
         let nft_data = minted_nft_data(MintedNftData {
             minter_type_hash: minter_hash,
             serial,
@@ -366,7 +398,7 @@ fn mint_from_counter_case_with(
         let nft_output = TestCellOutput::new(
             typed_output(
                 lock.script.clone(),
-                nft_code.script.clone(),
+                nft_script.script.clone(),
                 200_000_000_000,
             ),
             nft_data,
@@ -398,16 +430,26 @@ fn mint_from_counter_case_with(
 
 pub fn mint_two_actions_tx_level_case() -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
-    let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
-    let minter_hash = script_hash(&minter_code.script);
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let minter_type_code = deploy_nft_minter_type_code(fixture.context_mut());
+    let minted_nft_type_code = deploy_minted_nft_type_code(fixture.context_mut());
+    let lock = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let minter_script =
+        build_nft_minter_type_script(fixture.context_mut(), &minter_type_code, [1u8; 32].to_vec());
+    let minter_hash = script_hash(&minter_script.script);
     let nft_6_id = nft_id(minter_hash, 6);
     let nft_7_id = nft_id(minter_hash, 7);
-    let nft_6_code = deploy_minted_nft_type(fixture.context_mut(), nft_6_id);
-    let nft_7_code = deploy_minted_nft_type(fixture.context_mut(), nft_7_id);
+    let nft_6_script =
+        build_minted_nft_type_script(fixture.context_mut(), &minted_nft_type_code, nft_6_id);
+    let nft_7_script =
+        build_minted_nft_type_script(fixture.context_mut(), &minted_nft_type_code, nft_7_id);
     let minter_cell = typed_output(
         lock.script.clone(),
-        minter_code.script.clone(),
+        minter_script.script.clone(),
         200_000_000_000,
     );
     let minter_input = live_resolved_facts(
@@ -428,21 +470,21 @@ pub fn mint_two_actions_tx_level_case() -> NftMinterCase {
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
-    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
-    shape.push_prefix_cell_dep(nft_6_code.cell_dep.clone());
-    shape.push_prefix_cell_dep(nft_7_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_script.cell_dep.clone());
+    shape.push_prefix_cell_dep(nft_6_script.cell_dep.clone());
+    shape.push_prefix_cell_dep(nft_7_script.cell_dep.clone());
     shape.push_prefix_input(minter_input);
     shape.push_remainder_output(minter_output);
     shape.push_remainder_output(minted_nft_output(
         &lock.script,
-        &nft_6_code.script,
+        &nft_6_script.script,
         minter_hash,
         6,
         [6u8; 32],
     ));
     shape.push_remainder_output(minted_nft_output(
         &lock.script,
-        &nft_7_code.script,
+        &nft_7_script.script,
         minter_hash,
         7,
         [7u8; 32],

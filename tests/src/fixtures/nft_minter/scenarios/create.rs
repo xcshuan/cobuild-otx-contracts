@@ -80,15 +80,15 @@ fn create_minter_real_sighash_all_case(
         &lock_code,
         &public_key_hash20(&secret_key),
     );
-    let minter_code = deploy_nft_minter_type(fixture.context_mut(), Vec::new());
+    let minter_type_code = deploy_nft_minter_type_code(fixture.context_mut());
     let funding_input = live_resolved_facts(
         fixture.context_mut(),
         normal_output(lock.script.clone(), 200_000_000_000),
         Bytes::new(),
     );
-    let minter_script = rebuild_data2_script(
+    let minter_script = build_data2_script(
         fixture.context_mut(),
-        &minter_code,
+        &minter_type_code,
         type_id_args(&funding_input.input, 0).to_vec(),
     );
     let minter_hash = script_hash(&minter_script);
@@ -106,7 +106,7 @@ fn create_minter_real_sighash_all_case(
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock_code.cell_dep.clone());
-    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_type_code.cell_dep.clone());
     let funding_input = shape.push_prefix_input(funding_input);
     let minter_output = shape.push_remainder_output(output);
     shape.tx_level_message(message.clone());
@@ -169,16 +169,21 @@ fn create_minter_case_with(
     expected: CreateExpected,
 ) -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
-    let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let minter_code = deploy_nft_minter_type(fixture.context_mut(), Vec::new());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let lock = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let minter_type_code = deploy_nft_minter_type_code(fixture.context_mut());
     let funding_input = live_resolved_facts(
         fixture.context_mut(),
         normal_output(lock.script.clone(), 200_000_000_000),
         Bytes::new(),
     );
-    let minter_script = rebuild_data2_script(
+    let minter_script = build_data2_script(
         fixture.context_mut(),
-        &minter_code,
+        &minter_type_code,
         type_id_args(&funding_input.input, 0).to_vec(),
     );
     let minter_hash = script_hash(&minter_script);
@@ -192,7 +197,7 @@ fn create_minter_case_with(
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
-    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_type_code.cell_dep.clone());
     shape.push_prefix_input(funding_input);
     let minter_output = shape.push_remainder_output(output);
     if let Some(action_cap) = action_cap {

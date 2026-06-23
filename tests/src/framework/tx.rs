@@ -11,8 +11,8 @@ pub mod malformed;
 pub mod mutate;
 
 pub use builder::{
-    AppendSegmentRangeFacts, AppendSegmentSpec, BuiltTxShape, OtxRangeFacts, OtxSpec, TxShape,
-    append_segment_spec,
+    AppendPermissionsSpec, AppendSegmentRangeFacts, AppendSegmentSpec, BuiltTxShape, OtxRangeFacts,
+    OtxSpec, TxShape, append_segment_spec,
 };
 pub use handles::{
     CellDepHandle, EntityIndexMap, HeaderDepHandle, InputHandle, OtxHandle, OutputHandle,
@@ -46,7 +46,7 @@ mod tests {
     };
     use cobuild_types::entity::{
         blockchain::Uint32,
-        core::OtxStart,
+        core::{Otx, OtxStart},
         witness::{WitnessLayout, WitnessLayoutUnion},
     };
 
@@ -104,6 +104,23 @@ mod tests {
         {
             WitnessLayoutUnion::OtxStart(start) => start,
             other => panic!("expected OtxStart witness, got {}", other.item_name()),
+        }
+    }
+
+    fn otx_witness_entity(built: &BuiltTxShape, otx: super::OtxHandle) -> Otx {
+        let witness = built
+            .tx
+            .witnesses()
+            .into_iter()
+            .nth(built.witnesses.tx_index(built.otx_witness(otx)))
+            .expect("OTX witness")
+            .raw_data();
+        match WitnessLayout::from_slice(witness.as_ref())
+            .expect("parse witness layout")
+            .to_enum()
+        {
+            WitnessLayoutUnion::Otx(otx) => otx,
+            other => panic!("expected Otx witness, got {}", other.item_name()),
         }
     }
 
@@ -192,6 +209,23 @@ mod tests {
         let start = otx_start_witness_entity(&built);
         assert_eq!(molecule_u32(start.start_input_cell()), 1);
         assert_eq!(molecule_u32(start.start_cell_deps()), 1);
+    }
+
+    #[test]
+    fn tx_shape_otx_spec_can_override_append_permissions() {
+        let mut shape = TxShape::new();
+        let otx = shape.push_otx(
+            OtxSpec {
+                base_inputs: vec![resolved_input(1)],
+                append_segments: vec![append_segment_spec(0x00).with_outputs(vec![output(2)])],
+                ..Default::default()
+            }
+            .without_append_permissions(),
+        );
+        let built = shape.build();
+        let witness = otx_witness_entity(&built, otx);
+
+        assert_eq!(witness.append_permissions().as_slice(), &[0x00]);
     }
 
     #[test]

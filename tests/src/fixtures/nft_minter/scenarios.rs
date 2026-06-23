@@ -6,8 +6,9 @@ use crate::{
     fixtures::{
         cobuild_otx_lock::CobuildOtxLockError,
         common::contracts::{
-            build_cobuild_otx_lock, deploy_always_success, deploy_cobuild_otx_lock_code,
-            deploy_minted_nft_type, deploy_nft_minter_type, rebuild_data2_script,
+            build_always_success_script, build_cobuild_otx_lock, build_data2_script,
+            build_minted_nft_type_script, build_nft_minter_type_script, deploy_always_success_code,
+            deploy_cobuild_otx_lock_code, deploy_minted_nft_type_code, deploy_nft_minter_type_code,
         },
         nft_minter::{
             MintedNftData, MintedNftTypeError, MinterState, NftMinterExpected, NftMinterTypeError,

@@ -14,8 +14,9 @@ use crate::{
         common::{
             assets::{nft_data, udt_amount_data},
             contracts::{
-                build_cobuild_otx_lock, deploy_always_success, deploy_cobuild_otx_lock_code,
-                deploy_test_nft, deploy_test_udt, rebuild_data2_script,
+                build_always_success_script, build_cobuild_otx_lock, build_data2_script,
+                build_test_nft_script, build_test_udt_script, deploy_always_success_code,
+                deploy_cobuild_otx_lock_code, deploy_test_nft_code, deploy_test_udt_code,
             },
         },
     },
@@ -96,6 +97,8 @@ pub fn cases() -> Vec<BuiltCobuildOtxLockCase> {
         multi_otx::two_udt_transfer_otxs_case(false),
         multi_otx::two_udt_transfer_otxs_case(true),
         multi_otx::nft_for_udt_swap_otxs_case(),
+        multi_otx::nft_for_udt_append_otx_swap_case(false),
+        multi_otx::nft_for_udt_append_otx_swap_case(true),
         otx_signatures::mixed_sighash_all_and_otx_case(),
         otx_signatures::bad_seal_case(),
         otx_signatures::corrupt_second_append_seal_case(),

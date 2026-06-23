@@ -17,13 +17,17 @@ pub(super) fn multi_order_cases() -> Vec<BuiltLimitOrderCase> {
 fn two_lock_orders_case(case: TwoLockOrdersCase) -> BuiltLimitOrderCase {
     let mut fixture = CobuildTestFixture::new();
     let limit_order_lock_code = deploy_limit_order_lock(fixture.context_mut());
-    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let nft_code = deploy_test_nft_code(fixture.context_mut());
+    let udt_code = deploy_test_udt_code(fixture.context_mut());
+    let always_success =
+        build_always_success_script(fixture.context_mut(), &always_success_code, Vec::new());
     let owner_lock = always_success.script.clone();
     let buyer_lock = always_success.script.clone();
     let issuer_lock_hash = script_hash(&always_success.script);
-    let nft_a = deploy_test_nft(fixture.context_mut(), [0x71; 32]);
-    let nft_b = deploy_test_nft(fixture.context_mut(), [0x72; 32]);
-    let udt = deploy_test_udt(fixture.context_mut(), issuer_lock_hash);
+    let nft_a = build_test_nft_script(fixture.context_mut(), &nft_code, [0x71; 32]);
+    let nft_b = build_test_nft_script(fixture.context_mut(), &nft_code, [0x72; 32]);
+    let udt = build_test_udt_script(fixture.context_mut(), &udt_code, issuer_lock_hash);
 
     let order_a = LockOrder {
         owner_lock_hash: script_hash(&owner_lock),

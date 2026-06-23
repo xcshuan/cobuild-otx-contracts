@@ -29,7 +29,12 @@ pub fn type_script_create_order_cases() -> Vec<BuiltLimitOrderCase> {
 fn create_order_case(case: CreateOrderCase) -> BuiltLimitOrderCase {
     let mut fixture = CobuildTestFixture::new();
     let limit_order_code = fixture.deploy_limit_order();
-    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let nft_code = deploy_test_nft_code(fixture.context_mut());
+    let udt_code = deploy_test_udt_code(fixture.context_mut());
+    let proxy_lock_code = deploy_input_type_proxy_lock_code(fixture.context_mut());
+    let always_success =
+        build_always_success_script(fixture.context_mut(), &always_success_code, Vec::new());
     let owner_lock = always_success.script.clone();
     let funding_input = live_resolved_facts(
         fixture.context_mut(),
@@ -37,13 +42,21 @@ fn create_order_case(case: CreateOrderCase) -> BuiltLimitOrderCase {
         Vec::new(),
     );
     let nft_type_id = type_id_args(&funding_input.input, 1);
-    let nft = deploy_test_nft(fixture.context_mut(), nft_type_id);
+    let nft = build_test_nft_script(fixture.context_mut(), &nft_code, nft_type_id);
     let output_nft = if case == CreateOrderCase::WrongNftType {
-        deploy_test_nft(fixture.context_mut(), type_id_args(&funding_input.input, 2))
+        build_test_nft_script(
+            fixture.context_mut(),
+            &nft_code,
+            type_id_args(&funding_input.input, 2),
+        )
     } else {
         nft.clone()
     };
-    let udt = deploy_test_udt(fixture.context_mut(), script_hash(&always_success.script));
+    let udt = build_test_udt_script(
+        fixture.context_mut(),
+        &udt_code,
+        script_hash(&always_success.script),
+    );
     let computed_order_type_id = type_id_args(&funding_input.input, 0);
     let order_type_id = if case == CreateOrderCase::InvalidTypeId {
         [9; 32]
@@ -64,7 +77,11 @@ fn create_order_case(case: CreateOrderCase) -> BuiltLimitOrderCase {
     } else {
         order_type_hash
     };
-    let proxy_lock = deploy_input_type_proxy_lock(fixture.context_mut(), proxy_owner_type_hash);
+    let proxy_lock = build_input_type_proxy_lock_script(
+        fixture.context_mut(),
+        &proxy_lock_code,
+        proxy_owner_type_hash,
+    );
     let order_state = LimitOrderState {
         owner_lock_hash: script_hash(&owner_lock),
         offered_nft_type_hash: nft.script_hash,

@@ -286,7 +286,8 @@ fn signed_otx_case(name: &'static str, config: OtxCaseConfig) -> BuiltCobuildOtx
             ))
         });
     if config.tx_level_shape == OtxTxLevelShape::UnsignedOutsideOtherLock {
-        let other = deploy_always_success(fixture.context_mut(), Vec::new());
+        let other_code = deploy_always_success_code(fixture.context_mut());
+        let other = build_always_success_script(fixture.context_mut(), &other_code, Vec::new());
         shape.push_prefix_cell_dep(other.cell_dep);
         shape.push_prefix_input(live_resolved_facts(
             fixture.context_mut(),

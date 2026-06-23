@@ -5,7 +5,7 @@ pub use cases::{BuiltCobuildOtxLockCase, TwoUdtTransferFacts, cases, two_udt_tra
 pub use errors::CobuildOtxLockError;
 
 pub fn assert_coverage_manifest(cases: &[BuiltCobuildOtxLockCase]) {
-    assert_eq!(cases.len(), 34, "cobuild otx lock case coverage count");
+    assert_eq!(cases.len(), 36, "cobuild otx lock case coverage count");
     assert!(
         cases.iter().any(|case| case.name
             == "contract_accepts_other_lock_outside_otx_without_tx_level_signature"),
@@ -16,6 +16,17 @@ pub fn assert_coverage_manifest(cases: &[BuiltCobuildOtxLockCase]) {
             .iter()
             .any(|case| case.name == "contract_accepts_nft_for_udt_swap_otxs_in_one_transaction"),
         "cobuild otx lock coverage must include composed NFT-for-UDT swap OTXs"
+    );
+    assert!(
+        cases
+            .iter()
+            .any(|case| case.name == "contract_accepts_nft_for_udt_append_otx_swap"),
+        "cobuild otx lock coverage must include append OTX NFT-for-UDT swap"
+    );
+    assert!(
+        cases.iter().any(|case| case.name
+            == "contract_accepts_nft_for_udt_append_otx_swap_with_previous_coverage"),
+        "cobuild otx lock coverage must include append OTX NFT-for-UDT swap with previous coverage"
     );
     assert!(
         cases.iter().any(|case| {

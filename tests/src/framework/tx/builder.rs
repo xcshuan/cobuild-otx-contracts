@@ -6,6 +6,10 @@ use ckb_testtool::ckb_types::{
     packed::CellDep,
     prelude::*,
 };
+use cobuild_core::protocol::{
+    APPEND_PERMISSION_CELL_DEPS_BIT, APPEND_PERMISSION_HEADER_DEPS_BIT,
+    APPEND_PERMISSION_INPUTS_BIT, APPEND_PERMISSION_OUTPUTS_BIT,
+};
 use cobuild_types::entity::{
     core::{LockSeal, Message as CobuildMessage, SighashAll},
     witness::WitnessLayout,
@@ -24,6 +28,56 @@ use super::{
     otx_start_witness,
 };
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AppendPermissionsSpec {
+    Auto,
+    Explicit(u8),
+}
+
+impl Default for AppendPermissionsSpec {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl AppendPermissionsSpec {
+    pub fn new() -> Self {
+        Self::Explicit(0)
+    }
+
+    pub fn none() -> Self {
+        Self::new()
+    }
+
+    pub fn raw(value: u8) -> Self {
+        Self::Explicit(value)
+    }
+
+    pub fn allow_inputs(self) -> Self {
+        self.allow(APPEND_PERMISSION_INPUTS_BIT)
+    }
+
+    pub fn allow_outputs(self) -> Self {
+        self.allow(APPEND_PERMISSION_OUTPUTS_BIT)
+    }
+
+    pub fn allow_cell_deps(self) -> Self {
+        self.allow(APPEND_PERMISSION_CELL_DEPS_BIT)
+    }
+
+    pub fn allow_header_deps(self) -> Self {
+        self.allow(APPEND_PERMISSION_HEADER_DEPS_BIT)
+    }
+
+    fn allow(self, bit: u8) -> Self {
+        let raw = match self {
+            Self::Auto => 0,
+            Self::Explicit(raw) => raw,
+        };
+        Self::Explicit(raw | (1 << bit))
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct OtxSpec {
     pub message: Option<CobuildMessage>,
@@ -35,8 +89,20 @@ pub struct OtxSpec {
     pub base_output_masks: Option<Vec<u8>>,
     pub base_cell_dep_masks: Option<Vec<u8>>,
     pub base_header_dep_masks: Option<Vec<u8>>,
+    pub append_permissions: AppendPermissionsSpec,
     pub append_segments: Vec<AppendSegmentSpec>,
     pub base_seals: Vec<LockSeal>,
+}
+
+impl OtxSpec {
+    pub fn with_append_permissions(mut self, permissions: AppendPermissionsSpec) -> Self {
+        self.append_permissions = permissions;
+        self
+    }
+
+    pub fn without_append_permissions(self) -> Self {
+        self.with_append_permissions(AppendPermissionsSpec::none())
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -538,6 +604,9 @@ impl TxShape {
                 .any(|segment| !segment.header_deps.is_empty())
             {
                 builder_for_otx = builder_for_otx.allow_append_header_deps();
+            }
+            if let AppendPermissionsSpec::Explicit(permissions) = otx.segment.append_permissions {
+                builder_for_otx = builder_for_otx.append_permissions(permissions);
             }
             if let Some(masks) = &otx.segment.base_input_masks {
                 builder_for_otx = builder_for_otx.base_input_mask_bytes(masks.clone());

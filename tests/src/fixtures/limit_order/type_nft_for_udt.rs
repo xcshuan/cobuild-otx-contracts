@@ -7,8 +7,9 @@ use cobuild_types::entity::{
 use crate::fixtures::common::{
     assets::{nft_data, udt_amount_data},
     contracts::{
-        deploy_always_success, deploy_input_type_proxy_lock, deploy_test_nft, deploy_test_udt,
-        deploy_wrong_owner_lock,
+        build_always_success_script, build_input_type_proxy_lock_script, build_test_nft_script,
+        build_test_udt_script, build_wrong_owner_lock, deploy_always_success_code,
+        deploy_input_type_proxy_lock_code, deploy_test_nft_code, deploy_test_udt_code,
     },
 };
 use crate::framework::{

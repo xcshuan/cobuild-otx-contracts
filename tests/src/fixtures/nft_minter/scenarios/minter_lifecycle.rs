@@ -2,13 +2,20 @@ use super::*;
 
 pub fn minter_burn_case() -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
-    let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let minter_type_code = deploy_nft_minter_type_code(fixture.context_mut());
+    let lock = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let minter_script =
+        build_nft_minter_type_script(fixture.context_mut(), &minter_type_code, [1u8; 32].to_vec());
     let minter_input = live_resolved_facts(
         fixture.context_mut(),
         typed_output(
             lock.script.clone(),
-            minter_code.script.clone(),
+            minter_script.script.clone(),
             200_000_000_000,
         ),
         minter_data(MinterState {
@@ -19,7 +26,7 @@ pub fn minter_burn_case() -> NftMinterCase {
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
-    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_script.cell_dep.clone());
     let minter_input = shape.push_prefix_input(minter_input);
     let mut built = shape.build();
     built.tx = fixture.context_mut().complete_tx(built.tx);
@@ -36,16 +43,21 @@ pub fn minter_burn_case() -> NftMinterCase {
 
 pub fn minter_multiple_group_outputs_case() -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
-    let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let minter_code = deploy_nft_minter_type(fixture.context_mut(), Vec::new());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let lock = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let minter_type_code = deploy_nft_minter_type_code(fixture.context_mut());
     let funding_input = live_resolved_facts(
         fixture.context_mut(),
         normal_output(lock.script.clone(), 200_000_000_000),
         Bytes::new(),
     );
-    let minter_script = rebuild_data2_script(
+    let minter_script = build_data2_script(
         fixture.context_mut(),
-        &minter_code,
+        &minter_type_code,
         type_id_args(&funding_input.input, 0).to_vec(),
     );
     let output = TestCellOutput::new(
@@ -58,7 +70,7 @@ pub fn minter_multiple_group_outputs_case() -> NftMinterCase {
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
-    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_type_code.cell_dep.clone());
     shape.push_prefix_input(funding_input);
     let first_output = shape.push_remainder_output(output.clone());
     shape.push_remainder_output(output);
@@ -77,11 +89,18 @@ pub fn minter_multiple_group_outputs_case() -> NftMinterCase {
 
 pub fn minter_multiple_group_inputs_case() -> NftMinterCase {
     let mut fixture = CobuildTestFixture::new();
-    let lock = deploy_always_success(fixture.context_mut(), b"owner".to_vec());
-    let minter_code = deploy_nft_minter_type(fixture.context_mut(), [1u8; 32].to_vec());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let minter_type_code = deploy_nft_minter_type_code(fixture.context_mut());
+    let lock = build_always_success_script(
+        fixture.context_mut(),
+        &always_success_code,
+        b"owner".to_vec(),
+    );
+    let minter_script =
+        build_nft_minter_type_script(fixture.context_mut(), &minter_type_code, [1u8; 32].to_vec());
     let minter_cell = typed_output(
         lock.script.clone(),
-        minter_code.script.clone(),
+        minter_script.script.clone(),
         200_000_000_000,
     );
     let minter_data = minter_data(MinterState {
@@ -97,7 +116,7 @@ pub fn minter_multiple_group_inputs_case() -> NftMinterCase {
 
     let mut shape = TxShape::new();
     shape.push_prefix_cell_dep(lock.cell_dep.clone());
-    shape.push_prefix_cell_dep(minter_code.cell_dep.clone());
+    shape.push_prefix_cell_dep(minter_script.cell_dep.clone());
     let first_input = shape.push_prefix_input(first_input);
     shape.push_prefix_input(second_input);
     let mut built = shape.build();

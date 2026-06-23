@@ -174,13 +174,22 @@ fn framework_does_not_depend_on_fixtures_or_named_test_contracts() {
 fn fixtures_common_contracts_and_assets_are_usable() {
     let mut context = ckb_testtool::context::Context::default();
 
-    let always_success =
-        crate::fixtures::common::contracts::deploy_always_success(&mut context, Vec::new());
-    let udt = crate::fixtures::common::contracts::deploy_test_udt(
+    let always_success_code =
+        crate::fixtures::common::contracts::deploy_always_success_code(&mut context);
+    let udt_code = crate::fixtures::common::contracts::deploy_test_udt_code(&mut context);
+    let nft_code = crate::fixtures::common::contracts::deploy_test_nft_code(&mut context);
+    let always_success = crate::fixtures::common::contracts::build_always_success_script(
         &mut context,
+        &always_success_code,
+        Vec::new(),
+    );
+    let udt = crate::fixtures::common::contracts::build_test_udt_script(
+        &mut context,
+        &udt_code,
         always_success.script_hash,
     );
-    let nft = crate::fixtures::common::contracts::deploy_test_nft(&mut context, [7; 32]);
+    let nft =
+        crate::fixtures::common::contracts::build_test_nft_script(&mut context, &nft_code, [7; 32]);
 
     assert_eq!(
         always_success.script_hash,

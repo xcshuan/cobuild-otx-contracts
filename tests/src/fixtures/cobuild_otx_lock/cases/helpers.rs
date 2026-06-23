@@ -7,7 +7,7 @@ pub(super) fn unsigned_single_input_case(
 ) -> BuiltCobuildOtxLockCase {
     let mut fixture = CobuildTestFixture::new();
     let contract_code = deploy_cobuild_otx_lock_code(fixture.context_mut());
-    let contract = rebuild_data2_script(fixture.context_mut(), &contract_code, args.to_vec());
+    let contract = build_data2_script(fixture.context_mut(), &contract_code, args.to_vec());
     let lock_input = resolved_lock_input(
         fixture.context_mut(),
         contract,
@@ -209,10 +209,9 @@ pub(super) fn always_success_output(
     capacity: u64,
     data: Bytes,
 ) -> TestCellOutput {
-    TestCellOutput::new(
-        normal_output(deploy_always_success(context, Vec::new()).script, capacity),
-        data,
-    )
+    let always_success_code = deploy_always_success_code(context);
+    let always_success = build_always_success_script(context, &always_success_code, Vec::new());
+    TestCellOutput::new(normal_output(always_success.script, capacity), data)
 }
 
 pub(super) fn deploy_dummy_dep(
@@ -258,7 +257,12 @@ mod tests {
     #[test]
     fn tx_mutations_fill_otx_seals_routes_append_segment_seals() {
         let mut fixture = CobuildTestFixture::new();
-        let lock = deploy_always_success(fixture.context_mut(), b"seal-route".to_vec());
+        let always_success_code = deploy_always_success_code(fixture.context_mut());
+        let lock = build_always_success_script(
+            fixture.context_mut(),
+            &always_success_code,
+            b"seal-route".to_vec(),
+        );
         let base_input = resolved_lock_input(
             fixture.context_mut(),
             lock.script.clone(),

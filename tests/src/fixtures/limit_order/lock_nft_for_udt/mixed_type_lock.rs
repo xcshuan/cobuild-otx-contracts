@@ -8,15 +8,23 @@ fn mixed_type_lock_duplicate_payment_case() -> BuiltLimitOrderCase {
     let mut fixture = CobuildTestFixture::new();
     let limit_order_type = fixture.deploy_limit_order();
     let limit_order_lock_code = deploy_limit_order_lock(fixture.context_mut());
-    let always_success = deploy_always_success(fixture.context_mut(), Vec::new());
+    let always_success_code = deploy_always_success_code(fixture.context_mut());
+    let proxy_lock_code = deploy_input_type_proxy_lock_code(fixture.context_mut());
+    let nft_code = deploy_test_nft_code(fixture.context_mut());
+    let udt_code = deploy_test_udt_code(fixture.context_mut());
+    let always_success =
+        build_always_success_script(fixture.context_mut(), &always_success_code, Vec::new());
     let owner_lock = always_success.script.clone();
     let buyer_lock = always_success.script.clone();
     let issuer_lock_hash = script_hash(&always_success.script);
-    let proxy_lock =
-        deploy_input_type_proxy_lock(fixture.context_mut(), limit_order_type.script_hash);
-    let nft = deploy_test_nft(fixture.context_mut(), NFT_TYPE_ARGS);
-    let lock_nft = deploy_test_nft(fixture.context_mut(), [0x73; 32]);
-    let udt = deploy_test_udt(fixture.context_mut(), issuer_lock_hash);
+    let proxy_lock = build_input_type_proxy_lock_script(
+        fixture.context_mut(),
+        &proxy_lock_code,
+        limit_order_type.script_hash,
+    );
+    let nft = build_test_nft_script(fixture.context_mut(), &nft_code, NFT_TYPE_ARGS);
+    let lock_nft = build_test_nft_script(fixture.context_mut(), &nft_code, [0x73; 32]);
+    let udt = build_test_udt_script(fixture.context_mut(), &udt_code, issuer_lock_hash);
 
     let type_order_input = limit_order_type_input(
         &mut fixture,
