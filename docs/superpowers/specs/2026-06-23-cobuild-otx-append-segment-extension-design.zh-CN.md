@@ -35,7 +35,7 @@ append inputs、outputs、cell deps 和 header deps。
 - 不在 Core v1 中增加新的 witness variant。
 - 不提供通用业务约束语言。
 - 不让 segment 签名隐式保证最终交易的全局经济正确性。
-- 不支持第一版中的复杂 coverage mode，例如签后续 segment count 或
+- 不支持第一版中的复杂 coverage commitment，例如签后续 segment count 或
   following segment commitment。
 
 ## When To Use Multiple OTXs Instead
@@ -129,21 +129,35 @@ v1 的单组 `append_*_cells`。
 
 ## Segment Flags
 
-第一版只定义一个 flag：
+第一版只定义两个 flag：
 
 ```text
 bit 0: allow_more_segments_after
-bits 1..7: reserved, MUST be zero
+bit 1: coverage_previous_segments
+bits 2..7: reserved, MUST be zero
 ```
 
 语义：
 
-- `0x01`: 当前 segment 签名者允许后续继续追加 segment；
-- `0x00`: 当前 segment 必须是最后一个 append segment；
-- 其他 bit 非零时 witness 无效。
+- bit 0 为 `0` 时，当前 segment 必须是最后一个 append segment；
+- bit 0 为 `1` 时，当前 segment 签名者允许后续继续追加 segment；
+- bit 1 为 `0` 时，当前 segment seal 只签 `base + own segment`；
+- bit 1 为 `1` 时，当前 segment seal 签
+  `base + all previous segments + own segment`；
+- bits 2..7 非零时 witness 无效。
 
-这条规则给 contributor 一个最低限度的 finality 控制，同时避免把 Core 扩展成
-复杂的协作策略语言。
+bit 0 给 contributor 一个最低限度的 finality 控制。bit 1 允许同一扩展同时
+支持独立贡献模型和有序接力模型。更复杂的承诺，例如绑定后续 segment count
+或 following segment commitment，不进入第一版 flags。
+
+有效取值：
+
+```text
+0x00 = final segment, sign base + own segment
+0x01 = allow later segments, sign base + own segment
+0x02 = final segment, sign base + previous segments + own segment
+0x03 = allow later segments, sign base + previous segments + own segment
+```
 
 ## Transaction Layout
 
@@ -194,7 +208,9 @@ OtxAppendSegment
 
 `OtxBase` 仍按 Core v1 计算。
 
-每个 segment 的签名 hash 只覆盖同一个 base commitment 和该 segment 自身：
+每个 segment 的签名 hash 覆盖范围由 `coverage_previous_segments` 决定。
+
+当 bit 1 为 `0` 时，hash 只覆盖同一个 base commitment 和该 segment 自身：
 
 ```text
 OtxAppendSegmentHash =
@@ -210,8 +226,35 @@ OtxAppendSegmentHash =
   )
 ```
 
+当 bit 1 为 `1` 时，hash 覆盖同一个 base commitment、所有 previous segments
+和该 segment 自身：
+
+```text
+OtxAppendSegmentHash =
+  hash(
+    message,
+    base_hash,
+    segment_index,
+    segment_flags,
+    previous segment count,
+    for each previous segment:
+      previous segment index,
+      previous segment flags,
+      previous segment input count and full previous segment inputs,
+      previous segment output count and full previous segment outputs,
+      previous segment cell dep count and full previous segment cell deps,
+      previous segment header dep count and full previous segment header deps,
+    own segment input count and full own segment inputs,
+    own segment output count and full own segment outputs,
+    own segment cell dep count and full own segment cell deps,
+    own segment header dep count and full own segment header deps
+  )
+```
+
 `segment_index` 必须进入 hash，避免两个相同内容的 segment 签名可互换。
 `base_hash` 必须进入 hash，避免 segment 被搬到另一个 base intent 下复用。
+当 bit 1 为 `1` 时，previous segment 的 flags 也必须进入 hash，避免前序段的
+finality 或 coverage 语义在后续接力签名中被替换。
 
 ## Lock Signature Requirements
 
@@ -234,6 +277,10 @@ OtxAppendSegmentHash =
   segment；
 - 如果 segment `i` 不是最后一个 segment，则 `allow_more_segments_after` 必须
   为一；
+- 如果 segment `i` 的 `coverage_previous_segments` 为一，则它的 signing hash
+  必须覆盖 segment `0..i` 的完整 append 实体和 flags；
+- 如果 segment `i` 的 `coverage_previous_segments` 为零，则它的 signing hash
+  不得覆盖其他 segment 的 append 实体；
 - segment counts 必须与对应 append permissions 兼容；
 - 每个 required segment seal 必须唯一；
 - segment layout 必须与最终交易实体范围一致。
@@ -256,7 +303,7 @@ segment 至少需要一个 65-byte seal，加上 32-byte script hash 和 Molecul
 
 ## Comparison With Chain Coverage
 
-另一种设计是后追加者签前面所有 append 内容：
+bit 1 支持后追加者签前面所有 append 内容：
 
 ```text
 B signs base + B
@@ -264,14 +311,14 @@ C signs base + B + C
 D signs base + B + C + D
 ```
 
-这适合有序接力构建，但不适合作为本扩展的默认规则：
+这适合有序接力构建，但不作为默认规则：
 
 - 前面的签名者仍然没有确认后面的内容；
 - 后面的签名者被迫审查并背书前面所有内容；
 - 修改前面 segment 会让后面签名全部失效；
 - 多方并行提交 contribution 的能力较差。
 
-因此第一版选择 independent segment model：
+默认规则仍然是 independent segment model：
 
 ```text
 B signs base + B
@@ -279,8 +326,8 @@ C signs base + C
 D signs base + D
 ```
 
-如果未来需要链式覆盖，应作为单独 coverage extension 设计，而不是混入最小
-append segment 规则。
+因此 `coverage_previous_segments` 必须由每个 segment 显式选择。钱包和
+off-chain builder 需要把 bit 1 展示为签名覆盖差异，而不是普通 metadata。
 
 ## Recommendation
 
@@ -305,5 +352,5 @@ append segment 的价值是真实的，但覆盖面较窄。它更像 shared-bas
   commitment；
 - 业务脚本如何枚举同一个 base intent 下的 segment actions；
 - 是否需要一个 off-chain packet 格式帮助参与者检查 segment flags 和最终顺序；
-- 是否需要未来的 optional coverage mode，例如 chain coverage 或 following
-  segment commitment。
+- 是否需要未来的 optional coverage commitment，例如 following segment
+  commitment。
