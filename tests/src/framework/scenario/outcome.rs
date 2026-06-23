@@ -23,6 +23,7 @@ pub enum ScriptLocation {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ExpectedOutcome {
     Pass,
+    PassWithMaxCycles(Cycle),
     ScriptExit { location: ScriptLocation, code: i8 },
     AnyOf(Vec<ExpectedOutcome>),
 }
@@ -52,6 +53,9 @@ impl ExpectedOutcome {
     pub fn assert(&self, fixture: &CobuildTestFixture, built: &BuiltTxShape) {
         match self {
             Self::Pass => fixture.assert_pass(&built.tx),
+            Self::PassWithMaxCycles(max_cycles) => {
+                fixture.assert_pass_with_max_cycles(&built.tx, *max_cycles);
+            }
             Self::ScriptExit { location, code } => {
                 self.assert_script_exit(fixture, &built.tx, built, *location, *code);
             }
@@ -69,7 +73,7 @@ impl ExpectedOutcome {
 
     pub fn assert_result(&self, result: Result<Cycle, Error>, built: &BuiltTxShape) {
         match self {
-            Self::Pass => {
+            Self::Pass | Self::PassWithMaxCycles(_) => {
                 assert!(result.is_ok(), "{result:?}");
             }
             Self::ScriptExit { location, code } => match location {
@@ -100,7 +104,7 @@ impl ExpectedOutcome {
 
     fn matches_result(&self, result: &Result<Cycle, Error>, built: &BuiltTxShape) -> bool {
         match self {
-            Self::Pass => result.is_ok(),
+            Self::Pass | Self::PassWithMaxCycles(_) => result.is_ok(),
             Self::ScriptExit { location, code } => {
                 script_exit_matches(result, expected_origin(*location, built), *code)
             }

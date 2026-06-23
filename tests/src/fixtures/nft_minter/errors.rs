@@ -61,6 +61,7 @@ impl MintedNftTypeError {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum NftMinterExpected {
     Pass,
+    PassWithMaxCycles(u64),
     MinterInputType {
         input: InputHandle,
         error: NftMinterTypeError,
@@ -91,6 +92,7 @@ impl NftMinterExpected {
     pub fn expected_outcome(&self) -> ExpectedOutcome {
         match self {
             Self::Pass => ExpectedOutcome::Pass,
+            Self::PassWithMaxCycles(max_cycles) => ExpectedOutcome::PassWithMaxCycles(*max_cycles),
             Self::MinterInputType { input, error } => ExpectedOutcome::ScriptExit {
                 location: ScriptLocation::InputType(*input),
                 code: error.code(),

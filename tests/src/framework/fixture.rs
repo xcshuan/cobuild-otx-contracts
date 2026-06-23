@@ -36,6 +36,10 @@ impl CobuildTestFixture {
         assertions::assert_pass(&self.context, tx);
     }
 
+    pub fn assert_pass_with_max_cycles(&self, tx: &TransactionView, max_cycles: u64) {
+        assertions::assert_pass_with_max_cycles(&self.context, tx, max_cycles);
+    }
+
     pub fn assert_type_script_exit(&self, tx: &TransactionView, input_index: usize, code: i8) {
         assertions::assert_type_script_exit(&self.context, tx, input_index, code);
     }

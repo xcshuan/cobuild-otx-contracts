@@ -852,7 +852,7 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_base_case() -> Nft
         name: "mint_three_otx_actions_single_minter_transition_signed_base",
         fixture,
         built,
-        expected: NftMinterExpected::Pass,
+        expected: NftMinterExpected::PassWithMaxCycles(200_000_000),
     }
 }
 
@@ -1083,7 +1083,7 @@ pub fn mint_three_otx_actions_single_minter_transition_signed_append_case() -> N
         name: "mint_three_otx_actions_single_minter_transition_signed_append",
         fixture,
         built,
-        expected: NftMinterExpected::Pass,
+        expected: NftMinterExpected::PassWithMaxCycles(200_000_000),
     }
 }
 

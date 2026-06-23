@@ -13,7 +13,15 @@ pub(crate) const MAX_CYCLES: u64 = 100_000_000;
 const DUMP_EXPECTED_FAILURES_ENV: &str = "COBUILD_TEST_DUMP_EXPECTED_FAILURES";
 
 pub fn assert_pass(context: &Context, tx: &TransactionView) -> Cycle {
-    let result = verify_and_dump_failed_tx(context, tx, MAX_CYCLES);
+    assert_pass_with_max_cycles(context, tx, MAX_CYCLES)
+}
+
+pub fn assert_pass_with_max_cycles(
+    context: &Context,
+    tx: &TransactionView,
+    max_cycles: Cycle,
+) -> Cycle {
+    let result = verify_and_dump_failed_tx(context, tx, max_cycles);
     assert!(result.is_ok(), "{result:?}");
     result.expect("transaction should pass")
 }
