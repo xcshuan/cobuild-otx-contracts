@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 
 use cobuild_types::lazy_reader::{
-    core::{Action, Message, Otx, OtxStart, SealPair},
+    core::{Action, LockSeal, Message, Otx, OtxAppendSegment, OtxStart},
     support::Cursor,
     witness::WitnessLayout as CobuildWitnessLayout,
 };
@@ -43,10 +43,19 @@ pub struct MaskView {
 }
 
 #[derive(Clone)]
-pub struct SealPairView {
+pub struct LockSealView {
     pub script_hash: [u8; 32],
-    pub scope: u8,
     pub seal: Cursor,
+}
+
+#[derive(Clone)]
+pub struct OtxAppendSegmentView {
+    pub segment_flags: u8,
+    pub input_cells: usize,
+    pub output_cells: usize,
+    pub cell_deps: usize,
+    pub header_deps: usize,
+    pub seals: Vec<LockSealView>,
 }
 
 #[derive(Clone)]
@@ -70,11 +79,8 @@ pub struct OtxView {
     pub base_cell_dep_masks: MaskView,
     pub base_header_deps: usize,
     pub base_header_dep_masks: MaskView,
-    pub append_input_cells: usize,
-    pub append_output_cells: usize,
-    pub append_cell_deps: usize,
-    pub append_header_deps: usize,
-    pub seals: Vec<SealPairView>,
+    pub append_segments: Vec<OtxAppendSegmentView>,
+    pub base_seals: Vec<LockSealView>,
 }
 
 impl OtxView {
@@ -371,14 +377,29 @@ fn otx_start_view(start: &OtxStart) -> Result<OtxStartView, CoreError> {
 }
 
 fn otx_view(otx: &Otx) -> Result<OtxView, CoreError> {
-    let seals_reader = otx.seals().map_err(|_| CoreError::MalformedCobuild)?;
-    let seal_count = seals_reader
+    let append_segments_reader = otx
+        .append_segments()
+        .map_err(|_| CoreError::MalformedCobuild)?;
+    let append_segment_count = append_segments_reader
         .len()
         .map_err(|_| CoreError::MalformedCobuild)?;
-    let mut seals = Vec::with_capacity(seal_count);
-    for index in 0..seal_count {
-        seals.push(seal_pair_data(
-            &seals_reader
+    let mut append_segments = Vec::with_capacity(append_segment_count);
+    for index in 0..append_segment_count {
+        append_segments.push(append_segment_data(
+            &append_segments_reader
+                .get(index)
+                .map_err(|_| CoreError::MalformedCobuild)?,
+        )?);
+    }
+
+    let base_seals_reader = otx.base_seals().map_err(|_| CoreError::MalformedCobuild)?;
+    let base_seal_count = base_seals_reader
+        .len()
+        .map_err(|_| CoreError::MalformedCobuild)?;
+    let mut base_seals = Vec::with_capacity(base_seal_count);
+    for index in 0..base_seal_count {
+        base_seals.push(lock_seal_data(
+            &base_seals_reader
                 .get(index)
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?);
@@ -422,33 +443,59 @@ fn otx_view(otx: &Otx) -> Result<OtxView, CoreError> {
             &otx.base_header_dep_masks()
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?),
-        append_input_cells: usize_from_u32(
-            otx.append_input_cells()
+        append_segments,
+        base_seals,
+    })
+}
+
+fn append_segment_data(segment: &OtxAppendSegment) -> Result<OtxAppendSegmentView, CoreError> {
+    let seals_reader = segment.seals().map_err(|_| CoreError::MalformedCobuild)?;
+    let seal_count = seals_reader
+        .len()
+        .map_err(|_| CoreError::MalformedCobuild)?;
+    let mut seals = Vec::with_capacity(seal_count);
+    for index in 0..seal_count {
+        seals.push(lock_seal_data(
+            &seals_reader
+                .get(index)
+                .map_err(|_| CoreError::MalformedCobuild)?,
+        )?);
+    }
+
+    Ok(OtxAppendSegmentView {
+        segment_flags: segment
+            .segment_flags()
+            .map_err(|_| CoreError::MalformedCobuild)?,
+        input_cells: usize_from_u32(
+            segment
+                .input_cells()
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?,
-        append_output_cells: usize_from_u32(
-            otx.append_output_cells()
+        output_cells: usize_from_u32(
+            segment
+                .output_cells()
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?,
-        append_cell_deps: usize_from_u32(
-            otx.append_cell_deps()
+        cell_deps: usize_from_u32(
+            segment
+                .cell_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?,
-        append_header_deps: usize_from_u32(
-            otx.append_header_deps()
+        header_deps: usize_from_u32(
+            segment
+                .header_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
         )?,
         seals,
     })
 }
 
-fn seal_pair_data(pair: &SealPair) -> Result<SealPairView, CoreError> {
-    Ok(SealPairView {
-        script_hash: pair
+fn lock_seal_data(seal: &LockSeal) -> Result<LockSealView, CoreError> {
+    Ok(LockSealView {
+        script_hash: seal
             .script_hash()
             .map_err(|_| CoreError::MalformedCobuild)?,
-        scope: pair.scope().map_err(|_| CoreError::MalformedCobuild)?,
-        seal: pair.seal().map_err(|_| CoreError::MalformedCobuild)?,
+        seal: seal.seal().map_err(|_| CoreError::MalformedCobuild)?,
     })
 }
 

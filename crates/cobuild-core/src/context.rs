@@ -632,6 +632,14 @@ mod tests {
                 append_cell_deps: range(0, 0),
                 base_header_deps: range(0, 0),
                 append_header_deps: range(0, 0),
+                append_segments: alloc::vec![crate::layout::OtxAppendSegmentLayout {
+                    segment_index: 0,
+                    flags: crate::protocol::SegmentFlags::try_from(0).unwrap(),
+                    inputs: append_inputs,
+                    outputs: append_outputs,
+                    cell_deps: range(0, 0),
+                    header_deps: range(0, 0),
+                }],
             },
             witness: crate::view::OtxView {
                 message: crate::reader::cursor_from_slice(&empty_message()),
@@ -644,11 +652,15 @@ mod tests {
                 base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
                 base_header_deps: 0,
                 base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
-                append_input_cells: append_inputs.count,
-                append_output_cells: append_outputs.count,
-                append_cell_deps: 0,
-                append_header_deps: 0,
-                seals: Vec::new(),
+                append_segments: alloc::vec![crate::view::OtxAppendSegmentView {
+                    segment_flags: 0,
+                    input_cells: append_inputs.count,
+                    output_cells: append_outputs.count,
+                    cell_deps: 0,
+                    header_deps: 0,
+                    seals: Vec::new(),
+                }],
+                base_seals: Vec::new(),
             },
         }
     }

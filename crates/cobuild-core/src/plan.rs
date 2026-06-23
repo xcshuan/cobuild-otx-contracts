@@ -39,7 +39,7 @@ pub struct SigningRequirement {
 pub enum SignatureOrigin {
     TxLevel,
     OtxBase,
-    OtxAppend,
+    OtxAppendSegment { segment_index: usize },
 }
 
 #[derive(Clone)]

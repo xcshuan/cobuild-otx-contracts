@@ -16,7 +16,7 @@ use crate::{
 const TX_WITHOUT_MESSAGE_PERSONAL: &[u8; 16] = b"ckbcb_tnm_core1\0";
 const TX_WITH_MESSAGE_PERSONAL: &[u8; 16] = b"ckbcb_twm_core1\0";
 const OTX_BASE_PERSONAL: &[u8; 16] = b"ckbcb_otb_core1\0";
-const OTX_APPEND_PERSONAL: &[u8; 16] = b"ckbcb_ota_core1\0";
+const OTX_APPEND_SEGMENT_PERSONAL: &[u8; 16] = b"ckbcb_ots_core1\0";
 
 pub(crate) fn tx_without_message_hash(
     reader: &syscalls::SyscallTxReader,
@@ -87,20 +87,52 @@ pub(crate) fn otx_base_hash(
     Ok(finalize_hash(hasher))
 }
 
-pub(crate) fn otx_append_hash(
+pub(crate) fn otx_append_segment_hash(
     otx: &OtxView,
     layout: &OtxLayout,
+    segment_index: usize,
     reader: &syscalls::SyscallTxReader,
     base_hash: [u8; 32],
 ) -> Result<[u8; 32], CoreError> {
-    let mut hasher = new_signing_hasher(OTX_APPEND_PERSONAL);
+    let segment = layout
+        .append_segments
+        .get(segment_index)
+        .ok_or(CoreError::InvalidOtxLayout)?;
+    if segment.segment_index != segment_index {
+        return Err(CoreError::InvalidOtxLayout);
+    }
+    otx.append_segments
+        .get(segment_index)
+        .ok_or(CoreError::InvalidOtxLayout)?;
+
+    let mut hasher = new_signing_hasher(OTX_APPEND_SEGMENT_PERSONAL);
 
     writer::write_cursor_with_error(&mut hasher, &otx.message, CoreError::MalformedCobuild)?;
     hasher.update(&base_hash);
-    write_otx_append_input_cells(&mut hasher, otx, layout, reader)?;
-    write_otx_append_output_cells(&mut hasher, otx, layout, reader)?;
-    write_otx_append_cell_deps(&mut hasher, otx, layout, reader)?;
-    write_otx_append_header_deps(&mut hasher, otx, layout, reader)?;
+    writer::write_count(&mut hasher, segment_index)?;
+    hasher.update(&[segment.flags.raw()]);
+    if segment.flags.coverage_previous_segments() {
+        writer::write_count(&mut hasher, segment_index)?;
+        for previous_segment_index in 0..segment_index {
+            let previous_segment = layout
+                .append_segments
+                .get(previous_segment_index)
+                .ok_or(CoreError::InvalidOtxLayout)?;
+            if previous_segment.segment_index != previous_segment_index {
+                return Err(CoreError::InvalidOtxLayout);
+            }
+            writer::write_count(&mut hasher, previous_segment_index)?;
+            hasher.update(&[previous_segment.flags.raw()]);
+            write_otx_append_segment_entities(
+                &mut hasher,
+                otx,
+                layout,
+                previous_segment_index,
+                reader,
+            )?;
+        }
+    }
+    write_otx_append_segment_entities(&mut hasher, otx, layout, segment_index, reader)?;
 
     Ok(finalize_hash(hasher))
 }
@@ -279,15 +311,62 @@ fn write_otx_base_header_deps(
     Ok(())
 }
 
-fn write_otx_append_input_cells(
+fn write_otx_append_segment_entities(
     hasher: &mut Blake2b,
     otx: &OtxView,
     layout: &OtxLayout,
+    segment_index: usize,
     reader: &syscalls::SyscallTxReader,
 ) -> Result<(), CoreError> {
-    writer::write_count(hasher, otx.append_input_cells)?;
-    for local_index in 0..otx.append_input_cells {
-        let tx_index = checked_index(layout.append_inputs, local_index)?;
+    let segment = otx
+        .append_segments
+        .get(segment_index)
+        .ok_or(CoreError::InvalidOtxLayout)?;
+    let segment_layout = layout
+        .append_segments
+        .get(segment_index)
+        .ok_or(CoreError::InvalidOtxLayout)?;
+    if segment_layout.segment_index != segment_index {
+        return Err(CoreError::InvalidOtxLayout);
+    }
+
+    write_otx_append_segment_input_cells(
+        hasher,
+        segment.input_cells,
+        segment_layout.inputs,
+        reader,
+    )?;
+    write_otx_append_segment_output_cells(
+        hasher,
+        segment.output_cells,
+        segment_layout.outputs,
+        reader,
+    )?;
+    write_otx_append_segment_cell_deps(
+        hasher,
+        segment.cell_deps,
+        segment_layout.cell_deps,
+        reader,
+    )?;
+    write_otx_append_segment_header_deps(
+        hasher,
+        segment.header_deps,
+        segment_layout.header_deps,
+        reader,
+    )?;
+
+    Ok(())
+}
+
+fn write_otx_append_segment_input_cells(
+    hasher: &mut Blake2b,
+    count: usize,
+    range: Range,
+    reader: &syscalls::SyscallTxReader,
+) -> Result<(), CoreError> {
+    writer::write_count(hasher, count)?;
+    for local_index in 0..count {
+        let tx_index = checked_index(range, local_index)?;
         let input = reader.raw_input_cursor(tx_index)?;
         writer::write_count(hasher, local_index)?;
         writer::write_cursor_with_error(hasher, &input, CoreError::MissingHashInput)?;
@@ -303,15 +382,15 @@ fn write_otx_append_input_cells(
     Ok(())
 }
 
-fn write_otx_append_output_cells(
+fn write_otx_append_segment_output_cells(
     hasher: &mut Blake2b,
-    otx: &OtxView,
-    layout: &OtxLayout,
+    count: usize,
+    range: Range,
     reader: &syscalls::SyscallTxReader,
 ) -> Result<(), CoreError> {
-    writer::write_count(hasher, otx.append_output_cells)?;
-    for local_index in 0..otx.append_output_cells {
-        let tx_index = checked_index(layout.append_outputs, local_index)?;
+    writer::write_count(hasher, count)?;
+    for local_index in 0..count {
+        let tx_index = checked_index(range, local_index)?;
         writer::write_count(hasher, local_index)?;
         let output = reader.raw_output_cursor(tx_index)?;
         writer::write_cursor_with_error(hasher, &output, CoreError::MissingHashInput)?;
@@ -325,15 +404,15 @@ fn write_otx_append_output_cells(
     Ok(())
 }
 
-fn write_otx_append_cell_deps(
+fn write_otx_append_segment_cell_deps(
     hasher: &mut Blake2b,
-    otx: &OtxView,
-    layout: &OtxLayout,
+    count: usize,
+    range: Range,
     reader: &syscalls::SyscallTxReader,
 ) -> Result<(), CoreError> {
-    writer::write_count(hasher, otx.append_cell_deps)?;
-    for local_index in 0..otx.append_cell_deps {
-        let tx_index = checked_index(layout.append_cell_deps, local_index)?;
+    writer::write_count(hasher, count)?;
+    for local_index in 0..count {
+        let tx_index = checked_index(range, local_index)?;
         writer::write_count(hasher, local_index)?;
         let cell_dep = reader.raw_cell_dep_cursor(tx_index)?;
         writer::write_cursor_with_error(hasher, &cell_dep, CoreError::MissingHashInput)?;
@@ -341,15 +420,15 @@ fn write_otx_append_cell_deps(
     Ok(())
 }
 
-fn write_otx_append_header_deps(
+fn write_otx_append_segment_header_deps(
     hasher: &mut Blake2b,
-    otx: &OtxView,
-    layout: &OtxLayout,
+    count: usize,
+    range: Range,
     reader: &syscalls::SyscallTxReader,
 ) -> Result<(), CoreError> {
-    writer::write_count(hasher, otx.append_header_deps)?;
-    for local_index in 0..otx.append_header_deps {
-        let tx_index = checked_index(layout.append_header_deps, local_index)?;
+    writer::write_count(hasher, count)?;
+    for local_index in 0..count {
+        let tx_index = checked_index(range, local_index)?;
         writer::write_count(hasher, local_index)?;
         hasher.update(&reader.raw_header_dep_hash(tx_index)?);
     }

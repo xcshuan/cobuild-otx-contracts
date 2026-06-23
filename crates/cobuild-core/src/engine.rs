@@ -5,14 +5,14 @@ use cobuild_types::lazy_reader::support::Cursor;
 use crate::{
     context::{CurrentScript, CurrentScriptContext},
     error::CoreError,
-    hash::{otx_append_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash},
+    hash::{otx_append_segment_hash, otx_base_hash, tx_with_message_hash, tx_without_message_hash},
     layout::OtxLayouts,
     plan::{
         ActionOrigin, ActionRef, LockValidationPlan, OtxMessageLayout, RelatedAction,
         SignatureOrigin, SigningRequirement, TypeActionOtxScope, TypeRelatedAction,
         TypeValidationPlan,
     },
-    protocol::{ScriptRole, SealScope},
+    protocol::ScriptRole,
     reader::cursor_bytes,
     syscalls::SyscallTxReader,
     view::{ActionView, MessageView},
@@ -428,13 +428,10 @@ impl<'a> LockPlanBuilder<'a> {
             .context
             .script_context
             .input_range_contains_current_lock(otx.layout.base_inputs)?;
-        let append_signature = self
-            .context
-            .script_context
-            .input_range_contains_current_lock(otx.layout.append_inputs)?;
+        let segment_signatures = self.otx_segment_signature_indexes(otx)?;
         let all_actions = message_actions(&otx.witness.message)?;
         let actions = lock_actions_from_actions(&all_actions, self.lock_script_hash);
-        let needs_signature = base_signature || append_signature;
+        let needs_signature = base_signature || !segment_signatures.is_empty();
         if !needs_signature && actions.is_empty() {
             return Ok(());
         }
@@ -444,10 +441,27 @@ impl<'a> LockPlanBuilder<'a> {
             .validate_action_targets(&all_actions)?;
         self.push_otx_actions(otx_index, otx, actions);
         if needs_signature {
-            self.add_otx_signatures(otx, base_signature, append_signature)?;
+            self.add_otx_signatures(otx, base_signature, &segment_signatures)?;
         }
 
         Ok(())
+    }
+
+    fn otx_segment_signature_indexes(
+        &self,
+        otx: &crate::layout::OtxLayoutEntry,
+    ) -> Result<Vec<usize>, CoreError> {
+        let mut segment_signatures = Vec::new();
+        for (segment_index, segment) in otx.layout.append_segments.iter().enumerate() {
+            if self
+                .context
+                .script_context
+                .input_range_contains_current_lock(segment.inputs)?
+            {
+                segment_signatures.push(segment_index);
+            }
+        }
+        Ok(segment_signatures)
     }
 
     fn push_otx_actions(
@@ -466,15 +480,12 @@ impl<'a> LockPlanBuilder<'a> {
         &mut self,
         otx: &crate::layout::OtxLayoutEntry,
         base_signature: bool,
-        append_signature: bool,
+        segment_signatures: &[usize],
     ) -> Result<(), CoreError> {
         let base_hash = otx_base_hash(&otx.witness, &otx.layout, &self.context.tx)?;
         if base_signature {
-            let seal = crate::seal::unique_otx_seal_by_scope(
-                self.lock_script_hash,
-                &otx.witness.seals,
-                SealScope::Base,
-            )?;
+            let seal =
+                crate::seal::unique_lock_seal(self.lock_script_hash, &otx.witness.base_seals)?;
             self.required_signatures.push(SigningRequirement {
                 origin: SignatureOrigin::OtxBase,
                 carrier_witness_index: otx.layout.witness_index,
@@ -482,19 +493,21 @@ impl<'a> LockPlanBuilder<'a> {
                 signing_message_hash: base_hash,
             });
         }
-        if append_signature {
-            let seal = crate::seal::unique_otx_seal_by_scope(
-                self.lock_script_hash,
-                &otx.witness.seals,
-                SealScope::Append,
-            )?;
+        for &segment_index in segment_signatures {
+            let segment = otx
+                .witness
+                .append_segments
+                .get(segment_index)
+                .ok_or(CoreError::InvalidOtxLayout)?;
+            let seal = crate::seal::unique_lock_seal(self.lock_script_hash, &segment.seals)?;
             self.required_signatures.push(SigningRequirement {
-                origin: SignatureOrigin::OtxAppend,
+                origin: SignatureOrigin::OtxAppendSegment { segment_index },
                 carrier_witness_index: otx.layout.witness_index,
                 seal,
-                signing_message_hash: otx_append_hash(
+                signing_message_hash: otx_append_segment_hash(
                     &otx.witness,
                     &otx.layout,
+                    segment_index,
                     &self.context.tx,
                     base_hash,
                 )?,
@@ -512,7 +525,7 @@ impl<'a> LockPlanBuilder<'a> {
         let has_otx = self.required_signatures.iter().any(|requirement| {
             matches!(
                 requirement.origin,
-                SignatureOrigin::OtxBase | SignatureOrigin::OtxAppend
+                SignatureOrigin::OtxBase | SignatureOrigin::OtxAppendSegment { .. }
             )
         });
         // If this lock uses OTX-scoped signatures without a tx-level signature,
@@ -752,6 +765,17 @@ mod tests {
                 append_cell_deps: crate::layout::Range { start: 0, count: 0 },
                 base_header_deps: crate::layout::Range { start: 0, count: 0 },
                 append_header_deps: crate::layout::Range { start: 0, count: 0 },
+                append_segments: vec![crate::layout::OtxAppendSegmentLayout {
+                    segment_index: 0,
+                    flags: crate::protocol::SegmentFlags::try_from(0).unwrap(),
+                    inputs: crate::layout::Range {
+                        start: append_start,
+                        count: 1,
+                    },
+                    outputs: crate::layout::Range { start: 1, count: 0 },
+                    cell_deps: crate::layout::Range { start: 0, count: 0 },
+                    header_deps: crate::layout::Range { start: 0, count: 0 },
+                }],
             },
             witness: crate::view::OtxView {
                 message: crate::reader::cursor_from_slice(message_bytes),
@@ -764,11 +788,15 @@ mod tests {
                 base_cell_dep_masks: crate::view::MaskView::new(Vec::new()),
                 base_header_deps: 0,
                 base_header_dep_masks: crate::view::MaskView::new(Vec::new()),
-                append_input_cells: 0,
-                append_output_cells: 0,
-                append_cell_deps: 0,
-                append_header_deps: 0,
-                seals: Vec::new(),
+                append_segments: vec![crate::view::OtxAppendSegmentView {
+                    segment_flags: 0,
+                    input_cells: 1,
+                    output_cells: 0,
+                    cell_deps: 0,
+                    header_deps: 0,
+                    seals: Vec::new(),
+                }],
+                base_seals: Vec::new(),
             },
         }
     }
@@ -1064,6 +1092,32 @@ mod tests {
         assert_eq!(actions.len(), 2);
         assert_eq!(actions[0].index, 0);
         assert_eq!(actions[1].index, 1);
+    }
+
+    #[test]
+    fn append_segment_input_requires_segment_signature() {
+        let lock_hash = [0x44; 32];
+        let other_hash = [0x55; 32];
+        let otx = test_otx(&message_with_actions(&[]), 0, 1);
+        let context =
+            lock_context_with_otx_entries(lock_hash, vec![other_hash, lock_hash], vec![otx]);
+        let builder = LockPlanBuilder {
+            context: &context,
+            lock_script_hash: lock_hash,
+            required_signatures: Vec::new(),
+            related_actions: Vec::new(),
+            tx_level_action_cache: None,
+        };
+        let OtxLayouts::Complete(layout) = &context.otx_layouts else {
+            panic!("expected complete OTX layouts");
+        };
+
+        assert_eq!(
+            builder
+                .otx_segment_signature_indexes(&layout.otx_entries[0])
+                .unwrap(),
+            vec![0]
+        );
     }
 
     #[test]

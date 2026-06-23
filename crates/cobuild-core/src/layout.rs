@@ -2,7 +2,11 @@ use alloc::vec::Vec;
 
 use crate::{
     error::CoreError,
-    protocol::{AppendPermissions, SealScope},
+    protocol::{
+        AppendPermissions, SegmentFlags, APPEND_PERMISSION_CELL_DEPS_BIT,
+        APPEND_PERMISSION_HEADER_DEPS_BIT, APPEND_PERMISSION_INPUTS_BIT,
+        APPEND_PERMISSION_OUTPUTS_BIT,
+    },
     view::{CobuildWitnessLayoutView, OtxStartView, OtxView},
 };
 
@@ -62,6 +66,16 @@ impl IntoIterator for IndexRange {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OtxAppendSegmentLayout {
+    pub segment_index: usize,
+    pub flags: crate::protocol::SegmentFlags,
+    pub inputs: Range,
+    pub outputs: Range,
+    pub cell_deps: Range,
+    pub header_deps: Range,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct OtxLayout {
     pub witness_index: usize,
     pub base_inputs: Range,
@@ -72,6 +86,7 @@ pub struct OtxLayout {
     pub append_cell_deps: Range,
     pub base_header_deps: Range,
     pub append_header_deps: Range,
+    pub append_segments: Vec<OtxAppendSegmentLayout>,
 }
 
 #[derive(Clone)]
@@ -232,22 +247,51 @@ impl LayoutRangeCursor {
         witness_index: usize,
         otx_view: &OtxView,
     ) -> Result<OtxLayout, CoreError> {
+        let base_inputs = Self::take_range(&mut self.next_input, otx_view.base_input_cells)?;
+        let base_outputs = Self::take_range(&mut self.next_output, otx_view.base_output_cells)?;
+        let base_cell_deps = Self::take_range(&mut self.next_cell_dep, otx_view.base_cell_deps)?;
+        let base_header_deps =
+            Self::take_range(&mut self.next_header_dep, otx_view.base_header_deps)?;
+
+        let append_input_start = self.next_input;
+        let append_output_start = self.next_output;
+        let append_cell_dep_start = self.next_cell_dep;
+        let append_header_dep_start = self.next_header_dep;
+        let mut append_segments = Vec::with_capacity(otx_view.append_segments.len());
+        for (segment_index, segment) in otx_view.append_segments.iter().enumerate() {
+            append_segments.push(OtxAppendSegmentLayout {
+                segment_index,
+                flags: SegmentFlags::try_from(segment.segment_flags)?,
+                inputs: Self::take_range(&mut self.next_input, segment.input_cells)?,
+                outputs: Self::take_range(&mut self.next_output, segment.output_cells)?,
+                cell_deps: Self::take_range(&mut self.next_cell_dep, segment.cell_deps)?,
+                header_deps: Self::take_range(&mut self.next_header_dep, segment.header_deps)?,
+            });
+        }
+
         Ok(OtxLayout {
             witness_index,
-            base_inputs: Self::take_range(&mut self.next_input, otx_view.base_input_cells)?,
-            append_inputs: Self::take_range(&mut self.next_input, otx_view.append_input_cells)?,
-            base_outputs: Self::take_range(&mut self.next_output, otx_view.base_output_cells)?,
-            append_outputs: Self::take_range(&mut self.next_output, otx_view.append_output_cells)?,
-            base_cell_deps: Self::take_range(&mut self.next_cell_dep, otx_view.base_cell_deps)?,
-            append_cell_deps: Self::take_range(&mut self.next_cell_dep, otx_view.append_cell_deps)?,
-            base_header_deps: Self::take_range(
-                &mut self.next_header_dep,
-                otx_view.base_header_deps,
-            )?,
-            append_header_deps: Self::take_range(
-                &mut self.next_header_dep,
-                otx_view.append_header_deps,
-            )?,
+            base_inputs,
+            append_inputs: Range {
+                start: append_input_start,
+                count: self.next_input - append_input_start,
+            },
+            base_outputs,
+            append_outputs: Range {
+                start: append_output_start,
+                count: self.next_output - append_output_start,
+            },
+            base_cell_deps,
+            append_cell_deps: Range {
+                start: append_cell_dep_start,
+                count: self.next_cell_dep - append_cell_dep_start,
+            },
+            base_header_deps,
+            append_header_deps: Range {
+                start: append_header_dep_start,
+                count: self.next_header_dep - append_header_dep_start,
+            },
+            append_segments,
         })
     }
 
@@ -288,18 +332,22 @@ fn validate_otx_view(data: &OtxView) -> Result<(), CoreError> {
         return Err(CoreError::InvalidOtxLayout);
     }
     let append_permissions = AppendPermissions::try_from(data.append_permissions)?;
-    append_permissions.require_allowed(0, data.append_input_cells)?;
-    append_permissions.require_allowed(1, data.append_output_cells)?;
-    append_permissions.require_allowed(2, data.append_cell_deps)?;
-    append_permissions.require_allowed(3, data.append_header_deps)?;
+    for (index, segment) in data.append_segments.iter().enumerate() {
+        let flags = SegmentFlags::try_from(segment.segment_flags)?;
+        if index + 1 != data.append_segments.len() && !flags.allow_more_segments_after() {
+            return Err(CoreError::InvalidOtxLayout);
+        }
+        append_permissions.require_allowed(APPEND_PERMISSION_INPUTS_BIT, segment.input_cells)?;
+        append_permissions.require_allowed(APPEND_PERMISSION_OUTPUTS_BIT, segment.output_cells)?;
+        append_permissions.require_allowed(APPEND_PERMISSION_CELL_DEPS_BIT, segment.cell_deps)?;
+        append_permissions
+            .require_allowed(APPEND_PERMISSION_HEADER_DEPS_BIT, segment.header_deps)?;
+    }
     data.base_input_masks.validate(data.base_input_cells * 2)?;
     data.base_output_masks
         .validate(data.base_output_cells * 4)?;
     data.base_cell_dep_masks.validate(data.base_cell_deps)?;
     data.base_header_dep_masks.validate(data.base_header_deps)?;
-    for seal in &data.seals {
-        SealScope::try_from(seal.scope)?;
-    }
     Ok(())
 }
 

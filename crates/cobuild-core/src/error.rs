@@ -9,9 +9,8 @@ pub enum CoreError {
     ActionNotFound,
     DuplicateSighashAll,
     MissingLockGroupCoverage,
-    MissingSealPair,
-    DuplicateSealPair,
-    InvalidSealScope,
+    MissingLockSeal,
+    DuplicateLockSeal,
     DuplicateMatchingAction,
     InvalidLockGroupWitness,
 }
