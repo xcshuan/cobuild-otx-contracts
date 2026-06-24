@@ -29,7 +29,7 @@ fn main() -> Result<()> {
 
 fn write_limit_order_proxy_lock_hash() -> Result<()> {
     let root = workspace_root()?;
-    let mode = env::var("MODE").unwrap_or_else(|_| "debug".to_owned());
+    let mode = env::var("PROXY_LOCK_MODE").unwrap_or_else(|_| "release".to_owned());
     let binary = root.join("build").join(&mode).join("input-type-proxy-lock");
     let output = root.join("tests/contracts/limit-order-type/src/generated_proxy_lock.rs");
     let data = fs::read(&binary)

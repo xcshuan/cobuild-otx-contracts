@@ -99,7 +99,11 @@ pub fn build_minted_nft_type_script(
 }
 
 pub fn deploy_input_type_proxy_lock_code(context: &mut Context) -> DeployedScript {
-    deploy_loader_binary_code(context, "input-type-proxy-lock", ScriptHashType::Data2)
+    deploy_script_bytes_code(
+        context,
+        crate::Loader::with_test_env(crate::TestEnv::Release).load_binary("input-type-proxy-lock"),
+        ScriptHashType::Data2,
+    )
 }
 
 pub fn build_input_type_proxy_lock_script(

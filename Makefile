@@ -22,6 +22,7 @@ CONTRACT :=
 # revert this behavior, you can change this to anything other than true
 CLEAN_BUILD_DIR_FIRST := true
 BUILD_DIR := build/$(MODE)
+PROXY_LOCK_MODE := release
 
 ifeq (release,$(MODE))
 	MODE_ARGS := --release
@@ -43,6 +44,12 @@ build:
 		rm -rf $(BUILD_DIR); \
 	fi
 	mkdir -p $(BUILD_DIR)
+	$(MAKE) -C tests/vendor/ckb-proxy-locks build \
+		MODE=release \
+		CONTRACT=input-type-proxy-lock \
+		BUILD_DIR=../../../build/release \
+		CLEAN_BUILD_DIR_FIRST=false \
+		CUSTOM_RUSTFLAGS='-C debug-assertions'
 	@set -eu; \
 	if [ "x$(CONTRACT)" = "x" ]; then \
 		for contract in $(wildcard contracts/*); do \
@@ -77,7 +84,7 @@ run:
 
 # test, check, clippy and fmt here are provided for completeness,
 # there is nothing wrong invoking cargo directly instead of make.
-test:
+test: build
 	cargo test $(CARGO_ARGS)
 
 check:

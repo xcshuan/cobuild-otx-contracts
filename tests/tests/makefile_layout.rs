@@ -47,11 +47,43 @@ fn root_makefile_builds_test_only_contracts() {
 }
 
 #[test]
-fn limit_order_type_contract_build_enables_official_type_id_without_default_feature() {
+fn root_makefile_builds_release_input_type_proxy_lock_before_contracts() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let makefile = std::fs::read_to_string(workspace_root.join("Makefile")).expect("Makefile");
+
+    assert!(
+        makefile.contains("test: build"),
+        "root make test must prepare contract binaries before running cargo tests"
+    );
+    assert!(
+        makefile.contains("tests/vendor/ckb-proxy-locks"),
+        "root Makefile must build the vendored proxy lock dependency"
+    );
+    assert!(
+        makefile.contains("CONTRACT=input-type-proxy-lock"),
+        "root Makefile must build the input-type-proxy-lock contract"
+    );
+    assert!(
+        makefile.contains("MODE=release"),
+        "input-type-proxy-lock must always be built in release mode"
+    );
+    assert!(
+        makefile.contains("BUILD_DIR=../../../build/release"),
+        "vendored proxy lock must be copied to the root release build directory"
+    );
+    assert!(
+        makefile.contains("CLEAN_BUILD_DIR_FIRST=false"),
+        "vendored proxy lock build must not clean the root build directory"
+    );
+}
+
+#[test]
+fn limit_order_type_contract_build_uses_release_proxy_lock_hash() {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let contract_dir = workspace_root.join("tests/contracts/limit-order-type");
     let manifest = std::fs::read_to_string(contract_dir.join("Cargo.toml")).expect("manifest");
     let makefile = std::fs::read_to_string(contract_dir.join("Makefile")).expect("Makefile");
+    let xtask = std::fs::read_to_string(workspace_root.join("xtask/src/main.rs")).expect("xtask");
 
     assert!(
         !manifest.contains("default = [\"type-id\"]"),
@@ -66,18 +98,43 @@ fn limit_order_type_contract_build_enables_official_type_id_without_default_feat
         "limit-order-type Makefile must pass contract features to cargo build"
     );
     assert!(
-        makefile.contains("build/$(MODE)/input-type-proxy-lock"),
-        "limit-order-type Makefile must generate proxy lock hash from the active MODE build"
+        makefile.contains("build/release/input-type-proxy-lock"),
+        "limit-order-type Makefile must generate proxy lock hash from the release proxy lock"
     );
     assert!(
         makefile.contains(
-            "MODE=\"$(MODE)\" cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type"
+            "PROXY_LOCK_MODE=\"release\" cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type"
         ),
-        "limit-order-type Makefile must pass the active MODE to proxy lock hash generation"
+        "limit-order-type Makefile must force release proxy lock hash generation"
     );
     assert!(
         !makefile.contains("build/debug/input-type-proxy-lock"),
         "limit-order-type Makefile must not hard-code debug proxy lock hash generation"
+    );
+    assert!(
+        !makefile.contains("build/$(MODE)/input-type-proxy-lock"),
+        "limit-order-type Makefile must not derive the proxy lock hash from active MODE"
+    );
+    assert!(
+        xtask.contains("env::var(\"PROXY_LOCK_MODE\").unwrap_or_else(|_| \"release\".to_owned())"),
+        "xtask proxy-lock-code-hash must default to release proxy lock mode"
+    );
+}
+
+#[test]
+fn fixture_loads_input_type_proxy_lock_from_release_build() {
+    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let fixture_contracts =
+        std::fs::read_to_string(workspace_root.join("tests/src/fixtures/common/contracts.rs"))
+            .expect("fixture contracts");
+
+    assert!(
+        fixture_contracts.contains("TestEnv::Release"),
+        "input-type-proxy-lock fixture must load the release proxy lock binary"
+    );
+    assert!(
+        fixture_contracts.contains("\"input-type-proxy-lock\""),
+        "fixture must still deploy the vendored input-type-proxy-lock"
     );
 }
 

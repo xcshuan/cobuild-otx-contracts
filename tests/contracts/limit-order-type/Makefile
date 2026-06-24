@@ -16,6 +16,7 @@ FULL_RUSTFLAGS := -C target-feature=+zba,+zbb,+zbc,+zbs,-a $(CUSTOM_RUSTFLAGS)
 CARGO_ARGS :=
 CONTRACT_FEATURES := --features type-id
 MODE := release
+PROXY_LOCK_MODE := release
 # Tweak this to change the clang version to use for building C code. By default
 # we use a bash script with some heuristics to find clang in current system.
 CLANG := $(shell $(TOP)/scripts/find_clang)
@@ -36,10 +37,10 @@ endif
 default: build test
 
 build:
-	@if [ -f "$(TOP)/build/$(MODE)/input-type-proxy-lock" ]; then \
-		MODE="$(MODE)" cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type; \
+	@if [ -f "$(TOP)/build/release/input-type-proxy-lock" ]; then \
+		PROXY_LOCK_MODE="release" cargo run --offline -p xtask -- proxy-lock-code-hash limit-order-type; \
 	else \
-		echo "Skipping proxy lock hash generation; $(TOP)/build/$(MODE)/input-type-proxy-lock is missing"; \
+		echo "Skipping proxy lock hash generation; $(TOP)/build/release/input-type-proxy-lock is missing"; \
 	fi
 	RUSTFLAGS="$(FULL_RUSTFLAGS)" TARGET_CC="$(CLANG)" TARGET_AR="$(AR)" \
 		cargo build --target=riscv64imac-unknown-none-elf $(MODE_ARGS) $(CONTRACT_FEATURES) $(CARGO_ARGS)

@@ -55,7 +55,7 @@ impl Default for Loader {
 }
 
 impl Loader {
-    fn with_test_env(env: TestEnv) -> Self {
+    pub fn with_test_env(env: TestEnv) -> Self {
         let load_prefix = match env {
             TestEnv::Debug => "debug",
             TestEnv::Release => "release",
