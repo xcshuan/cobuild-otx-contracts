@@ -377,13 +377,10 @@ fn classify_index(base: Range, append: Range, index: usize) -> Option<(OtxPart, 
 }
 
 fn merge_adjacent_ranges(base: Range, append: Range) -> Range {
-    debug_assert_eq!(base.start.checked_add(base.count), Some(append.start));
+    debug_assert_eq!(base.start + base.count, append.start);
     Range {
         start: base.start,
-        count: base
-            .count
-            .checked_add(append.count)
-            .expect("valid cobuild layout range"),
+        count: base.count + append.count,
     }
 }
 

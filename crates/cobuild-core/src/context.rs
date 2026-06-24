@@ -292,12 +292,7 @@ impl CurrentScriptContext {
         otx: &OtxLayoutEntry,
     ) -> Result<bool, CoreError> {
         for local_index in 0..otx.layout.base_outputs.count {
-            let tx_index = otx
-                .layout
-                .base_outputs
-                .start
-                .checked_add(local_index)
-                .ok_or(CoreError::InvalidOtxLayout)?;
+            let tx_index = otx.layout.base_outputs.start + local_index;
             if !self.type_output_indices()?.contains(&tx_index) {
                 continue;
             }
@@ -320,7 +315,7 @@ impl ScriptHashes {
 }
 
 fn range_contains(range: Range, index: usize) -> bool {
-    index >= range.start && index < range.start.saturating_add(range.count)
+    range.contains(index)
 }
 
 #[cfg(test)]

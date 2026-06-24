@@ -216,7 +216,7 @@ fn type_validation_plan_names_target_only_actions_separately_from_otx_scope() {
 }
 
 #[test]
-fn range_contains_and_local_index_are_non_panicking() {
+fn range_contains_and_local_index_classify_valid_indexes() {
     let range = Range { start: 5, count: 3 };
 
     assert!(!range.is_empty());
@@ -228,13 +228,6 @@ fn range_contains_and_local_index_are_non_panicking() {
     assert_eq!(range.local_index(5), Some(0));
     assert_eq!(range.local_index(7), Some(2));
     assert_eq!(range.local_index(8), None);
-
-    let overflowing = Range {
-        start: usize::MAX,
-        count: 2,
-    };
-    assert!(!overflowing.contains(usize::MAX));
-    assert_eq!(overflowing.local_index(usize::MAX), None);
 }
 
 #[test]

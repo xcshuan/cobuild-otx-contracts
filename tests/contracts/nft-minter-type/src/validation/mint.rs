@@ -33,7 +33,7 @@ pub fn validate_mint_state(
     if input.supply_cap != output.supply_cap {
         return Err(Error::SupplyCap);
     }
-    let increment: u64 = mint_action_count.try_into().map_err(|_| Error::Counter)?;
+    let increment = mint_action_count as u64;
     let expected = input
         .mint_counter
         .checked_add(increment)
@@ -106,7 +106,7 @@ fn validate_expected_outputs(
     actions: &[MintActionFact],
 ) -> Result<(), Error> {
     for (offset, action) in actions.iter().enumerate() {
-        let offset: u64 = offset.try_into().map_err(|_| Error::Counter)?;
+        let offset = offset as u64;
         let serial = old_counter.checked_add(offset).ok_or(Error::Counter)?;
         let rarity = crate::types::rarity_for_serial(serial);
         let expected_id = crate::types::nft_id(current_type_hash, serial);

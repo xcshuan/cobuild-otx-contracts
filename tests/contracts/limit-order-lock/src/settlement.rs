@@ -47,11 +47,12 @@ fn resolve_output_index(
     relative_output_index: usize,
 ) -> Result<usize, Error> {
     let output_indexes = layout.output_indexes();
-    output_indexes
-        .start
-        .checked_add(relative_output_index)
-        .filter(|index| *index < output_indexes.end)
-        .ok_or(Error::InvalidCobuild)
+    let index = output_indexes.start + relative_output_index;
+    if index < output_indexes.end {
+        Ok(index)
+    } else {
+        Err(Error::InvalidCobuild)
+    }
 }
 
 fn has_nft_delivery_output(

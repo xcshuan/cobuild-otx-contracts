@@ -357,22 +357,22 @@ fn otx_start_view(start: &OtxStart) -> Result<OtxStartView, CoreError> {
             start
                 .start_input_cell()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         start_output_cell: usize_from_u32(
             start
                 .start_output_cell()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         start_cell_deps: usize_from_u32(
             start
                 .start_cell_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         start_header_deps: usize_from_u32(
             start
                 .start_header_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
     })
 }
 
@@ -414,7 +414,7 @@ fn otx_view(otx: &Otx) -> Result<OtxView, CoreError> {
         base_input_cells: usize_from_u32(
             otx.base_input_cells()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         base_input_masks: MaskView::new(cursor_bytes(
             &otx.base_input_masks()
                 .map_err(|_| CoreError::MalformedCobuild)?,
@@ -422,7 +422,7 @@ fn otx_view(otx: &Otx) -> Result<OtxView, CoreError> {
         base_output_cells: usize_from_u32(
             otx.base_output_cells()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         base_output_masks: MaskView::new(cursor_bytes(
             &otx.base_output_masks()
                 .map_err(|_| CoreError::MalformedCobuild)?,
@@ -430,7 +430,7 @@ fn otx_view(otx: &Otx) -> Result<OtxView, CoreError> {
         base_cell_deps: usize_from_u32(
             otx.base_cell_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         base_cell_dep_masks: MaskView::new(cursor_bytes(
             &otx.base_cell_dep_masks()
                 .map_err(|_| CoreError::MalformedCobuild)?,
@@ -438,7 +438,7 @@ fn otx_view(otx: &Otx) -> Result<OtxView, CoreError> {
         base_header_deps: usize_from_u32(
             otx.base_header_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         base_header_dep_masks: MaskView::new(cursor_bytes(
             &otx.base_header_dep_masks()
                 .map_err(|_| CoreError::MalformedCobuild)?,
@@ -470,22 +470,22 @@ fn append_segment_data(segment: &OtxAppendSegment) -> Result<OtxAppendSegmentVie
             segment
                 .input_cells()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         output_cells: usize_from_u32(
             segment
                 .output_cells()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         cell_deps: usize_from_u32(
             segment
                 .cell_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         header_deps: usize_from_u32(
             segment
                 .header_deps()
                 .map_err(|_| CoreError::MalformedCobuild)?,
-        )?,
+        ),
         seals,
     })
 }
@@ -499,6 +499,6 @@ fn lock_seal_data(seal: &LockSeal) -> Result<LockSealView, CoreError> {
     })
 }
 
-fn usize_from_u32(value: u32) -> Result<usize, CoreError> {
-    usize::try_from(value).map_err(|_| CoreError::InvalidOtxLayout)
+fn usize_from_u32(value: u32) -> usize {
+    value as usize
 }

@@ -29,11 +29,10 @@ pub fn recover_from_prehash(
     }
 
     let R = AffinePoint::<Secp256k1>::decompress(&r_bytes, u8::from(recovery_id.is_y_odd()).into());
-    if R.is_none().into() {
+    let Some(R) = Option::<AffinePoint<Secp256k1>>::from(R) else {
         return Err(Error::new());
-    }
-
-    let R = ProjectivePoint::<Secp256k1>::from(R.unwrap());
+    };
+    let R = ProjectivePoint::<Secp256k1>::from(R);
     let r_inv = *r.invert();
     let u1 = -(r_inv * z);
     let u2 = r_inv * *s;

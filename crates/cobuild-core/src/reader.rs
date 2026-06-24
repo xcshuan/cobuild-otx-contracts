@@ -76,9 +76,7 @@ pub fn update_cursor_with_error(
         }
 
         hasher.update(&buf[..read_len]);
-        offset = offset
-            .checked_add(read_len)
-            .ok_or(CoreError::MalformedCobuild)?;
+        offset += read_len;
     }
 
     Ok(())

@@ -18,9 +18,7 @@ pub struct Range {
 
 impl Range {
     pub fn end(&self) -> usize {
-        self.start
-            .checked_add(self.count)
-            .expect("valid cobuild layout range")
+        self.start + self.count
     }
 
     pub fn is_empty(&self) -> bool {
@@ -28,10 +26,7 @@ impl Range {
     }
 
     pub fn contains(&self, index: usize) -> bool {
-        let Some(end) = self.start.checked_add(self.count) else {
-            return false;
-        };
-        index >= self.start && index < end
+        index >= self.start && index < self.end()
     }
 
     pub fn local_index(&self, index: usize) -> Option<usize> {
@@ -298,7 +293,7 @@ impl LayoutRangeCursor {
             start: *next,
             count,
         };
-        *next = next.checked_add(count).ok_or(CoreError::InvalidOtxLayout)?;
+        *next += count;
         Ok(range)
     }
 

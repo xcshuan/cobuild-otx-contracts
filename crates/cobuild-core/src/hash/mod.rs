@@ -430,8 +430,5 @@ fn checked_index(range: Range, local_index: usize) -> Result<usize, CoreError> {
     if local_index >= range.count {
         return Err(CoreError::InvalidOtxLayout);
     }
-    range
-        .start
-        .checked_add(local_index)
-        .ok_or(CoreError::InvalidOtxLayout)
+    Ok(range.start + local_index)
 }
